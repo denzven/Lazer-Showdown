@@ -3,7 +3,7 @@ import { useNetwork } from './hooks/useNetwork';
 import { useGame } from './hooks/useGame';
 import ConnectionScreen from './components/Lobby/ConnectionScreen';
 import Layout from './components/Layout';
-import { Globe, Users, Cpu } from 'lucide-react';
+import { Globe, Users, Cpu, ChevronDown } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import './index.css';
 
@@ -16,10 +16,19 @@ const normalizedLoreImages = Object.fromEntries(
   Object.entries(loreImages).map(([k, v]) => [k.toLowerCase(), v])
 );
 
+// Load custom boards
+const boardModules = import.meta.glob('./boards/*.json', { import: 'default', eager: true });
+const customBoards = Object.keys(boardModules).map(key => ({
+  name: key.replace('./boards/', '').replace('.json', ''),
+  data: boardModules[key]
+}));
+
 function App() {
   const [mode, setMode] = useState('main-menu'); // 'main-menu', 'mode-select', 'online', 'local', 'bot', 'setup-bot', 'rules', 'credits', 'lore'
   const [difficulty, setDifficulty] = useState('medium'); // 'easy', 'medium', 'hard'
   const [lorePage, setLorePage] = useState(0);
+  const [selectedBoardName, setSelectedBoardName] = useState('default');
+  const [boardDropdownOpen, setBoardDropdownOpen] = useState(false);
   const network = useNetwork();
 
   // Create local network mock for offline local Pass & Play
@@ -57,7 +66,11 @@ function App() {
       ? mockBotNetwork 
       : network;
 
-  const game = useGame(activeNetwork, mode, difficulty);
+  const selectedBoardData = selectedBoardName === 'default' 
+    ? null 
+    : customBoards.find(b => b.name === selectedBoardName)?.data;
+
+  const game = useGame(activeNetwork, mode, difficulty, selectedBoardData);
 
   // Show grid if connected in online, local, or bot mode
   const showGameLayout = mode === 'local' || mode === 'bot' || (mode === 'online' && network.status === 'connected');
@@ -208,9 +221,101 @@ function App() {
             <h1 className="lobby-title font-display" style={{ fontSize: '2rem', margin: '0 0 10px 0' }}>
               SELECT GAME MODE
             </h1>
-            <p className="lobby-subtitle" style={{ marginBottom: '40px' }}>
+            <p className="lobby-subtitle" style={{ marginBottom: '20px' }}>
               How do you want to play?
             </p>
+
+            <div style={{ marginBottom: '30px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', position: 'relative' }}>
+              <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Select Board</label>
+              
+              <div 
+                className="cyber-input"
+                onClick={() => setBoardDropdownOpen(!boardDropdownOpen)}
+                style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  padding: '12px 16px', 
+                  fontSize: '1rem', 
+                  width: '100%', 
+                  maxWidth: '300px', 
+                  backgroundColor: 'rgba(0, 0, 0, 0.5)', 
+                  color: 'var(--neon-blue)', 
+                  border: '1px solid var(--neon-blue)', 
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  boxShadow: boardDropdownOpen ? '0 0 10px rgba(0, 240, 255, 0.3)' : 'none'
+                }}
+              >
+                <span>{selectedBoardName === 'default' ? 'DEFAULT BOARD' : selectedBoardName.replace(/_/g, ' ').toUpperCase()}</span>
+                <ChevronDown size={18} style={{ transform: boardDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+              </div>
+
+              {boardDropdownOpen && (
+                <div 
+                  className="glass-panel"
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    width: '100%',
+                    maxWidth: '300px',
+                    marginTop: '4px',
+                    zIndex: 10,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    padding: '8px 0',
+                    border: '1px solid var(--neon-blue)',
+                    maxHeight: '200px',
+                    overflowY: 'auto'
+                  }}
+                >
+                  <div 
+                    onClick={() => {
+                      setSelectedBoardName('default');
+                      game.clearWorkspace(null);
+                      setBoardDropdownOpen(false);
+                    }}
+                    style={{
+                      padding: '10px 16px',
+                      cursor: 'pointer',
+                      color: selectedBoardName === 'default' ? 'var(--neon-blue)' : 'var(--text-primary)',
+                      backgroundColor: selectedBoardName === 'default' ? 'rgba(0, 240, 255, 0.1)' : 'transparent',
+                      textAlign: 'left',
+                      fontWeight: selectedBoardName === 'default' ? 'bold' : 'normal'
+                    }}
+                    onMouseEnter={(e) => e.target.style.backgroundColor = 'rgba(0, 240, 255, 0.2)'}
+                    onMouseLeave={(e) => e.target.style.backgroundColor = selectedBoardName === 'default' ? 'rgba(0, 240, 255, 0.1)' : 'transparent'}
+                  >
+                    DEFAULT BOARD
+                  </div>
+                  {customBoards.map(b => (
+                    <div 
+                      key={b.name}
+                      onClick={() => {
+                        setSelectedBoardName(b.name);
+                        game.clearWorkspace(b.data);
+                        setBoardDropdownOpen(false);
+                      }}
+                      style={{
+                        padding: '10px 16px',
+                        cursor: 'pointer',
+                        color: selectedBoardName === b.name ? 'var(--neon-blue)' : 'var(--text-primary)',
+                        backgroundColor: selectedBoardName === b.name ? 'rgba(0, 240, 255, 0.1)' : 'transparent',
+                        textAlign: 'left',
+                        fontWeight: selectedBoardName === b.name ? 'bold' : 'normal'
+                      }}
+                      onMouseEnter={(e) => e.target.style.backgroundColor = 'rgba(0, 240, 255, 0.2)'}
+                      onMouseLeave={(e) => e.target.style.backgroundColor = selectedBoardName === b.name ? 'rgba(0, 240, 255, 0.1)' : 'transparent'}
+                    >
+                      {b.name.replace(/_/g, ' ').toUpperCase()}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div className="menu-button-row" style={{ display: 'flex', gap: '16px', justifyContent: 'center', width: '100%', flexWrap: 'wrap' }}>
               <button

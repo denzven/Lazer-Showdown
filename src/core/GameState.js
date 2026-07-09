@@ -30,7 +30,7 @@ function endSetState(board, currentSet, scores, roleRed, dice) {
   if (currentSet === 1) {
     const nextRoleRed = roleRed === 'attacker' ? 'defender' : 'attacker';
     const nextRoleBlue = nextRoleRed === 'attacker' ? 'defender' : 'attacker';
-    const nextBoard = getInitialBoard();
+    const nextBoard = board.map(row => row.map(cell => (cell && cell.type === 'mirror') ? { ...cell } : null));
 
     const attPlayer = nextRoleRed === 'attacker' ? 'RED' : 'BLUE';
     const defPlayer = nextRoleRed === 'defender' ? 'RED' : 'BLUE';
@@ -52,7 +52,8 @@ function endSetState(board, currentSet, scores, roleRed, dice) {
       tossRolls: { red: null, blue: null },
       tossWinner: null,
       challengeTossRolls: { red: null, blue: null },
-      logs: ['Set 1 complete. Swapping roles for Set 2!', `New Attacker: ${attPlayer}, Defender: ${defPlayer}. Defender placing point pieces.`]
+      logs: ['Set 1 complete. Swapping roles for Set 2!', `New Attacker: ${attPlayer}, Defender: ${defPlayer}. Defender placing point pieces.`],
+      customBoardData: context?.customBoardData || null
     };
   } else {
     const redScore = scores.red;
@@ -77,7 +78,8 @@ function endSetState(board, currentSet, scores, roleRed, dice) {
       challengedPiece: null,
       tossRolls: { red: null, blue: null },
       tossWinner: null,
-      challengeTossRolls: { red: null, blue: null }
+      challengeTossRolls: { red: null, blue: null },
+      customBoardData: context?.customBoardData || null
     };
   }
 }
@@ -111,10 +113,11 @@ export function applySandboxAction(board, action, player, context = {}) {
   let nextCapturedPieces = capturedPieces;
   let nextChallengeActive = challengeActive;
   let nextChallengedPiece = challengedPiece;
-  let nextTossRolls = context.tossRolls || { red: null, blue: null };
+  let nextTossRolls = context.tossRolls ? { ...context.tossRolls } : { red: null, blue: null };
   let nextTossWinner = context.tossWinner || null;
-  let nextChallengeTossRolls = context.challengeTossRolls || { red: null, blue: null };
+  let nextChallengeTossRolls = context.challengeTossRolls ? { ...context.challengeTossRolls } : { red: null, blue: null };
   let nextDice = context.dice ? { ...context.dice } : { values: [1, 1], isRolling: false, lastRoller: null };
+  let nextCustomBoardData = context.customBoardData || null;
 
   const attackerPlayer = roleRed === 'attacker' ? 'red' : 'blue';
   const defenderPlayer = roleRed === 'defender' ? 'red' : 'blue';
@@ -122,20 +125,35 @@ export function applySandboxAction(board, action, player, context = {}) {
 
   let logsList = [];
 
-  if (type === 'toss-roll') {
-    const rVal = action.values.red;
-    const bVal = action.values.blue;
-    nextTossRolls = { red: rVal, blue: bVal };
+  if (type === 'toss-start-roll') {
+    if (actor === 'RED') nextTossRolls.red = 'rolling';
+    else if (actor === 'BLUE') nextTossRolls.blue = 'rolling';
+  }
 
-    if (rVal === bVal) {
+  if (type === 'toss-roll') {
+    const val = action.value;
+    if (actor === 'RED') {
+      nextTossRolls.red = val;
+      logsList.push(`RED rolled a ${val} for the toss.`);
+    } else if (actor === 'BLUE') {
+      nextTossRolls.blue = val;
+      logsList.push(`BLUE rolled a ${val} for the toss.`);
+    }
+
+    if (typeof nextTossRolls.red === 'number' && typeof nextTossRolls.blue === 'number') {
+      nextPhase = 'toss-result';
+    }
+  }
+
+  if (type === 'toss-resolve') {
+    if (nextTossRolls.red === nextTossRolls.blue) {
+      nextTossRolls = { red: null, blue: null };
       nextPhase = 'toss';
-      nextRoleRed = null;
-      nextRoleBlue = null;
-      logsList.push('Toss roll was a tie! Roll again.');
+      logsList.push('Toss roll was a tie! Both players must roll again.');
     } else {
-      nextTossWinner = rVal > bVal ? 'red' : 'blue';
+      nextTossWinner = nextTossRolls.red > nextTossRolls.blue ? 'red' : 'blue';
       nextPhase = 'role-selection';
-      logsList.push(`Toss won by ${nextTossWinner.toUpperCase()} (Red: ${rVal}, Blue: ${bVal}). Choose Role!`);
+      logsList.push(`Toss won by ${nextTossWinner.toUpperCase()} (Red: ${nextTossRolls.red}, Blue: ${nextTossRolls.blue}). Choose Role!`);
     }
   }
 
@@ -364,7 +382,7 @@ export function applySandboxAction(board, action, player, context = {}) {
         nextTurnPlayer = 'defender';
         logsList.push(`Round completed. Starting Round ${nextRound}. Defender's turn to roll.`);
       } else {
-        const setOutcome = endSetState(nextBoard, set, nextScores, roleRed, nextDice);
+        const setOutcome = endSetState(nextBoard, set, nextScores, roleRed, nextDice, context);
         nextBoard = setOutcome.board;
         nextPhase = setOutcome.phase;
         nextSet = setOutcome.set;
@@ -390,7 +408,7 @@ export function applySandboxAction(board, action, player, context = {}) {
     const declare = action.declare;
     if (!declare) {
       logsList.push('Attacker declined challenge. Ending set.');
-      const setOutcome = endSetState(nextBoard, set, nextScores, roleRed, nextDice);
+      const setOutcome = endSetState(nextBoard, set, nextScores, roleRed, nextDice, context);
       nextBoard = setOutcome.board;
       nextPhase = setOutcome.phase;
       nextSet = setOutcome.set;
@@ -416,16 +434,34 @@ export function applySandboxAction(board, action, player, context = {}) {
     }
   }
 
-  else if (type === 'challenge-roll') {
-    const rVal = action.values.red;
-    const bVal = action.values.blue;
-    nextChallengeTossRolls = { red: rVal, blue: bVal };
+  else if (type === 'challenge-start-roll') {
+    if (actor === 'RED') nextChallengeTossRolls.red = 'rolling';
+    else if (actor === 'BLUE') nextChallengeTossRolls.blue = 'rolling';
+  }
 
-    if (rVal === bVal) {
-      logsList.push('Challenge roll was a tie! Roll again.');
+  else if (type === 'challenge-roll') {
+    const val = action.value;
+    if (actor === 'RED') {
+      nextChallengeTossRolls.red = val;
+      logsList.push(`RED rolled a ${val} for the challenge toss.`);
+    } else if (actor === 'BLUE') {
+      nextChallengeTossRolls.blue = val;
+      logsList.push(`BLUE rolled a ${val} for the challenge toss.`);
+    }
+
+    if (typeof nextChallengeTossRolls.red === 'number' && typeof nextChallengeTossRolls.blue === 'number') {
+      nextPhase = 'challenge-toss-result';
+    }
+  }
+
+  else if (type === 'challenge-toss-resolve') {
+    if (nextChallengeTossRolls.red === nextChallengeTossRolls.blue) {
+      nextChallengeTossRolls = { red: null, blue: null };
+      nextPhase = 'challenge-toss';
+      logsList.push('Challenge roll was a tie! Both players must roll again.');
     } else {
-      const attRoll = attackerPlayer === 'red' ? rVal : bVal;
-      const defRoll = defenderPlayer === 'red' ? rVal : bVal;
+      const attRoll = attackerPlayer === 'red' ? nextChallengeTossRolls.red : nextChallengeTossRolls.blue;
+      const defRoll = defenderPlayer === 'red' ? nextChallengeTossRolls.red : nextChallengeTossRolls.blue;
 
       if (attRoll > defRoll) {
         nextPhase = 'challenge-setup';
@@ -447,7 +483,7 @@ export function applySandboxAction(board, action, player, context = {}) {
         nextScores[attackerPlayer] -= pts;
         logsList.push(`Attacker lost challenge toss (${attRoll} vs ${defRoll})! Deducted ${pts} pts.`);
 
-        const setOutcome = endSetState(nextBoard, set, nextScores, roleRed, nextDice);
+        const setOutcome = endSetState(nextBoard, set, nextScores, roleRed, nextDice, context);
         nextBoard = setOutcome.board;
         nextPhase = setOutcome.phase;
         nextSet = setOutcome.set;
@@ -470,7 +506,8 @@ export function applySandboxAction(board, action, player, context = {}) {
   }
 
   else if (type === 'clear') {
-    return getInitialState();
+    const boardDataToUse = action.customBoardData !== undefined ? action.customBoardData : context.customBoardData;
+    return getInitialState(boardDataToUse);
   }
 
   const sideEffects = evaluateBoardState(nextBoard, action, actor, context);
@@ -494,13 +531,14 @@ export function applySandboxAction(board, action, player, context = {}) {
     challengeTossRolls: nextChallengeTossRolls,
     dice: nextDice,
     customData: sideEffects.customData,
+    customBoardData: nextCustomBoardData,
     logs: logsList,
     error: null
   };
 }
 
-export function getInitialState() {
-  const emptyBoard = getInitialBoard();
+export function getInitialState(customBoardData = null) {
+  const emptyBoard = getInitialBoard(customBoardData);
   const initialSideEffects = evaluateBoardState(emptyBoard, null, 'system');
 
   return {
@@ -529,6 +567,7 @@ export function getInitialState() {
     capturedPieces: [],
     challengeActive: false,
     challengedPiece: null,
-    challengeTossRolls: { red: null, blue: null }
+    challengeTossRolls: { red: null, blue: null },
+    customBoardData: customBoardData
   };
 }

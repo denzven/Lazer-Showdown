@@ -164,10 +164,29 @@ export default function Layout({ network, game, mode, difficulty }) {
 
   const renderOverlay = () => {
     // 1. TOSS PHASE
-    if (phase === 'toss') {
-      const isRedRolled = tossRolls.red !== null;
-      const isBlueRolled = tossRolls.blue !== null;
-      const canRoll = mode === 'local' || (mode === 'bot' && !isRedRolled) || (mode === 'online' && role === 'red' && !isRedRolled) || (mode === 'online' && role === 'blue' && !isBlueRolled);
+    if (phase === 'toss' || phase === 'toss-result') {
+      const isRedRolled = tossRolls.red !== null && tossRolls.red !== 'rolling';
+      const isBlueRolled = tossRolls.blue !== null && tossRolls.blue !== 'rolling';
+      
+      let canRoll = false;
+      let btnText = 'ROLL DICE';
+      let btnClass = 'blue';
+
+      if (phase === 'toss') {
+        if (mode === 'local') {
+          canRoll = tossRolls.red === null || (isRedRolled && tossRolls.blue === null);
+          btnText = tossRolls.red === null ? 'RED: ROLL DICE' : 'BLUE: ROLL DICE';
+          btnClass = tossRolls.red === null ? 'red' : 'blue';
+        } else if (mode === 'bot') {
+          canRoll = tossRolls.red === null;
+          btnText = 'ROLL DICE';
+          btnClass = 'red';
+        } else if (mode === 'online') {
+          canRoll = (role === 'red' && tossRolls.red === null) || (role === 'blue' && tossRolls.blue === null);
+          btnText = 'ROLL DICE';
+          btnClass = role === 'red' ? 'red' : 'blue';
+        }
+      }
 
       return (
         <div className="modal-overlay">
@@ -180,26 +199,36 @@ export default function Layout({ network, game, mode, difficulty }) {
             <div style={{ display: 'flex', gap: '20px', margin: '20px 0', justifyContent: 'center' }}>
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: '0.8rem', color: 'var(--neon-red)', fontWeight: 'bold' }}>RED ROLL</div>
-                <div className={`dice-visual red ${isRolling ? 'rolling' : ''}`} style={{ marginTop: '8px' }}>
-                  {tossRolls.red || '?'}
+                <div className={`dice-visual red ${tossRolls.red === 'rolling' ? 'rolling' : ''}`} style={{ marginTop: '8px' }}>
+                  {tossRolls.red === 'rolling' ? '?' : (tossRolls.red || '?')}
                 </div>
               </div>
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: '0.8rem', color: 'var(--neon-blue)', fontWeight: 'bold' }}>BLUE ROLL</div>
-                <div className={`dice-visual blue ${isRolling ? 'rolling' : ''}`} style={{ marginTop: '8px' }}>
-                  {tossRolls.blue || '?'}
+                <div className={`dice-visual blue ${tossRolls.blue === 'rolling' ? 'rolling' : ''}`} style={{ marginTop: '8px' }}>
+                  {tossRolls.blue === 'rolling' ? '?' : (tossRolls.blue || '?')}
                 </div>
               </div>
             </div>
 
             {canRoll && (
-              <button className="cyber-button blue" onClick={rollToss} style={{ width: '100%' }}>
-                ROLL DICE
+              <button className={`cyber-button ${btnClass}`} onClick={rollToss} style={{ width: '100%' }}>
+                {btnText}
               </button>
             )}
-            {!canRoll && (
+            {!canRoll && phase === 'toss' && mode !== 'local' && (
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                 Waiting for opponent to roll...
+              </p>
+            )}
+            {!canRoll && phase === 'toss' && mode === 'local' && (
+              <p style={{ fontSize: '0.8rem', color: 'var(--neon-blue)', fontWeight: 'bold' }}>
+                Rolling...
+              </p>
+            )}
+            {phase === 'toss-result' && (
+              <p style={{ fontSize: '0.9rem', color: 'var(--neon-blue)', fontWeight: 'bold' }}>
+                Evaluating results...
               </p>
             )}
           </div>
@@ -285,11 +314,29 @@ export default function Layout({ network, game, mode, difficulty }) {
     }
 
     // 4. CHALLENGE TOSS
-    if (phase === 'challenge-toss') {
-      const attColor = roleRed === 'attacker' ? 'red' : 'blue';
-      const isRedRolled = challengeTossRolls.red !== null;
-      const isBlueRolled = challengeTossRolls.blue !== null;
-      const canRoll = mode === 'local' || (mode === 'bot' && !isRedRolled) || (mode === 'online' && role === 'red' && !isRedRolled) || (mode === 'online' && role === 'blue' && !isBlueRolled);
+    if (phase === 'challenge-toss' || phase === 'challenge-toss-result') {
+      const isRedRolled = challengeTossRolls.red !== null && challengeTossRolls.red !== 'rolling';
+      const isBlueRolled = challengeTossRolls.blue !== null && challengeTossRolls.blue !== 'rolling';
+
+      let canRoll = false;
+      let btnText = 'ROLL DICE';
+      let btnClass = 'blue';
+
+      if (phase === 'challenge-toss') {
+        if (mode === 'local') {
+          canRoll = challengeTossRolls.red === null || (isRedRolled && challengeTossRolls.blue === null);
+          btnText = challengeTossRolls.red === null ? 'RED: ROLL DICE' : 'BLUE: ROLL DICE';
+          btnClass = challengeTossRolls.red === null ? 'red' : 'blue';
+        } else if (mode === 'bot') {
+          canRoll = challengeTossRolls.red === null;
+          btnText = 'ROLL DICE';
+          btnClass = 'red';
+        } else if (mode === 'online') {
+          canRoll = (role === 'red' && challengeTossRolls.red === null) || (role === 'blue' && challengeTossRolls.blue === null);
+          btnText = 'ROLL DICE';
+          btnClass = role === 'red' ? 'red' : 'blue';
+        }
+      }
 
       return (
         <div className="modal-overlay">
@@ -302,26 +349,36 @@ export default function Layout({ network, game, mode, difficulty }) {
             <div style={{ display: 'flex', gap: '20px', margin: '20px 0', justifyContent: 'center' }}>
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: '0.8rem', color: 'var(--neon-red)', fontWeight: 'bold' }}>RED ROLL</div>
-                <div className={`dice-visual red ${isRolling ? 'rolling' : ''}`} style={{ marginTop: '8px' }}>
-                  {challengeTossRolls.red || '?'}
+                <div className={`dice-visual red ${challengeTossRolls.red === 'rolling' ? 'rolling' : ''}`} style={{ marginTop: '8px' }}>
+                  {challengeTossRolls.red === 'rolling' ? '?' : (challengeTossRolls.red || '?')}
                 </div>
               </div>
               <div style={{ textAlign: 'center' }}>
                 <div style={{ fontSize: '0.8rem', color: 'var(--neon-blue)', fontWeight: 'bold' }}>BLUE ROLL</div>
-                <div className={`dice-visual blue ${isRolling ? 'rolling' : ''}`} style={{ marginTop: '8px' }}>
-                  {challengeTossRolls.blue || '?'}
+                <div className={`dice-visual blue ${challengeTossRolls.blue === 'rolling' ? 'rolling' : ''}`} style={{ marginTop: '8px' }}>
+                  {challengeTossRolls.blue === 'rolling' ? '?' : (challengeTossRolls.blue || '?')}
                 </div>
               </div>
             </div>
 
             {canRoll && (
-              <button className="cyber-button red" onClick={rollChallengeToss} style={{ width: '100%' }}>
-                ROLL DICE
+              <button className={`cyber-button ${btnClass}`} onClick={rollChallengeToss} style={{ width: '100%' }}>
+                {btnText}
               </button>
             )}
-            {!canRoll && (
+            {!canRoll && phase === 'challenge-toss' && mode !== 'local' && (
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                 Waiting for opponent to roll...
+              </p>
+            )}
+            {!canRoll && phase === 'challenge-toss' && mode === 'local' && (
+              <p style={{ fontSize: '0.8rem', color: 'var(--neon-red)', fontWeight: 'bold' }}>
+                Rolling...
+              </p>
+            )}
+            {phase === 'challenge-toss-result' && (
+              <p style={{ fontSize: '0.9rem', color: 'var(--neon-red)', fontWeight: 'bold' }}>
+                Evaluating challenge...
               </p>
             )}
           </div>

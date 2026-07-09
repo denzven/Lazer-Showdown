@@ -5,8 +5,8 @@ import {
 } from '../core/GameState';
 import { getBotSetupAction, getBotPlayAction } from '../core/BotEngine';
 
-export function useGame(network, mode, difficulty) {
-  const [gameState, setGameState] = useState(getInitialState);
+export function useGame(network, mode, difficulty, customBoardData = null) {
+  const [gameState, setGameState] = useState(() => getInitialState(customBoardData));
   const [history, setHistory] = useState({ past: [], future: [] });
 
   const { role, status, lastMessage, sendPayload } = network;
@@ -39,6 +39,7 @@ export function useGame(network, mode, difficulty) {
         tossWinner: payload.tossWinner,
         challengeTossRolls: payload.challengeTossRolls,
         dice: payload.dice || { values: [1, 1], isRolling: false, lastRoller: null },
+        customBoardData: payload.customBoardData,
         error: null
       });
       // Clear history when syncing from a remote player to avoid invalid undo states
@@ -66,6 +67,14 @@ export function useGame(network, mode, difficulty) {
       // Determine the acting player based on the active phase
       const actor = (mode === 'local' || mode === 'bot') 
         ? (action.player || (() => {
+            if (curr.phase === 'toss') {
+              const redNeedsToAct = curr.tossRolls.red === null || curr.tossRolls.red === 'rolling';
+              return redNeedsToAct ? 'red' : 'blue';
+            }
+            if (curr.phase === 'challenge-toss') {
+              const redNeedsToAct = curr.challengeTossRolls.red === null || curr.challengeTossRolls.red === 'rolling';
+              return redNeedsToAct ? 'red' : 'blue';
+            }
             if (curr.phase === 'setup-defender' || curr.phase === 'challenge-setup') {
               return curr.roleRed === 'defender' ? 'red' : 'blue';
             }
@@ -94,6 +103,7 @@ export function useGame(network, mode, difficulty) {
         tossWinner: curr.tossWinner,
         challengeTossRolls: curr.challengeTossRolls,
         dice: curr.dice,
+        customBoardData: curr.customBoardData,
         enableTurns: true
       });
 
@@ -119,12 +129,13 @@ export function useGame(network, mode, difficulty) {
           tossWinner: res.tossWinner,
           challengeTossRolls: res.challengeTossRolls,
           dice: res.dice,
+          customBoardData: res.customBoardData,
           error: null
         };
         // History management
         if (['place', 'move', 'rotate', 'laser-press'].includes(action.type)) {
           setHistory(h => ({ past: [...h.past, curr], future: [] }));
-        } else if (['end-turn', 'end-roll', 'toss-roll', 'toss-select-role', 'challenge-roll', 'clear'].includes(action.type)) {
+        } else if (['end-turn', 'end-roll', 'toss-roll', 'toss-resolve', 'toss-start-roll', 'toss-select-role', 'challenge-start-roll', 'challenge-roll', 'challenge-toss-resolve', 'clear'].includes(action.type)) {
           setHistory({ past: [], future: [] });
         }
 
@@ -223,25 +234,30 @@ export function useGame(network, mode, difficulty) {
     }
 
     // D. Challenge Toss Roll
-    const isBotChallengeTossActive = gameState.phase === 'challenge-toss' && gameState.challengeTossRolls.blue === null;
-    if (isBotChallengeTossActive) {
-      if (gameState.challengeTossRolls.red !== null) {
+    if (gameState.phase === 'challenge-toss') {
+      const isRedFinished = gameState.challengeTossRolls.red !== null && gameState.challengeTossRolls.red !== 'rolling';
+      if (isRedFinished && gameState.challengeTossRolls.blue === null) {
         const timer = setTimeout(() => {
-          const redVal = gameState.challengeTossRolls.red;
-          const blueVal = Math.floor(Math.random() * 6) + 1;
-          executeAction({ type: 'challenge-roll', values: { red: redVal, blue: blueVal }, player: botPlayer });
+          executeAction({ type: 'challenge-start-roll', player: botPlayer });
+          setTimeout(() => {
+            const blueVal = Math.floor(Math.random() * 6) + 1;
+            executeAction({ type: 'challenge-roll', value: blueVal, player: botPlayer });
+          }, 600);
         }, 1000);
         return () => clearTimeout(timer);
       }
     }
 
     // E. Initial Toss Roll
-    if (gameState.phase === 'toss' && gameState.tossRolls.blue === null) {
-      if (gameState.tossRolls.red !== null) {
+    if (gameState.phase === 'toss') {
+      const isRedFinished = gameState.tossRolls.red !== null && gameState.tossRolls.red !== 'rolling';
+      if (isRedFinished && gameState.tossRolls.blue === null) {
         const timer = setTimeout(() => {
-          const redVal = gameState.tossRolls.red;
-          const blueVal = Math.floor(Math.random() * 6) + 1;
-          executeAction({ type: 'toss-roll', values: { red: redVal, blue: blueVal }, player: botPlayer });
+          executeAction({ type: 'toss-start-roll', player: botPlayer });
+          setTimeout(() => {
+            const blueVal = Math.floor(Math.random() * 6) + 1;
+            executeAction({ type: 'toss-roll', value: blueVal, player: botPlayer });
+          }, 600);
         }, 1000);
         return () => clearTimeout(timer);
       }
@@ -302,12 +318,35 @@ export function useGame(network, mode, difficulty) {
     executeAction({ type: 'rotate', r, c, dir });
   }, [executeAction]);
 
+  // NEW: handle automatic resolution of toss results
+  useEffect(() => {
+    if (status === 'connected' && role !== 'red') return; // Only host or local drives state transitions
+
+    if (gameState.phase === 'toss-result') {
+      const timer = setTimeout(() => {
+        executeAction({ type: 'toss-resolve' });
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+    
+    if (gameState.phase === 'challenge-toss-result') {
+      const timer = setTimeout(() => {
+        executeAction({ type: 'challenge-toss-resolve' });
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [gameState.phase, executeAction, status, role]);
+
   const removeBlock = useCallback((r, c) => {
     executeAction({ type: 'remove', r, c });
   }, [executeAction]);
 
-  const clearWorkspace = useCallback(() => {
-    executeAction({ type: 'clear' });
+  const clearWorkspace = useCallback((overrideBoardData = undefined) => {
+    const action = { type: 'clear' };
+    if (overrideBoardData !== undefined) {
+      action.customBoardData = overrideBoardData;
+    }
+    executeAction(action);
   }, [executeAction]);
 
   const clearError = useCallback(() => {
@@ -315,19 +354,23 @@ export function useGame(network, mode, difficulty) {
   }, []);
 
   const rollToss = useCallback(() => {
-    const redVal = Math.floor(Math.random() * 6) + 1;
-    const blueVal = Math.floor(Math.random() * 6) + 1;
-    executeAction({ type: 'toss-roll', values: { red: redVal, blue: blueVal } });
+    executeAction({ type: 'toss-start-roll' });
+    setTimeout(() => {
+      const val = Math.floor(Math.random() * 6) + 1;
+      executeAction({ type: 'toss-roll', value: val });
+    }, 600);
   }, [executeAction]);
 
-  const selectRole = useCallback((role) => {
-    executeAction({ type: 'toss-select-role', role });
+  const selectRole = useCallback((selectedRole) => {
+    executeAction({ type: 'toss-select-role', role: selectedRole });
   }, [executeAction]);
 
   const rollChallengeToss = useCallback(() => {
-    const redVal = Math.floor(Math.random() * 6) + 1;
-    const blueVal = Math.floor(Math.random() * 6) + 1;
-    executeAction({ type: 'challenge-roll', values: { red: redVal, blue: blueVal } });
+    executeAction({ type: 'challenge-start-roll' });
+    setTimeout(() => {
+      const val = Math.floor(Math.random() * 6) + 1;
+      executeAction({ type: 'challenge-roll', value: val });
+    }, 600);
   }, [executeAction]);
 
   const declareChallenge = useCallback((declare, pieceType) => {
@@ -414,6 +457,7 @@ export function useGame(network, mode, difficulty) {
     tossWinner: gameState.tossWinner,
     challengeTossRolls: gameState.challengeTossRolls,
     dice: gameState.dice,
+    customBoardData: gameState.customBoardData,
     error: gameState.error,
 
     // Methods

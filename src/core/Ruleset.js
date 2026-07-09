@@ -27,10 +27,25 @@ export const FIXED_MIRRORS = [
 /**
  * Returns a board pre-populated with mirrors.
  */
-export function getInitialBoard() {
+export function getInitialBoard(customBoardData = null) {
   const board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
-  for (const m of FIXED_MIRRORS) {
-    board[m.r][m.c] = { type: 'mirror', orientation: m.orientation };
+  
+  if (customBoardData && Array.isArray(customBoardData)) {
+    for (const m of customBoardData) {
+      if (m.type === 'mirror' && m.grid_pos) {
+        const r = m.grid_pos[0];
+        const c = m.grid_pos[1];
+        // Assuming angle 0 is '/' and angle 90 is '\'
+        const orientation = m.angle === 90 ? '\\' : '/';
+        if (r >= 0 && r < BOARD_SIZE && c >= 0 && c < BOARD_SIZE) {
+          board[r][c] = { type: 'mirror', orientation };
+        }
+      }
+    }
+  } else {
+    for (const m of FIXED_MIRRORS) {
+      board[m.r][m.c] = { type: 'mirror', orientation: m.orientation };
+    }
   }
   return board;
 }
