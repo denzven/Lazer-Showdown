@@ -2,10 +2,94 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!--  CORE SEO                                          -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <title>Lazer Showdown — Free Online P2P Laser Strategy Board Game</title>
+    <meta name="description" content="Play Lazer Showdown: a futuristic 1v1 laser-reflection strategy game. Use WebRTC to challenge friends online with a 6-digit room code, play locally, or battle three AI opponents. No download required." />
+    <meta name="keywords" content="lazer showdown, laser strategy game, WebRTC board game, P2P multiplayer game, online board game, sci-fi strategy game, laser reflection game, free browser game, turn-based strategy" />
+    <meta name="author" content="Denzven" />
+    <meta name="robots" content="index, follow, max-snippet:-1, max-image-preview:large, max-video-preview:-1" />
+    <link rel="canonical" href="https://denzven.github.io/Lazer-Showdown/" />
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!--  ICONS & THEME                                     -->
+    <!-- ═══════════════════════════════════════════════════ -->
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="icon" type="image/x-icon" href="/favicon.ico" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon-180x180.png" />
+    <meta name="theme-color" content="#07080e" />
+    <meta name="msapplication-TileColor" content="#07080e" />
+    <meta name="color-scheme" content="dark" />
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!--  VIEWPORT & MOBILE                                 -->
+    <!-- ═══════════════════════════════════════════════════ -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
-    <meta name="description" content="Play Lazer Showdown: A futuristic, real-time peer-to-peer WebRTC laser reflection strategy board game. Host or join rooms instantly with room codes." />
-    <title>Lazer Showdown - P2P Multiplayer Laser Strategy Game</title>
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="LazerShowdown" />
+    <meta name="application-name" content="Lazer Showdown" />
+    <meta name="format-detection" content="telephone=no" />
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!--  OPEN GRAPH (Facebook, Discord, LinkedIn, WhatsApp)-->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Lazer Showdown" />
+    <meta property="og:title" content="Lazer Showdown — Free Online P2P Laser Strategy Board Game" />
+    <meta property="og:description" content="Challenge a friend online via WebRTC, play local pass-and-play, or battle three alien AI opponents in this futuristic 1v1 laser-reflection strategy game. No download. No server. Pure P2P." />
+    <meta property="og:url" content="https://denzven.github.io/Lazer-Showdown/" />
+    <meta property="og:image" content="https://denzven.github.io/Lazer-Showdown/pwa-512x512.png" />
+    <meta property="og:image:width" content="512" />
+    <meta property="og:image:height" content="512" />
+    <meta property="og:image:alt" content="Lazer Showdown — neon laser beam reflects off mirrors on a futuristic 8x8 grid" />
+    <meta property="og:locale" content="en_US" />
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!--  TWITTER / X CARD                                  -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Lazer Showdown — Free Online P2P Laser Strategy Board Game" />
+    <meta name="twitter:description" content="Challenge a friend online via WebRTC, play local pass-and-play, or battle alien AI opponents. Futuristic 1v1 laser-reflection strategy. No download required." />
+    <meta name="twitter:image" content="https://denzven.github.io/Lazer-Showdown/pwa-512x512.png" />
+    <meta name="twitter:image:alt" content="Lazer Showdown — neon laser reflecting off mirrors on a sci-fi board" />
+
+    <!-- ═══════════════════════════════════════════════════ -->
+    <!--  STRUCTURED DATA (JSON-LD)                         -->
+    <!-- ═══════════════════════════════════════════════════ -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "VideoGame",
+      "name": "Lazer Showdown",
+      "alternateName": "Lazer Showdown WebRTC",
+      "description": "A futuristic 1v1 laser-reflection strategy board game. Use WebRTC to challenge friends online, play locally, or battle AI opponents. No download required.",
+      "url": "https://denzven.github.io/Lazer-Showdown/",
+      "image": "https://denzven.github.io/Lazer-Showdown/pwa-512x512.png",
+      "genre": ["Strategy", "Board Game", "Multiplayer"],
+      "gamePlatform": ["Web Browser", "Progressive Web App"],
+      "numberOfPlayers": {
+        "@type": "QuantitativeValue",
+        "minValue": 1,
+        "maxValue": 2
+      },
+      "playMode": ["MultiPlayer", "SinglePlayer"],
+      "applicationCategory": "Game",
+      "operatingSystem": "Any",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "author": {
+        "@type": "Person",
+        "name": "Denzven"
+      }
+    }
+    </script>
     <style>
       .preloader-overlay {
         position: fixed;
