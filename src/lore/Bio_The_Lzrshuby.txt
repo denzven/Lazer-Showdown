@@ -1,0 +1,11 @@
+# Biological Specimen: The Lzrshuby
+
+**Origin:** The High-Energy Vents of Planet Ser.
+
+## Anatomy
+Roughly the size of a baseball, the Lzrshuby is a furry, docile creature that feeds on ambient radiation. It is essentially a living battery.
+
+## The Defenses
+When the Lzrshuby is startled, tickled, or has its foot pressed, it vents excess radiation through a singular ocular lens. This creates a focused beam of pure energy. Soldiers found that by "tickling" the creature, they could initiate a tactical strike. In the human version of the game, this is simulated by the **Attacker's Laser**.
+
+[IMAGE: lzrshuby.png]

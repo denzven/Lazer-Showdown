@@ -1,0 +1,11 @@
+# Biological Specimen: The Mirlug
+
+**Origin:** The Silicon Caves of Planet Ser.
+
+## Anatomy
+The Mirlug is a slow-moving gastropod known for its extraordinary shell. Unlike Earth snails, the Mirlug's shell is composed of high-density, naturally polished silicon. 
+
+## Tactical Application
+During the war, these creatures were used as redirecting pads. Their shells are so reflective they can bounce high-energy plasma beams with 99.9% efficiency. In modern Lazer Showdown, the **Mirror** pieces are modeled after these shiny, resilient shells.
+
+[IMAGE: mirlug.png]

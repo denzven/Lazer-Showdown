@@ -1,0 +1,12 @@
+# Contender: Lizbishmir
+
+**Rank:** Tactical Scholar
+**Difficulty:** Medium
+
+## Profile
+A scholar of the Ser battlefields, Lizbishmir is obsessed with the mathematical precision of the Grid. She believes that every move has a perfect geometric counter.
+
+## Playstyle
+Methodical and balanced. She rarely makes aggressive mistakes and focuses on controlling the center of the board with complex mirror arrays.
+
+[IMAGE: lizbishmir.png]

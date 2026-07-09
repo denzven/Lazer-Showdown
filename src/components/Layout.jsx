@@ -39,7 +39,11 @@ export default function Layout({ network, game, mode, difficulty }) {
     selectRole,
     rollChallengeToss,
     declareChallenge,
-    endTurn
+    endTurn,
+    undo,
+    redo,
+    canUndo,
+    canRedo
   } = game;
 
   const [selectedCell, setSelectedCell] = useState(null);
@@ -107,7 +111,12 @@ export default function Layout({ network, game, mode, difficulty }) {
     return []; // No palette elements during gameplay rounds
   };
 
-  const activePlayerColor = roleRed === turnPlayer ? 'red' : 'blue';
+  const activePlayerColor = phase === 'setup-defender' || phase === 'challenge-setup'
+    ? (roleRed === 'defender' ? 'red' : 'blue')
+    : phase === 'setup-attacker'
+      ? (roleRed === 'attacker' ? 'red' : 'blue')
+      : (roleRed === turnPlayer ? 'red' : 'blue');
+
   const isLocalTurn = (mode === 'local') 
     ? true 
     : (mode === 'bot' && activePlayerColor === 'red')
@@ -394,7 +403,7 @@ export default function Layout({ network, game, mode, difficulty }) {
               <button 
                 className="cyber-button"
                 onClick={rollDice}
-                disabled={isRolling || (mode === 'bot' && currentTurn === 'blue') || (mode === 'online' && currentTurn !== role)}
+                disabled={isRolling}
                 style={{ width: '100%', fontSize: '0.8rem', fontWeight: 'bold', letterSpacing: '0.05em', animation: 'afkPulse 1.2s infinite' }}
               >
                 ROLL AP DICE
@@ -436,6 +445,25 @@ export default function Layout({ network, game, mode, difficulty }) {
                 </div>
               </>
             )}
+
+            <div style={{ display: 'flex', gap: '6px', marginTop: '10px' }}>
+              <button
+                className="cyber-button"
+                onClick={undo}
+                disabled={!canUndo}
+                style={{ flex: 1, fontSize: '0.75rem', padding: '10px 0', borderColor: 'var(--neon-blue)', color: 'var(--neon-blue)', opacity: canUndo ? 1 : 0.5 }}
+              >
+                UNDO
+              </button>
+              <button
+                className="cyber-button"
+                onClick={redo}
+                disabled={!canRedo}
+                style={{ flex: 1, fontSize: '0.75rem', padding: '10px 0', borderColor: 'var(--neon-blue)', color: 'var(--neon-blue)', opacity: canRedo ? 1 : 0.5 }}
+              >
+                REDO
+              </button>
+            </div>
 
             <button
               className="cyber-button"

@@ -7,6 +7,7 @@ import { getBotSetupAction, getBotPlayAction } from '../core/BotEngine';
 
 export function useGame(network, mode, difficulty) {
   const [gameState, setGameState] = useState(getInitialState);
+  const [history, setHistory] = useState({ past: [], future: [] });
 
   const { role, status, lastMessage, sendPayload } = network;
 
@@ -40,6 +41,8 @@ export function useGame(network, mode, difficulty) {
         dice: payload.dice || { values: [1, 1], isRolling: false, lastRoller: null },
         error: null
       });
+      // Clear history when syncing from a remote player to avoid invalid undo states
+      setHistory({ past: [], future: [] });
     }
   }, [lastMessage]);
 
@@ -118,6 +121,13 @@ export function useGame(network, mode, difficulty) {
           dice: res.dice,
           error: null
         };
+        // History management
+        if (['place', 'move', 'rotate', 'laser-press'].includes(action.type)) {
+          setHistory(h => ({ past: [...h.past, curr], future: [] }));
+        } else if (['end-turn', 'end-roll', 'toss-roll', 'toss-select-role', 'challenge-roll', 'clear'].includes(action.type)) {
+          setHistory({ past: [], future: [] });
+        }
+
         // Broadcast the complete synchronized state
         sendPayload('SYNC_GAME', nextState);
         return nextState;
@@ -284,6 +294,60 @@ export function useGame(network, mode, difficulty) {
     executeAction({ type: 'end-turn' });
   }, [executeAction]);
 
+  const undo = useCallback(() => {
+    if (history.past.length === 0) return;
+    const newPast = [...history.past];
+    const prevState = newPast.pop();
+    const newFuture = [gameState, ...history.future];
+    
+    setHistory({ past: newPast, future: newFuture });
+    setGameState(prevState);
+    sendPayload('SYNC_GAME', prevState);
+  }, [history, gameState, sendPayload]);
+
+  const redo = useCallback(() => {
+    if (history.future.length === 0) return;
+    const newFuture = [...history.future];
+    const nextState = newFuture.shift();
+    const newPast = [...history.past, gameState];
+    
+    setHistory({ past: newPast, future: newFuture });
+    setGameState(nextState);
+    sendPayload('SYNC_GAME', nextState);
+  }, [history, gameState, sendPayload]);
+
+  // Auto-end turn when action points reach 0
+  useEffect(() => {
+    if (
+      gameState.phase === 'playing' &&
+      gameState.hasRolledDice &&
+      gameState.actionPoints === 0 &&
+      !gameState.dice.isRolling
+    ) {
+      const activePlayerColor = gameState.roleRed === gameState.turnPlayer ? 'red' : 'blue';
+      const isLocalTurn = (mode === 'local' || mode === 'bot')
+        ? true
+        : (mode === 'online' && role === activePlayerColor);
+
+      if (isLocalTurn) {
+        const timer = setTimeout(() => {
+          executeAction({ type: 'end-turn' });
+        }, 1200);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [
+    gameState.phase, 
+    gameState.hasRolledDice, 
+    gameState.actionPoints, 
+    gameState.dice.isRolling,
+    gameState.roleRed,
+    gameState.turnPlayer,
+    mode,
+    role,
+    executeAction
+  ]);
+
   return {
     // Game States
     board: gameState.board,
@@ -321,6 +385,10 @@ export function useGame(network, mode, difficulty) {
     selectRole,
     rollChallengeToss,
     declareChallenge,
-    endTurn
+    endTurn,
+    undo,
+    redo,
+    canUndo: history.past.length > 0,
+    canRedo: history.future.length > 0
   };
 }
