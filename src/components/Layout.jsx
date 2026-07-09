@@ -102,8 +102,24 @@ export default function Layout({ network, game, mode, difficulty }) {
   };
 
   const getVisiblePaletteKeys = () => {
-    if (phase === 'setup-defender' || phase === 'challenge-setup') {
-      return ['BLOCK_20', 'BLOCK_30', 'BLOCK_50'];
+    if (phase === 'setup-defender') {
+      const placedPieces = new Set();
+      for (let r = 0; r < board.length; r++) {
+        for (let c = 0; c < board[r].length; c++) {
+          const cell = board[r][c];
+          if (cell) placedPieces.add(cell.type);
+        }
+      }
+      const keys = [];
+      if (!placedPieces.has('block-20')) keys.push('BLOCK_20');
+      if (!placedPieces.has('block-30')) keys.push('BLOCK_30');
+      if (!placedPieces.has('block-50')) keys.push('BLOCK_50');
+      return keys;
+    }
+    if (phase === 'challenge-setup') {
+      if (challengedPiece === 'block-20') return ['BLOCK_20'];
+      if (challengedPiece === 'block-30') return ['BLOCK_30'];
+      if (challengedPiece === 'block-50') return ['BLOCK_50'];
     }
     if (phase === 'setup-attacker') {
       return ['BLOCK_LAZER'];
@@ -126,9 +142,10 @@ export default function Layout({ network, game, mode, difficulty }) {
   const renderSetupBanner = () => {
     if (phase === 'setup-defender' || phase === 'challenge-setup') {
       const isMyTurn = (mode === 'local') ? true : (mode === 'bot' ? (roleRed === 'defender') : (roleRed === 'defender' ? role === 'red' : role === 'blue'));
+      const text = phase === 'challenge-setup' ? 'CHALLENGE SETUP: Drag and place the challenged piece onto the grid.' : 'DEFENDER SETUP: Drag and place 3 Point Pieces onto the grid (Corners and Mirror stands are blocked).';
       return (
         <div style={{ background: 'rgba(0, 240, 255, 0.08)', border: '1px solid var(--neon-blue)', padding: '10px 16px', borderRadius: '8px', color: 'var(--neon-blue)', fontSize: '0.85rem', fontWeight: 'bold', width: '100%', textAlign: 'center', marginBottom: '16px', textShadow: '0 0 4px var(--neon-blue-glow)' }}>
-          {isMyTurn ? 'DEFENDER SETUP: Drag and place 3 Point Pieces onto the grid (Corners and Mirror stands are blocked).' : 'WAITING: Defender is placing point pieces...'}
+          {isMyTurn ? text : 'WAITING: Defender is placing point pieces...'}
         </div>
       );
     }

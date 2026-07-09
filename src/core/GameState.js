@@ -163,6 +163,22 @@ export function applySandboxAction(board, action, player, context = {}) {
       if (player !== defenderPlayer) {
         return { board, error: 'Only the DEFENDER can place point pieces.' };
       }
+
+      if (phase === 'setup-defender') {
+        let isDuplicate = false;
+        for (let row = 0; row < BOARD_SIZE; row++) {
+          for (let col = 0; col < BOARD_SIZE; col++) {
+            if (nextBoard[row][col] && nextBoard[row][col].type === pieceType) {
+              isDuplicate = true;
+              break;
+            }
+          }
+          if (isDuplicate) break;
+        }
+        if (isDuplicate) {
+          return { board, error: `You can only place one ${pieceType.split('-')[1]} point piece.` };
+        }
+      }
       nextBoard[r][c] = {
         type: pieceType,
         rotation: 0,
@@ -179,7 +195,8 @@ export function applySandboxAction(board, action, player, context = {}) {
         }
       }
 
-      if (placedCount === 3) {
+      const requiredCount = phase === 'challenge-setup' ? 1 : 3;
+      if (placedCount === requiredCount) {
         if (phase === 'challenge-setup') {
           nextPhase = 'playing';
           logsList.push('Defender completed challenge setup. Set continues from next roll!');
@@ -188,7 +205,7 @@ export function applySandboxAction(board, action, player, context = {}) {
           logsList.push('Defender setup complete! Attacker placing LAZER piece on a corner square.');
         }
       } else {
-        logsList.push(`Defender placed ${pieceType.split('-')[1]} point piece. (${placedCount}/3 placed)`);
+        logsList.push(`Defender placed ${pieceType.split('-')[1]} point piece. (${placedCount}/${requiredCount} placed)`);
       }
     } 
     

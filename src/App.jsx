@@ -33,12 +33,19 @@ function App() {
     sendPayload: () => {} // No-op locally
   };
 
+  const getBotName = (diff) => {
+    if (diff === 'easy') return 'Zlorooklp (EASY)';
+    if (diff === 'medium') return 'Lizbishmir (MEDIUM)';
+    if (diff === 'hard') return 'Shahlzrmir (HARD)';
+    return 'Computer';
+  };
+
   // Create local network mock for offline Play with Computer
   const mockBotNetwork = {
     status: 'connected',
     role: 'red',
     playerName: 'Human',
-    opponentName: `Computer (${difficulty.toUpperCase()})`,
+    opponentName: getBotName(difficulty),
     isOpponentAfk: false,
     disconnect: () => setMode('mode-select'), // Return mode-select on exit
     sendPayload: () => {} // No-op locally
@@ -60,7 +67,7 @@ function App() {
       {showGameLayout ? (
         <Layout network={activeNetwork} game={game} mode={mode} difficulty={difficulty} />
       ) : mode === 'online' ? (
-        <ConnectionScreen network={network} onBack={() => setMode('mode-select')} />
+        <ConnectionScreen network={network} game={game} onBack={() => setMode('mode-select')} />
       ) : mode === 'setup-bot' ? (
         /* Cyberpunk Difficulty Selection View */
         <div className="lobby-container">
@@ -75,26 +82,26 @@ function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
               <button
                 className="cyber-button blue"
-                onClick={() => { setDifficulty('easy'); setMode('bot'); }}
+                onClick={() => { setDifficulty('easy'); setMode('bot'); game.clearWorkspace(); }}
                 style={{ padding: '16px', fontSize: '1rem', width: '100%', textTransform: 'uppercase' }}
               >
-                EASY BOT
+                ZLOROOKLP (EASY)
               </button>
               
               <button
                 className="cyber-button"
-                onClick={() => { setDifficulty('medium'); setMode('bot'); }}
+                onClick={() => { setDifficulty('medium'); setMode('bot'); game.clearWorkspace(); }}
                 style={{ padding: '16px', fontSize: '1rem', width: '100%', textTransform: 'uppercase', borderColor: '#ffcc00', color: '#ffcc00' }}
               >
-                MEDIUM BOT
+                LIZBISHMIR (MEDIUM)
               </button>
 
               <button
                 className="cyber-button red"
-                onClick={() => { setDifficulty('hard'); setMode('bot'); }}
+                onClick={() => { setDifficulty('hard'); setMode('bot'); game.clearWorkspace(); }}
                 style={{ padding: '16px', fontSize: '1rem', width: '100%', textTransform: 'uppercase' }}
               >
-                HARD BOT
+                SHAHLZRMIR (HARD)
               </button>
 
               <button
@@ -218,7 +225,7 @@ function App() {
 
               <button
                 className="cyber-button red"
-                onClick={() => setMode('local')}
+                onClick={() => { setMode('local'); game.clearWorkspace(); }}
                 style={{ flex: '1 1 170px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', padding: '20px 10px', height: 'auto' }}
               >
                 <Users size={24} />

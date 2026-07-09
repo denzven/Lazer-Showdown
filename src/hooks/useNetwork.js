@@ -16,6 +16,8 @@ export function useNetwork() {
   const signalingRef = useRef(null);
   const dataChannelRef = useRef(null);
   const playerNameRef = useRef('');
+  const sessionIdRef = useRef(crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).substring(2));
+  const guestSessionIdRef = useRef(null);
 
   // Keep player name in ref to access it in event callbacks without recreating them
   useEffect(() => {
@@ -46,6 +48,7 @@ export function useNetwork() {
     setLastMessage(null);
     setOpponentName('Opponent');
     setIsOpponentAfk(false);
+    guestSessionIdRef.current = null;
   }, []);
 
   const setupDataChannel = useCallback((conn) => {
@@ -53,7 +56,7 @@ export function useNetwork() {
     dataChannelRef.current = channel;
 
     // Send handshake immediately
-    channel.send('HANDSHAKE', { name: playerNameRef.current });
+    channel.send('HANDSHAKE', { name: playerNameRef.current, sessionId: sessionIdRef.current });
 
     // Handshake retry loop to handle asynchronous listener binding
     let handshaken = false;
@@ -63,24 +66,44 @@ export function useNetwork() {
         return;
       }
       console.log('Sending handshake retry...');
-      channel.send('HANDSHAKE', { name: playerNameRef.current });
+      channel.send('HANDSHAKE', { name: playerNameRef.current, sessionId: sessionIdRef.current });
     }, 1000);
 
     channel.onMessage((message) => {
       const { type, payload } = message;
 
       if (type === 'HANDSHAKE') {
+        if (role === PLAYERS.RED) {
+          // Host receives handshake from guest
+          if (guestSessionIdRef.current && guestSessionIdRef.current !== payload.sessionId) {
+            // A different person is trying to join a full room
+            channel.send('ROOM_FULL', {});
+            setTimeout(() => channel.close(), 500);
+            return;
+          }
+          // Accept the guest
+          guestSessionIdRef.current = payload.sessionId;
+        }
+
         handshaken = true;
         clearInterval(handshakeInterval);
         setOpponentName(payload.name || 'Opponent');
         // Reply with acknowledgment
-        channel.send('HANDSHAKE_ACK', { name: playerNameRef.current });
+        channel.send('HANDSHAKE_ACK', { name: playerNameRef.current, sessionId: sessionIdRef.current });
+        
+        // If there was an old channel and we just accepted a new one, this new one becomes active.
+        // We already assigned dataChannelRef.current = channel; above.
         setStatus('connected');
       } else if (type === 'HANDSHAKE_ACK') {
         handshaken = true;
         clearInterval(handshakeInterval);
         setOpponentName(payload.name || 'Opponent');
         setStatus('connected');
+      } else if (type === 'ROOM_FULL') {
+        clearInterval(handshakeInterval);
+        setError('Room is already full! Another player is in the game.');
+        setStatus('error');
+        channel.close();
       } else if (type === 'AFK_STATUS') {
         setIsOpponentAfk(payload.afk);
       } else {
@@ -105,8 +128,9 @@ export function useNetwork() {
     });
   }, []);
 
-  const hostGame = useCallback((name) => {
-    cleanup();
+  const hostGame = useCallback((name, retryCount = 0) => {
+    if (retryCount === 0) cleanup();
+    
     const code = generateRoomCode();
     setPlayerName(name || 'Host Player');
     setRoomCode(code);
@@ -122,18 +146,26 @@ export function useNetwork() {
       });
 
       sig.on('connection', (conn) => {
-        console.log('Opponent joined! Initializing data channel...');
+        console.log('Opponent connection attempt received...');
+        // If a new connection arrives and we already have a connected data channel, 
+        // the new one will be validated in the HANDSHAKE step.
         setupDataChannel(conn);
       });
 
       sig.on('error', (err) => {
         console.error('Signaling host error:', err);
         if (err.type === 'unavailable-id') {
-          setError('Room code collision. Please try hosting again.');
+          if (retryCount < 3) {
+            console.log('Room code collision! Retrying with a new code automatically...');
+            hostGame(name, retryCount + 1);
+          } else {
+            setError('Room code collision. Please try hosting again.');
+            setStatus('error');
+          }
         } else {
           setError('Failed to establish host room.');
+          setStatus('error');
         }
-        setStatus('error');
       });
 
       sig.on('close', () => {
@@ -209,7 +241,9 @@ export function useNetwork() {
       localStorage.setItem('sandbox_session', JSON.stringify({
         roomId: roomCode,
         playerName,
-        role
+        role,
+        sessionId: sessionIdRef.current,
+        guestSessionId: guestSessionIdRef.current
       }));
     }
   }, [status, roomCode, role, playerName]);
@@ -251,6 +285,10 @@ export function useNetwork() {
       if (status === 'disconnected' || status === 'idle' || status === 'error') {
         console.log('Re-establishing connection to persistent session...', session);
         
+        // Restore session IDs for authentication
+        if (session.sessionId) sessionIdRef.current = session.sessionId;
+        if (session.guestSessionId) guestSessionIdRef.current = session.guestSessionId;
+
         if (session.role === PLAYERS.RED) {
           setPlayerName(session.playerName);
           setRoomCode(session.roomId);

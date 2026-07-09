@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { ArrowLeft, Plus, LogIn } from 'lucide-react';
 
-export default function ConnectionScreen({ network, onBack }) {
+export default function ConnectionScreen({ network, game, onBack }) {
   const { status, roomCode, error, hostGame, joinGame, disconnect } = network;
   
   const [view, setView] = useState('menu'); // 'menu', 'setup-host', 'setup-join'
@@ -13,6 +13,7 @@ export default function ConnectionScreen({ network, onBack }) {
   const handleHost = (e) => {
     e.preventDefault();
     const finalName = hostName.trim() || 'Host Player';
+    if (game?.clearWorkspace) game.clearWorkspace();
     hostGame(finalName);
   };
 
@@ -20,6 +21,7 @@ export default function ConnectionScreen({ network, onBack }) {
     e.preventDefault();
     if (inputCode.length !== 6) return;
     const finalName = joinName.trim() || 'Guest Player';
+    if (game?.clearWorkspace) game.clearWorkspace();
     joinGame(inputCode, finalName);
   };
 

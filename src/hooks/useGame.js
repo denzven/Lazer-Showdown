@@ -60,7 +60,7 @@ export function useGame(network, mode, difficulty) {
    * @param {Object} action - Action details: { type, ...payload }
    */
   const executeAction = useCallback((action) => {
-    if (status !== 'connected') return;
+    if (status !== 'connected' && action.type !== 'clear') return;
 
     setGameState((curr) => {
       // Determine the acting player based on the active phase
@@ -129,7 +129,9 @@ export function useGame(network, mode, difficulty) {
         }
 
         // Broadcast the complete synchronized state
-        sendPayload('SYNC_GAME', nextState);
+        if (status === 'connected') {
+          sendPayload('SYNC_GAME', nextState);
+        }
         return nextState;
       } else {
         return { ...curr, error: res.error };
@@ -148,7 +150,7 @@ export function useGame(network, mode, difficulty) {
     // A. Setup Placements
     if (gameState.phase === 'setup-defender' && isBotDefender) {
       const timer = setTimeout(() => {
-        const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer);
+        const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer, difficulty);
         if (action) executeAction({ ...action, player: botPlayer });
       }, 1000);
       return () => clearTimeout(timer);
@@ -156,7 +158,7 @@ export function useGame(network, mode, difficulty) {
 
     if (gameState.phase === 'setup-attacker' && isBotAttacker) {
       const timer = setTimeout(() => {
-        const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer);
+        const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer, difficulty);
         if (action) executeAction({ ...action, player: botPlayer });
       }, 1000);
       return () => clearTimeout(timer);
@@ -164,7 +166,7 @@ export function useGame(network, mode, difficulty) {
 
     if (gameState.phase === 'challenge-setup' && isBotDefender) {
       const timer = setTimeout(() => {
-        const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer);
+        const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer, difficulty, gameState.challengedPiece);
         if (action) executeAction({ ...action, player: botPlayer });
       }, 1000);
       return () => clearTimeout(timer);
@@ -232,7 +234,49 @@ export function useGame(network, mode, difficulty) {
         return () => clearTimeout(timer);
       }
     }
-  }, [mode, gameState.phase, gameState.turnPlayer, gameState.hasRolledDice, gameState.actionPoints, gameState.dice.isRolling, gameState.winner, gameState.capturedPieces, gameState.challengeTossRolls, difficulty, executeAction]);
+
+    // E. Initial Toss Roll
+    if (gameState.phase === 'toss' && gameState.tossRolls.blue === null) {
+      if (gameState.tossRolls.red !== null) {
+        const timer = setTimeout(() => {
+          const redVal = gameState.tossRolls.red;
+          const blueVal = Math.floor(Math.random() * 6) + 1;
+          executeAction({ type: 'toss-roll', values: { red: redVal, blue: blueVal }, player: botPlayer });
+        }, 1000);
+        return () => clearTimeout(timer);
+      }
+    }
+
+    // F. Role Selection
+    if (gameState.phase === 'role-selection' && gameState.tossWinner === 'blue') {
+      const timer = setTimeout(() => {
+        let selectedRole = 'attacker';
+        if (difficulty === 'easy') {
+          selectedRole = Math.random() < 0.5 ? 'attacker' : 'defender';
+        } else if (difficulty === 'medium') {
+          selectedRole = 'defender';
+        } else {
+          selectedRole = 'attacker';
+        }
+        executeAction({ type: 'toss-select-role', role: selectedRole, player: botPlayer });
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [
+    mode, 
+    gameState.phase, 
+    gameState.turnPlayer, 
+    gameState.hasRolledDice, 
+    gameState.actionPoints, 
+    gameState.dice.isRolling, 
+    gameState.winner, 
+    gameState.capturedPieces, 
+    gameState.challengeTossRolls, 
+    gameState.tossRolls, 
+    gameState.tossWinner, 
+    difficulty, 
+    executeAction
+  ]);
 
   // Dice rolling callback
   const rollDice = useCallback(() => {
