@@ -3,16 +3,24 @@ import { ArrowLeft, Plus, LogIn } from 'lucide-react';
 
 export default function ConnectionScreen({ network, game, onBack }) {
   const { status, roomCode, error, hostGame, joinGame, disconnect } = network;
-  
-  const [view, setView] = useState('menu'); // 'menu', 'setup-host', 'setup-join'
-  const [hostName, setHostName] = useState('');
-  const [joinName, setJoinName] = useState('');
-  const [inputCode, setInputCode] = useState('');
-  const [copied, setCopied] = useState(false);
+
+  const [view, setView] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('room') ? 'setup-join' : 'menu';
+  });
+  const [hostName, setHostName] = useState(() => localStorage.getItem('lazer_nickname') || '');
+  const [joinName, setJoinName] = useState(() => localStorage.getItem('lazer_nickname') || '');
+  const [inputCode, setInputCode] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return (params.get('room') || '').toUpperCase().slice(0, 6);
+  });
+  const [copiedCode, setCopiedCode] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
 
   const handleHost = (e) => {
     e.preventDefault();
     const finalName = hostName.trim() || 'Host Player';
+    localStorage.setItem('lazer_nickname', finalName);
     if (game?.clearWorkspace) game.clearWorkspace();
     hostGame(finalName);
   };
@@ -21,19 +29,40 @@ export default function ConnectionScreen({ network, game, onBack }) {
     e.preventDefault();
     if (inputCode.length !== 6) return;
     const finalName = joinName.trim() || 'Guest Player';
+    localStorage.setItem('lazer_nickname', finalName);
     if (game?.clearWorkspace) game.clearWorkspace();
     joinGame(inputCode, finalName);
   };
 
   const handleCopyCode = () => {
     navigator.clipboard.writeText(roomCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 2000);
+  };
+
+  const handleCopyLink = () => {
+    const link = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
+    const shareData = {
+      title: 'Lazer Showdown',
+      text: `Join my Lazer Showdown match! Room code: ${roomCode}`,
+      url: link
+    };
+
+    if (navigator.share) {
+      navigator.share(shareData).catch((err) => console.error('Error sharing:', err));
+    } else {
+      navigator.clipboard.writeText(`${shareData.text} \n${shareData.url}`);
+      setCopiedLink(true);
+      setTimeout(() => setCopiedLink(false), 2000);
+    }
   };
 
   const handleCancel = () => {
     disconnect();
     setView('menu');
+    const url = new URL(window.location);
+    url.searchParams.delete('room');
+    window.history.replaceState({}, '', url);
   };
 
   // If in connection or error stages, override menus with state displays
@@ -55,7 +84,7 @@ export default function ConnectionScreen({ network, game, onBack }) {
         {status === 'idle' && view === 'menu' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', width: '100%' }}>
             <p className="lobby-subtitle" style={{ marginBottom: '10px' }}>Online Multiplayer PvP Lobby</p>
-            
+
             <div style={{ display: 'flex', gap: '16px' }}>
               <button
                 className="cyber-button red"
@@ -97,6 +126,7 @@ export default function ConnectionScreen({ network, game, onBack }) {
                 placeholder="ENTER HOST NICKNAME"
                 value={hostName}
                 onChange={(e) => setHostName(e.target.value.slice(0, 15))}
+                onFocus={(e) => e.target.select()}
                 required
               />
             </div>
@@ -134,6 +164,7 @@ export default function ConnectionScreen({ network, game, onBack }) {
                 placeholder="ENTER YOUR NICKNAME"
                 value={joinName}
                 onChange={(e) => setJoinName(e.target.value.slice(0, 15))}
+                onFocus={(e) => e.target.select()}
                 required
               />
             </div>
@@ -146,6 +177,7 @@ export default function ConnectionScreen({ network, game, onBack }) {
                 placeholder="6-CHARACTER CODE"
                 value={inputCode}
                 onChange={(e) => setInputCode(e.target.value.toUpperCase().slice(0, 6))}
+                onFocus={(e) => e.target.select()}
                 required
               />
             </div>
@@ -179,14 +211,24 @@ export default function ConnectionScreen({ network, game, onBack }) {
                 <div className="room-display">
                   <div className="input-label">YOUR ROOM CODE</div>
                   <div className="room-code glow-text-red">{roomCode}</div>
-                  <button
-                    type="button"
-                    className="cyber-button"
-                    style={{ padding: '6px 12px', fontSize: '0.75rem', marginTop: '10px' }}
-                    onClick={handleCopyCode}
-                  >
-                    {copied ? 'COPIED!' : 'COPY CODE'}
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+                    <button
+                      type="button"
+                      className="cyber-button"
+                      style={{ padding: '6px 12px', fontSize: '0.75rem' }}
+                      onClick={handleCopyCode}
+                    >
+                      {copiedCode ? 'COPIED!' : 'COPY CODE'}
+                    </button>
+                    <button
+                      type="button"
+                      className="cyber-button"
+                      style={{ padding: '6px 12px', fontSize: '0.75rem', borderColor: '#b15cff', color: '#b15cff' }}
+                      onClick={handleCopyLink}
+                    >
+                      {copiedLink ? 'LINK COPIED!' : 'SHARE LINK'}
+                    </button>
+                  </div>
                 </div>
                 <div className="cyber-loader"></div>
                 <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem' }}>

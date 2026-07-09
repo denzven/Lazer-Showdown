@@ -3,7 +3,7 @@ import { useNetwork } from './hooks/useNetwork';
 import { useGame } from './hooks/useGame';
 import ConnectionScreen from './components/Lobby/ConnectionScreen';
 import Layout from './components/Layout';
-import { Globe, Users, Cpu, ChevronDown } from 'lucide-react';
+import { Globe, Users, Cpu, ChevronDown, Share2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import './index.css';
 
@@ -23,8 +23,53 @@ const customBoards = Object.keys(boardModules).map(key => ({
   data: boardModules[key]
 }));
 
+const RULES_MARKDOWN = `
+### 🏗️ Structure
+- **Game**: 2 Sets
+- **Set**: 3 Rounds
+- **Round**: Defender's Roll + Attacker's Roll
+
+### ⚙️ Setup
+1. **Toss**: Both players roll one die. The higher roller wins and **chooses their role**.
+2. **Defender** places **3 Point Pieces** anywhere on the board *except* the four corners.
+3. **Attacker** places the **LAZER Piece** on any corner square, facing any direction.
+
+### 🎲 Your Turn
+Roll both dice to get your **Action Points (AP)**. Spend AP on:
+- **MOVE (1 AP)**: Attacker moves LAZER 1 square (H/V). Defender moves a Point Piece 1 square.
+- **ROTATE (1 AP)**: Attacker rotates the LAZER piece 90 degrees.
+- **LAZER PRESS (1 AP)**: Fires the laser. It travels, bounces off mirrors, and captures any piece it hits.
+
+*(Unused AP is forfeited. Actions can be taken in any order.)*
+
+### 💥 The Laser
+When fired, the laser travels straight until it:
+- **Bounces** off a mirror (90° reflection).
+- **Captures** a Point Piece (piece is removed, points awarded).
+- **Exits** the board.
+
+### 🏆 Scoring
+- **Small Piece**: 20 pts
+- **Medium Piece**: 30 pts
+- **Large Piece**: 50 pts
+- **Attacker** wants to capture pieces. **Defender** wants to evade.
+
+### ⚡ Challenge Mechanic
+If the Attacker captures **all 3 pieces** before the set ends, they may declare a **CHALLENGE**:
+1. Attacker nominates one captured piece.
+2. A toss is rolled (one die per player).
+3. **Attacker wins** → Defender re-places all pieces. Capturing the challenged piece again adds its value to the score.
+4. **Attacker loses** → The nominated piece's value is deducted.
+
+### 🔄 Between Sets
+After Set 1, **roles are swapped**. The player with the **highest total score** after both sets wins!
+`;
+
 function App() {
-  const [mode, setMode] = useState('main-menu'); // 'main-menu', 'mode-select', 'online', 'local', 'bot', 'setup-bot', 'rules', 'credits', 'lore'
+  const [mode, setMode] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('room') ? 'online' : 'main-menu';
+  }); // 'main-menu', 'mode-select', 'online', 'local', 'bot', 'setup-bot', 'rules', 'credits', 'lore'
   const [difficulty, setDifficulty] = useState('medium'); // 'easy', 'medium', 'hard'
   const [lorePage, setLorePage] = useState(0);
   const [selectedBoardName, setSelectedBoardName] = useState('default');
@@ -129,18 +174,25 @@ function App() {
         </div>
       ) : mode === 'rules' ? (
         <div className="lobby-container">
-          <div className="lobby-box glass-panel" style={{ maxWidth: '600px', padding: '50px 40px', textAlign: 'left' }}>
+          <div className="lobby-box glass-panel" style={{ maxWidth: '750px', padding: '40px 30px', textAlign: 'left', display: 'flex', flexDirection: 'column', height: '85vh' }}>
             <h1 className="lobby-title font-display" style={{ fontSize: '2rem', margin: '0 0 20px 0', textAlign: 'center' }}>
-              RULES
+              RULES OF ENGAGEMENT
             </h1>
-            <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: '1.6', marginBottom: '30px' }}>
-              <p><strong>Goal:</strong> Capture all opponent's point pieces (20, 30, 50 points).</p>
-              <p><strong>Setup:</strong> The Defender places 3 point pieces. The Attacker places the LAZER piece on any corner square.</p>
-              <p><strong>Turn:</strong> Roll the Action Point (AP) Dice. Use APs to Move (1 AP), Rotate LAZER (1 AP), or Press LAZER (1 AP) to fire.</p>
-              <p><strong>Challenge:</strong> After capturing all pieces, the Attacker can declare a challenge on one captured piece to gain extra points via a dice toss.</p>
+            <div style={{ flex: 1, overflowY: 'auto', padding: '0 20px', marginBottom: '20px', color: 'var(--text-secondary)', fontSize: '0.95rem', lineHeight: '1.6' }}>
+              <ReactMarkdown
+                components={{
+                  h3: ({node, ...props}) => <h3 style={{ color: 'var(--neon-blue)', marginTop: '24px', marginBottom: '12px', borderBottom: '1px solid rgba(0, 240, 255, 0.2)', paddingBottom: '8px' }} {...props} />,
+                  ul: ({node, ...props}) => <ul style={{ paddingLeft: '20px', marginBottom: '16px' }} {...props} />,
+                  ol: ({node, ...props}) => <ol style={{ paddingLeft: '20px', marginBottom: '16px' }} {...props} />,
+                  li: ({node, ...props}) => <li style={{ marginBottom: '6px' }} {...props} />,
+                  strong: ({node, ...props}) => <strong style={{ color: 'var(--text-primary)' }} {...props} />
+                }}
+              >
+                {RULES_MARKDOWN}
+              </ReactMarkdown>
             </div>
-            <button className="cyber-button" onClick={() => setMode('main-menu')} style={{ width: '100%' }}>
-              BACK
+            <button className="cyber-button" onClick={() => setMode('main-menu')} style={{ width: '100%', padding: '12px', flexShrink: 0 }}>
+              BACK TO MAIN MENU
             </button>
           </div>
         </div>
@@ -204,10 +256,56 @@ function App() {
             <h1 className="lobby-title font-display" style={{ fontSize: '2rem', margin: '0 0 20px 0' }}>
               CREDITS
             </h1>
-            <div style={{ color: 'var(--text-secondary)', fontSize: '1rem', lineHeight: '1.6', marginBottom: '30px' }}>
-              <p style={{ fontWeight: 'bold', color: 'var(--neon-blue)' }}>Lazer Showdown WebRTC</p>
-              <p>Powered by Vite + React</p>
-              <p>P2P Multiplayer via WebRTC</p>
+            <div style={{ color: 'var(--text-secondary)', fontSize: '1rem', lineHeight: '1.6', marginBottom: '30px', display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              <div>
+                <p style={{ fontWeight: 'bold', color: 'var(--neon-blue)', fontSize: '1.2rem', marginBottom: '5px' }}>Lazer Showdown</p>
+                <p style={{ fontSize: '0.9rem' }}>
+                  The idea of the board game started for <strong>ARISE 2025</strong>, a chemical departmental fest in <strong>BVCOENM Kharghar</strong>.
+                </p>
+                <p style={{ fontSize: '0.9rem', marginTop: '5px' }}>
+                  Created by <strong>Bhavna S Pillai</strong>, <strong>Ayush Raut</strong>, and <strong>Denzven Ignatius</strong>.
+                </p>
+              </div>
+              
+              <div style={{ padding: '15px', backgroundColor: 'rgba(0, 240, 255, 0.05)', border: '1px solid rgba(0, 240, 255, 0.2)', borderRadius: '8px' }}>
+                <p style={{ fontSize: '0.85rem', opacity: 0.9 }}>
+                  This PWA website/game app is made with <strong>Vite + React</strong> using <strong>Antigravity</strong> and <strong>Gemini 3.1 Pro (High) AI Agent</strong>.
+                </p>
+                <p style={{ fontSize: '0.85rem', opacity: 0.9, marginTop: '5px' }}>
+                  P2P Multiplayer powered by WebRTC.
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '10px' }}>
+                <a 
+                  href="https://github.com/denzven/Lazer-Showdown" 
+                  target="_blank" 
+                  rel="noreferrer"
+                  className="cyber-button"
+                  style={{ textDecoration: 'none', flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px' }}
+                >
+                  GITHUB
+                </a>
+                <button 
+                  className="cyber-button blue"
+                  style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', padding: '10px' }}
+                  onClick={() => {
+                    const link = window.location.origin + window.location.pathname;
+                    if (navigator.share) {
+                      navigator.share({ title: 'Lazer Showdown', text: 'Thanks for playing Lazer Showdown! Check it out here:', url: link }).catch(console.error);
+                    } else {
+                      navigator.clipboard.writeText('Thanks for playing Lazer Showdown! Check it out here: \\n' + link);
+                      alert('Link copied to clipboard! Thanks for playing!');
+                    }
+                  }}
+                >
+                  <Share2 size={18} /> SHARE
+                </button>
+              </div>
+
+              <p style={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#b15cff', marginTop: '5px' }}>
+                Made with Love by DZVN 💜
+              </p>
             </div>
             <button className="cyber-button" onClick={() => setMode('main-menu')} style={{ width: '100%' }}>
               BACK

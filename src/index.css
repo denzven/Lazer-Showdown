@@ -9,7 +9,7 @@
   --bg-dark: #0d0f1a;
   --bg-card: rgba(18, 20, 38, 0.7);
   --bg-card-hover: rgba(26, 29, 56, 0.85);
-  
+
   --border-color: rgba(255, 255, 255, 0.08);
   --border-glow: rgba(0, 240, 255, 0.15);
 
@@ -17,7 +17,7 @@
   --neon-red-glow: rgba(255, 42, 133, 0.4);
   --neon-blue: #00f0ff;
   --neon-blue-glow: rgba(0, 240, 255, 0.4);
-  
+
   --text-primary: #f0f2fa;
   --text-secondary: #9aa0c2;
   --text-muted: #5e648c;
@@ -38,7 +38,7 @@ body {
   font-family: var(--font-sans);
   min-height: 100vh;
   overflow-x: hidden;
-  background-image: 
+  background-image:
     radial-gradient(at 0% 0%, rgba(255, 42, 133, 0.08) 0px, transparent 50%),
     radial-gradient(at 100% 100%, rgba(0, 240, 255, 0.08) 0px, transparent 50%),
     linear-gradient(rgba(13, 15, 26, 0.4) 1px, transparent 1px),
@@ -62,7 +62,11 @@ body {
 }
 
 /* Typography styles */
-h1, h2, h3, h4, .font-display {
+h1,
+h2,
+h3,
+h4,
+.font-display {
   font-family: var(--font-display);
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -231,7 +235,8 @@ h1, h2, h3, h4, .font-display {
   margin: 10px 0;
 }
 
-.divider::before, .divider::after {
+.divider::before,
+.divider::after {
   content: '';
   flex: 1;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
@@ -281,8 +286,13 @@ h1, h2, h3, h4, .font-display {
 }
 
 @keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
 }
 
 /* Dashboard / Layout Styles */
@@ -336,8 +346,10 @@ h1, h2, h3, h4, .font-display {
 /* Grid Design (High Contrast Chess-Style) */
 .board-container {
   position: relative;
-  background: #040508; /* Deep high contrast black */
-  border: 2px solid #ffffff; /* Sharp white outer boundary */
+  background: #040508;
+  /* Deep high contrast black */
+  border: 2px solid #ffffff;
+  /* Sharp white outer boundary */
   border-radius: 8px;
   padding: 4px;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.8);
@@ -347,19 +359,22 @@ h1, h2, h3, h4, .font-display {
   display: grid;
   grid-template-columns: repeat(8, 60px);
   grid-template-rows: repeat(8, 60px);
-  gap: 0px; /* Zero gaps for seamless chessboard borders */
+  gap: 0px;
+  /* Zero gaps for seamless chessboard borders */
 }
 
 /* Cell Design */
 .board-cell {
   position: relative;
-  border: 1px solid #ffffff; /* Sharp solid white cell grid lines */
+  border: 1px solid #ffffff;
+  /* Sharp solid white cell grid lines */
   display: flex;
   justify-content: center;
   align-items: center;
   cursor: grab;
   transition: all 0.15s cubic-bezier(0.2, 0.8, 0.2, 1);
-  touch-action: none; /* Disables touch scrolling on active cells */
+  touch-action: none;
+  /* Disables touch scrolling on active cells */
 }
 
 .board-cell:active {
@@ -431,7 +446,7 @@ h1, h2, h3, h4, .font-display {
   top: 2px;
   right: 2px;
   font-size: 8px;
-  background: rgba(0,0,0,0.6);
+  background: rgba(0, 0, 0, 0.6);
   padding: 1px 3px;
   border-radius: 3px;
 }
@@ -511,28 +526,28 @@ h1, h2, h3, h4, .font-display {
     margin-bottom: 8px;
     display: grid;
     grid-template-columns: 1fr 1fr;
-    grid-template-areas: 
+    grid-template-areas:
       "title title"
       "player1 player2";
     gap: 8px;
     width: 100%;
   }
 
-  .hud-header > div:nth-child(2) {
+  .hud-header>div:nth-child(2) {
     grid-area: title;
     text-align: center;
   }
 
-  .hud-header > div:nth-child(2) span {
+  .hud-header>div:nth-child(2) span {
     font-size: 1.1rem !important;
     letter-spacing: 0.15em;
   }
 
-  .hud-header > div:nth-child(1) {
+  .hud-header>div:nth-child(1) {
     grid-area: player1;
   }
 
-  .hud-header > div:nth-child(3) {
+  .hud-header>div:nth-child(3) {
     grid-area: player2;
   }
 
@@ -542,7 +557,7 @@ h1, h2, h3, h4, .font-display {
     justify-content: center;
   }
 
-  .hud-player > div[style*="1.25rem"] {
+  .hud-player>div[style*="1.25rem"] {
     font-size: 1rem !important;
   }
 
@@ -570,7 +585,7 @@ h1, h2, h3, h4, .font-display {
     color: var(--text-muted);
   }
 
-  .sidebar-panel:last-of-type > div:last-of-type {
+  .sidebar-panel:last-of-type>div:last-of-type {
     display: flex;
     flex-direction: column !important;
     justify-content: flex-start;
@@ -641,7 +656,7 @@ h1, h2, h3, h4, .font-display {
   display: flex;
   gap: 4px;
   z-index: 50;
-  box-shadow: 0 4px 15px rgba(0,0,0,0.6);
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.6);
 }
 
 .control-btn {
@@ -690,7 +705,8 @@ h1, h2, h3, h4, .font-display {
   cursor: grab;
   position: relative;
   transition: all 0.25s ease;
-  touch-action: none; /* Allows touchscreen drag-and-drop without scrolling */
+  touch-action: none;
+  /* Allows touchscreen drag-and-drop without scrolling */
 }
 
 .tray-item:hover {
@@ -721,9 +737,9 @@ h1, h2, h3, h4, .font-display {
 .ap-panel {
   text-align: center;
   padding: 16px;
-  background: rgba(0,0,0,0.2);
+  background: rgba(0, 0, 0, 0.2);
   border-radius: 12px;
-  border: 1px solid rgba(255,255,255,0.03);
+  border: 1px solid rgba(255, 255, 255, 0.03);
 }
 
 .ap-title {
@@ -795,7 +811,7 @@ h1, h2, h3, h4, .font-display {
 }
 
 .log-list::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.1);
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 2px;
 }
 
@@ -830,12 +846,12 @@ h1, h2, h3, h4, .font-display {
   gap: 10px;
   padding: 8px 16px;
   border-radius: 12px;
-  background: rgba(255,255,255,0.01);
-  border: 1px solid rgba(255,255,255,0.03);
+  background: rgba(255, 255, 255, 0.01);
+  border: 1px solid rgba(255, 255, 255, 0.03);
 }
 
 .hud-player.active {
-  background: rgba(255,255,255,0.03);
+  background: rgba(255, 255, 255, 0.03);
 }
 
 .hud-player.red.active {
@@ -880,9 +896,17 @@ h1, h2, h3, h4, .font-display {
 }
 
 @keyframes afkPulse {
-  0% { opacity: 0.4; }
-  50% { opacity: 1; }
-  100% { opacity: 0.4; }
+  0% {
+    opacity: 0.4;
+  }
+
+  50% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0.4;
+  }
 }
 
 /* Dice roll container */
@@ -906,7 +930,7 @@ h1, h2, h3, h4, .font-display {
   font-size: 1.5rem;
   font-weight: 700;
   position: relative;
-  background: rgba(0,0,0,0.3);
+  background: rgba(0, 0, 0, 0.3);
 }
 
 .dice-visual.rolling {
@@ -926,9 +950,17 @@ h1, h2, h3, h4, .font-display {
 }
 
 @keyframes diceRollAnim {
-  0% { transform: rotate(0deg) scale(0.9); }
-  50% { transform: rotate(180deg) scale(1.1); }
-  100% { transform: rotate(360deg) scale(0.9); }
+  0% {
+    transform: rotate(0deg) scale(0.9);
+  }
+
+  50% {
+    transform: rotate(180deg) scale(1.1);
+  }
+
+  100% {
+    transform: rotate(360deg) scale(0.9);
+  }
 }
 
 /* Error banner */
@@ -941,7 +973,7 @@ h1, h2, h3, h4, .font-display {
   color: #fff;
   padding: 12px 20px;
   border-radius: 8px;
-  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
   font-family: var(--font-sans);
   font-weight: 500;
   font-size: 0.9rem;
@@ -953,8 +985,15 @@ h1, h2, h3, h4, .font-display {
 }
 
 @keyframes slideIn {
-  from { transform: translateY(50px); opacity: 0; }
-  to { transform: translateY(0); opacity: 1; }
+  from {
+    transform: translateY(50px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 .error-close-btn {
