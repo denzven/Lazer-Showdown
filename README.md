@@ -1,4 +1,4 @@
-<div align="center">
+﻿<div align="center">
 
 ```
 ╔══════════════════════════════════════════════════════════════════╗
@@ -35,9 +35,9 @@
 
 **Lazer Showdown** is a two-player tactical board game played on an **8×8 grid** filled with fixed diagonal mirrors. One player is the **Attacker**, wielding a laser piece. The other is the **Defender**, protecting high-value point pieces by repositioning them around the board.
 
-A roll of the dice determines your **Action Points**. Use them to move your piece, rotate the laser, and fire — but every shot bounces off the board's mirrors unpredictably. Mastering the geometry of the beam is the key to victory.
+A roll of the dice determines your **Action Points**. Use them to move your piece, rotate the laser, and fire - but every shot bounces off the board's mirrors unpredictably. Mastering the geometry of the beam is the key to victory.
 
-> *"The original name was 'La-Sir-She-Dan' — Battle of the Land at Ser. The humans couldn't pronounce it. So they called it Lazer Showdown. And somehow, that name ended a war."*
+> *"The original name was 'La-Sir-She-Dan' - Battle of the Land at Ser. The humans couldn't pronounce it. So they called it Lazer Showdown. And somehow, that name ended a war."*
 
 ---
 
@@ -63,12 +63,12 @@ ROUND ─→  Defender's Roll  +  Attacker's Roll
 ```
 
 ### ⚙️ Setup
-1. **Toss** — Both players roll one die. The higher roller wins and **chooses their role**.
+1. **Toss** - Both players roll one die. The higher roller wins and **chooses their role**.
 2. **Defender** places **3 Point Pieces** anywhere on the board *except* the four corners.
 3. **Attacker** places the **LAZER Piece** on any corner square, facing any direction.
 
 ### 🎲 Your Turn (Rolling & Actions)
-- Roll **both dice** — the total is your **Action Points (AP)**.
+- Roll **both dice** - the total is your **Action Points (AP)**.
 - Spend each AP on one of three actions:
 
 | Action | Cost | Who Can Use |
@@ -118,21 +118,21 @@ After Set 1, **roles are swapped**. The former Attacker becomes the Defender, an
 
 > *The full lore archive is accessible in-game via the **"GRID TERMINAL ARCHIVES"** section.*
 
-### Chapter I — The Great Discovery (3021 AD)
+### Chapter I - The Great Discovery (3021 AD)
 
-The war on **Planet Ser** had reached a brutal stalemate. In the dead of night, allied scouts observed alien commanders playing a mysterious game with living creatures on stone grids. They heard its name whispered: **"La-Sir-She-Dan"** — *Battle of the Land at Ser*.
+The war on **Planet Ser** had reached a brutal stalemate. In the dead of night, allied scouts observed alien commanders playing a mysterious game with living creatures on stone grids. They heard its name whispered: **"La-Sir-She-Dan"** - *Battle of the Land at Ser*.
 
-Back at base, the name became **"Lazer Showdown"** — and what had been the enemy's battle simulation became humanity's most valuable intelligence asset.
+Back at base, the name became **"Lazer Showdown"** - and what had been the enemy's battle simulation became humanity's most valuable intelligence asset.
 
-### Chapter II — The Strategic Breakthrough
+### Chapter II - The Strategic Breakthrough
 
 A cryptographer made a terrifying discovery: the placement of pieces on the alien game boards **perfectly matched the coordinates of their fleet ships in orbit**. It wasn't a pastime. It was a **real-time tactical simulation**.
 
-By reverse-engineering the game with mirrors and rudimentary lasers, human soldiers began to predict alien flanking maneuvers — days before they occurred.
+By reverse-engineering the game with mirrors and rudimentary lasers, human soldiers began to predict alien flanking maneuvers - days before they occurred.
 
-### Chapter III — The Treaty of 3042
+### Chapter III - The Treaty of 3042
 
-In **3042 AD**, the **Intergalactic Treaty of Kylos** was signed, ending decades of war. Lazer Showdown was no longer a weapon of intelligence — it became a bridge between civilizations. Today it is played across the galaxy as a sport of diplomacy.
+In **3042 AD**, the **Intergalactic Treaty of Kylos** was signed, ending decades of war. Lazer Showdown was no longer a weapon of intelligence - it became a bridge between civilizations. Today it is played across the galaxy as a sport of diplomacy.
 
 ---
 
@@ -140,17 +140,17 @@ In **3042 AD**, the **Intergalactic Treaty of Kylos** was signed, ending decades
 
 The creatures from Planet Ser that inspired the game pieces.
 
-### 🔦 The Lzrshuby — *The Laser*
+### 🔦 The Lzrshuby - *The Laser*
 > *"Tickle its foot. That's all it takes."*
 
-A furry, baseball-sized creature from the **High-Energy Vents of Planet Ser**. It feeds on ambient radiation, making it essentially a living battery. When startled or tickled, it vents excess radiation through a singular ocular lens — creating a focused beam of pure energy.
+A furry, baseball-sized creature from the **High-Energy Vents of Planet Ser**. It feeds on ambient radiation, making it essentially a living battery. When startled or tickled, it vents excess radiation through a singular ocular lens - creating a focused beam of pure energy.
 
 In the human version of the game, the **Attacker's Laser Piece** is modeled after the Lzrshuby.
 
-### 🪨 The Mirlug — *The Mirror*
+### 🪨 The Mirlug - *The Mirror*
 > *"99.9% reflectivity. Even plasma just bounces right off."*
 
-A slow-moving gastropod from the **Silicon Caves of Planet Ser**. Its shell is composed of high-density, naturally polished silicon — so reflective it can redirect high-energy plasma beams with near-perfect efficiency.
+A slow-moving gastropod from the **Silicon Caves of Planet Ser**. Its shell is composed of high-density, naturally polished silicon - so reflective it can redirect high-energy plasma beams with near-perfect efficiency.
 
 During the war, Mirlugs were used as tactical redirection pads. In the game, **Mirror pieces** are modeled after their extraordinary shells.
 
@@ -160,7 +160,7 @@ During the war, Mirlugs were used as tactical redirection pads. In the game, **M
 
 Three alien contenders await in Bot Mode, each with a distinct personality coded directly into their decision engine.
 
-### 🟢 Zlorooklp — *Veteran Scout (Easy)*
+### 🟢 Zlorooklp - *Veteran Scout (Easy)*
 > *"He views the game as a casual hobby. He's here for the pretty lights."*
 
 One of the first aliens to play a friendly match with a human after the ceasefire. Forgiving and experimental. He has a **15% chance to simply skip an action** to "see what happens."
@@ -169,17 +169,17 @@ One of the first aliens to play a friendly match with a human after the ceasefir
 
 ---
 
-### 🟡 Lizbishmir — *Tactical Scholar (Medium)*
+### 🟡 Lizbishmir - *Tactical Scholar (Medium)*
 > *"She believes every move has a perfect geometric counter."*
 
-A scholar of the Ser battlefields, obsessed with the mathematical precision of the grid. Methodical and balanced — she rarely makes aggressive mistakes.
+A scholar of the Ser battlefields, obsessed with the mathematical precision of the grid. Methodical and balanced - she rarely makes aggressive mistakes.
 
 **AI Behavior (Attacker):** Prioritizes immediate captures → rotation setups → positional movement toward the closest piece.
 **AI Behavior (Defender):** Moves pieces toward the **center** of the board for maximum coverage. Evades targeted pieces first.
 
 ---
 
-### 🔴 Shahlzrmir — *High-Command Marshal (Hard)*
+### 🔴 Shahlzrmir - *High-Command Marshal (Hard)*
 > *"He has never forgotten a single ship placement from the war."*
 
 A high-ranking officer from the original conflict. Plays with cold, calculating efficiency. Uses Action Points to trap opponents in inescapable configurations.
@@ -208,7 +208,7 @@ The board layout is **fixed for the entire game**. Mirrors cannot be moved. Ever
 
 ## 🔗 Networking Architecture (WebRTC)
 
-Lazer Showdown uses **100% peer-to-peer networking** — no game server is required.
+Lazer Showdown uses **100% peer-to-peer networking** - no game server is required.
 
 ```
 Player 1 (Host)                         Player 2 (Joiner)
@@ -228,12 +228,12 @@ Player 1 (Host)                         Player 2 (Joiner)
 3. **Joiner** enters the code → connects directly to the host's peer.
 4. A **handshake** is performed to exchange player names and session IDs.
 5. All game state actions (`move`, `rotate`, `laser-press`, etc.) are broadcast via the DataChannel.
-6. **Full room protection** — a second joiner attempting to connect to an active room receives a `ROOM_FULL` rejection.
+6. **Full room protection** - a second joiner attempting to connect to an active room receives a `ROOM_FULL` rejection.
 
 ### Resilience Features
-- 🔄 **Auto-reconnect** — if a tab is closed and reopened, the session is restored from `localStorage`.
-- 💤 **AFK detection** — the Page Visibility API monitors tab focus; opponents are notified if you go AFK for 5+ seconds.
-- 🔁 **Room code collision retry** — if a room ID is already taken, the host auto-generates a new one (up to 3 retries).
+- 🔄 **Auto-reconnect** - if a tab is closed and reopened, the session is restored from `localStorage`.
+- 💤 **AFK detection** - the Page Visibility API monitors tab focus; opponents are notified if you go AFK for 5+ seconds.
+- 🔁 **Room code collision retry** - if a room ID is already taken, the host auto-generates a new one (up to 3 retries).
 
 ---
 
@@ -246,12 +246,12 @@ lazer-showdown-webrtc/
 └── src/
     ├── core/
     │   ├── Ruleset.js              # Game constants, laser tracing, board setup, move validation
-    │   ├── GameState.js            # Immutable state reducer — all game action logic lives here
+    │   ├── GameState.js            # Immutable state reducer - all game action logic lives here
     │   └── BotEngine.js            # AI decision engine for all three difficulty tiers
     │
     ├── hooks/
-    │   ├── useGame.js              # React hook — bridges game state, network, and bot turns
-    │   └── useNetwork.js           # React hook — manages WebRTC connection lifecycle
+    │   ├── useGame.js              # React hook - bridges game state, network, and bot turns
+    │   └── useNetwork.js           # React hook - manages WebRTC connection lifecycle
     │
     ├── network/
     │   ├── Signaling.js            # PeerJS wrapper for room hosting & joining
@@ -284,15 +284,15 @@ lazer-showdown-webrtc/
     │   ├── Char_Shahlzrmir.txt
     │   └── rules.txt
     │
-    └── App.jsx                     # Root component — routing & mode management
+    └── App.jsx                     # Root component - routing & mode management
 ```
 
 ### Key Design Decisions
 
-- **Immutable State** — `GameState.js` is a pure reducer: `(board, action, player, context) → nextState`. No mutation; every action returns a fresh state snapshot.
-- **Laser Tracing** — `traceLaserBeam()` uses a visited-set keyed by `(r, c, dr, dc)` to prevent infinite mirror loops. Returns the full beam path for the renderer.
-- **Bot as Sandbox Player** — The bot uses the same `applySandboxAction()` as a human. It's an AI that simply picks the action; no special code paths needed.
-- **No Backend** — Zero game server. State sync happens over WebRTC DataChannels. PeerJS's signaling server is only used for the initial connection handshake.
+- **Immutable State** - `GameState.js` is a pure reducer: `(board, action, player, context) → nextState`. No mutation; every action returns a fresh state snapshot.
+- **Laser Tracing** - `traceLaserBeam()` uses a visited-set keyed by `(r, c, dr, dc)` to prevent infinite mirror loops. Returns the full beam path for the renderer.
+- **Bot as Sandbox Player** - The bot uses the same `applySandboxAction()` as a human. It's an AI that simply picks the action; no special code paths needed.
+- **No Backend** - Zero game server. State sync happens over WebRTC DataChannels. PeerJS's signaling server is only used for the initial connection handshake.
 
 ---
 
@@ -316,11 +316,11 @@ npm install
 npm run dev -- --host
 ```
 
-> **Note:** HTTPS is enabled automatically via `vite-plugin-mkcert`. This is **required** for WebRTC to function. Your browser may display a certificate warning on first launch — this is expected for local development.
+> **Note:** HTTPS is enabled automatically via `vite-plugin-mkcert`. This is **required** for WebRTC to function. Your browser may display a certificate warning on first launch - this is expected for local development.
 
 The game will be accessible at:
-- `https://localhost:5173` — local machine
-- `https://<your-local-ip>:5173` — on your LAN (for cross-device P2P testing)
+- `https://localhost:5173` - local machine
+- `https://<your-local-ip>:5173` - on your LAN (for cross-device P2P testing)
 
 ### Building for Production
 
@@ -361,9 +361,9 @@ This runs `vite build` and then publishes the `dist/` folder via `gh-pages`.
 
 Lazer Showdown is installable as a **standalone app** on any device:
 
-- **Android / Chrome** — "Add to Home Screen" prompt appears automatically.
-- **iOS / Safari** — Share → "Add to Home Screen".
-- **Desktop (Chrome / Edge)** — Install button in the browser address bar.
+- **Android / Chrome** - "Add to Home Screen" prompt appears automatically.
+- **iOS / Safari** - Share → "Add to Home Screen".
+- **Desktop (Chrome / Edge)** - Install button in the browser address bar.
 
 The PWA runs in `standalone` mode (no browser chrome), supports all screen orientations, and auto-updates via a registered service worker.
 
@@ -385,7 +385,7 @@ This is a private project. If you have been invited to contribute:
 
 *"The soldiers who first tickled a Lzrshuby in a trench would never have believed that their desperate attempt to survive would become the galaxy's greatest legacy."*
 
-— *The Treaty of Kylos, 3042 AD*
+- *The Treaty of Kylos, 3042 AD*
 
 ---
 
