@@ -1,0 +1,273 @@
+LAZER SHOWDOWN — OFFICIAL RULESET
+
+1. GAME OVERVIEW
+
+Lazer Showdown is a two-player (1v1) tactical board game played on an 8×8 grid. The game combines positional strategy, controlled randomness, and laser-based interactions using fixed mirror patterns on the board.
+
+The game is played between an ATTACKER and a DEFENDER over two SETS, each consisting of three ROUNDS.
+
+
+---
+
+2. COMPONENTS
+
+BOARD: 8×8 grid with a fixed mirror pattern
+
+DICE: Two standard six-sided dice
+
+PIECES (per game):
+
+1 × LAZER PIECE
+
+3 × POINT PIECES:
+
+20-Point Piece
+
+30-Point Piece
+
+50-Point Piece
+
+
+
+MIRRORS: Double-sided diagonal mirrors mounted on fixed stands (part of the board pattern)
+
+
+
+---
+
+3. BOARD PATTERN
+
+Each board contains a pre-defined mirror pattern.
+
+The BOARD PATTERN remains unchanged for the entire duration of a GAME.
+
+Mirror patterns:
+
+Are not required to be symmetric
+
+Differ between the two boards in the room
+
+Are changed only after the midday break
+
+
+Mirrors reflect the laser according to their orientation.
+
+
+
+---
+
+4. TOSS AND ROLE ASSIGNMENT
+
+1. Each player is given one die.
+
+
+2. Both dice are rolled simultaneously on the board.
+
+
+3. The player with the higher roll wins the TOSS.
+
+
+4. The TOSS winner chooses their role:
+
+ATTACKER, or
+
+DEFENDER
+
+
+
+
+
+---
+
+5. INITIAL SETUP
+
+1. The DEFENDER places all three POINT PIECES on the board:
+
+Anywhere on the grid
+
+Except the four corner squares
+
+
+
+2. The ATTACKER places the LAZER PIECE:
+
+On any one corner square
+
+Facing any initial direction
+
+
+
+
+After setup, the game begins with SET 1, ROUND 1.
+
+
+---
+
+6. GAME STRUCTURE
+
+GAME → 2 SETS
+
+SET → 3 ROUNDS
+
+ROUND → 2 ROLLS:
+
+1. DEFENDER’S ROLL
+
+
+2. ATTACKER’S ROLL
+
+
+
+
+A ROUND is complete only after both players have taken one roll each.
+
+
+---
+
+7. DICE AND ACTIONS
+
+On their ROLL, a player rolls both dice.
+
+The total value rolled determines the number of ACTIONS the player may perform.
+
+Each ACTION costs exactly 1 count.
+
+
+Allowed ACTIONS
+
+1. MOVE
+
+Move one square
+
+Horizontal or vertical only
+
+Diagonal movement is not allowed
+
+
+
+2. TURN
+
+Rotate the LAZER PIECE
+
+Clockwise or anticlockwise
+
+
+
+3. LAZER PRESS
+
+Activates the laser beam from the LAZER PIECE
+
+
+
+
+Actions may be taken in any order during the roll.
+
+Unused action counts are forfeited.
+
+
+---
+
+8. LASER AND CAPTURE MECHANIC
+
+When LAZER PRESS is used:
+
+The laser travels in a straight line
+
+Reflects off mirrors according to their orientation
+
+Stops when blocked or exits the board
+
+
+If the laser beam hits a POINT PIECE, that piece is CAPTURED and removed from the board.
+
+
+
+---
+
+9. OBJECTIVES
+
+ATTACKER
+
+Capture POINT PIECES using the laser
+
+Accumulate the highest possible score
+
+
+DEFENDER
+
+Prevent or delay capture of POINT PIECES
+
+Force failed challenges
+
+
+
+---
+
+10. SET COMPLETION
+
+A SET ends when either:
+
+All POINT PIECES are captured, or
+
+All ROUNDS of the SET are completed
+
+
+
+---
+
+11. CHALLENGE MECHANIC
+
+If all POINT PIECES are captured before the SET ends, the ATTACKER may declare a CHALLENGE.
+
+Challenge Procedure
+
+1. The ATTACKER selects one previously captured POINT PIECE to challenge.
+
+
+2. A TOSS is conducted using one die per player.
+
+
+3. If the ATTACKER wins the toss:
+
+The DEFENDER places all POINT PIECES on the board at positions of their choice
+
+The LAZER PIECE remains unmoved
+
+The SET continues from the next roll
+
+
+
+4. If the ATTACKER loses the toss, the challenge is immediately lost.
+
+
+
+Challenge Outcome
+
+If the challenged POINT PIECE is captured again:
+
+Its point value is added to the ATTACKER’S score
+
+
+If the challenged POINT PIECE is not captured before the SET ends:
+
+No points are added or deducted
+
+
+If the ATTACKER loses the challenge toss:
+
+The point value of the challenged piece is deducted from the ATTACKER’S score
+
+
+
+Multiple challenges may occur within a SET if conditions allow.
+
+
+---
+
+12. END OF GAME
+
+The GAME ends after both SETS are completed.
+
+The player with the higher total score wins.
+
+In case of a tie, the game is declared a DRAW.
