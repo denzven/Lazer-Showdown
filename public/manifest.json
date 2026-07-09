@@ -1,0 +1,9 @@
+{
+  "short_name": "LazerShowdown",
+  "name": "Lazer Showdown WebRTC",
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#07080e",
+  "background_color": "#07080e",
+  "orientation": "any"
+}

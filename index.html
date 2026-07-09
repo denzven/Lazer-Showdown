@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Play Lazer Showdown: A futuristic, real-time peer-to-peer WebRTC laser reflection strategy board game. Host or join rooms instantly with room codes." />
+    <title>Lazer Showdown - P2P Multiplayer Laser Strategy Game</title>
+    <style>
+      .preloader-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: #040508;
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        z-index: 99999;
+        transition: opacity 0.4s ease, visibility 0.4s ease;
+      }
+      .preloader-overlay.fade-out {
+        opacity: 0;
+        visibility: hidden;
+      }
+      .preloader-content {
+        text-align: center;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 16px;
+      }
+      .preloader-spinner {
+        width: 50px;
+        height: 50px;
+        border: 3px solid rgba(0, 240, 255, 0.1);
+        border-top-color: #00f0ff;
+        border-radius: 50%;
+        animation: preloaderSpin 1s cubic-bezier(0.5, 0.1, 0.5, 0.9) infinite;
+        box-shadow: 0 0 15px rgba(0, 240, 255, 0.2);
+      }
+      .preloader-title {
+        font-family: monospace, sans-serif;
+        color: #ffffff;
+        font-size: 1.5rem;
+        font-weight: 800;
+        letter-spacing: 0.15em;
+        margin: 0;
+        text-shadow: 0 0 10px rgba(0, 240, 255, 0.2);
+      }
+      .preloader-subtitle {
+        font-family: sans-serif;
+        color: #70758a;
+        font-size: 0.8rem;
+        letter-spacing: 0.05em;
+        margin: 0;
+      }
+      @keyframes preloaderSpin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+    </style>
+  </head>
+  <body>
+    <!-- Preloader Overlay -->
+    <div id="app-preloader" class="preloader-overlay">
+      <div class="preloader-content">
+        <div class="preloader-spinner"></div>
+        <h1 class="preloader-title">LAZER SHOWDOWN</h1>
+        <p class="preloader-subtitle">Loading P2P Environment...</p>
+      </div>
+    </div>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

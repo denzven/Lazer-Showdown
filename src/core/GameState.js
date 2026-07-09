@@ -1,0 +1,517 @@
+import { 
+  BOARD_SIZE, 
+  evaluateBoardState, 
+  validatePlacement, 
+  validateMovement,
+  getInitialBoard,
+  BLOCK_TYPES,
+  traceLaserBeam
+} from './Ruleset';
+
+function checkPlayActionValidity(phase, hasRolledDice, actionPoints, roleRed, player, turnPlayer) {
+  if (phase !== 'playing') {
+    return 'Actions are disabled outside the playing phase.';
+  }
+  if (!hasRolledDice) {
+    return 'You must roll the dice before performing actions.';
+  }
+  if (actionPoints <= 0) {
+    return 'No Action Points remaining.';
+  }
+
+  const activeRole = roleRed === 'attacker' ? (player === 'red' ? 'attacker' : 'defender') : (player === 'red' ? 'defender' : 'attacker');
+  if (activeRole !== turnPlayer) {
+    return `It is not your turn! Current turn: ${turnPlayer.toUpperCase()}`;
+  }
+  return null;
+}
+
+function endSetState(board, currentSet, scores, roleRed, dice) {
+  if (currentSet === 1) {
+    const nextRoleRed = roleRed === 'attacker' ? 'defender' : 'attacker';
+    const nextRoleBlue = nextRoleRed === 'attacker' ? 'defender' : 'attacker';
+    const nextBoard = getInitialBoard();
+
+    const attPlayer = nextRoleRed === 'attacker' ? 'RED' : 'BLUE';
+    const defPlayer = nextRoleRed === 'defender' ? 'RED' : 'BLUE';
+
+    return {
+      board: nextBoard,
+      phase: 'setup-defender',
+      set: 2,
+      round: 1,
+      roleRed: nextRoleRed,
+      roleBlue: nextRoleBlue,
+      turnPlayer: 'defender',
+      actionPoints: 0,
+      hasRolledDice: false,
+      scores,
+      capturedPieces: [],
+      challengeActive: false,
+      challengedPiece: null,
+      tossRolls: { red: null, blue: null },
+      tossWinner: null,
+      challengeTossRolls: { red: null, blue: null },
+      logs: ['Set 1 complete. Swapping roles for Set 2!', `New Attacker: ${attPlayer}, Defender: ${defPlayer}. Defender placing point pieces.`]
+    };
+  } else {
+    const redScore = scores.red;
+    const blueScore = scores.blue;
+    const winner = redScore > blueScore ? 'red' : blueScore > redScore ? 'blue' : 'draw';
+    const winLog = winner === 'draw' ? "Game Over! It's a DRAW!" : `Game Over! WINNER: ${winner.toUpperCase()} (${scores[winner]} pts vs ${scores[winner === 'red' ? 'blue' : 'red']} pts)!`;
+    return {
+      board,
+      phase: 'game-over',
+      set: 2,
+      round: 3,
+      roleRed,
+      roleBlue: roleRed === 'attacker' ? 'defender' : 'attacker',
+      scores,
+      winner,
+      logs: [winLog],
+      turnPlayer: 'defender',
+      actionPoints: 0,
+      hasRolledDice: false,
+      capturedPieces: [],
+      challengeActive: false,
+      challengedPiece: null,
+      tossRolls: { red: null, blue: null },
+      tossWinner: null,
+      challengeTossRolls: { red: null, blue: null }
+    };
+  }
+}
+
+export function applySandboxAction(board, action, player, context = {}) {
+  const { type } = action;
+  let nextBoard = JSON.parse(JSON.stringify(board));
+
+  const phase = context.phase || 'toss';
+  const roleRed = context.roleRed || null;
+  const roleBlue = context.roleBlue || null;
+  const set = context.set || 1;
+  const round = context.round || 1;
+  const turnPlayer = context.turnPlayer || 'defender';
+  const actionPoints = context.actionPoints || 0;
+  const hasRolledDice = context.hasRolledDice || false;
+  const scores = context.scores ? { ...context.scores } : { red: 0, blue: 0 };
+  const capturedPieces = context.capturedPieces ? [...context.capturedPieces] : [];
+  const challengeActive = context.challengeActive || false;
+  const challengedPiece = context.challengedPiece || null;
+  
+  let nextPhase = phase;
+  let nextRoleRed = roleRed;
+  let nextRoleBlue = roleBlue;
+  let nextSet = set;
+  let nextRound = round;
+  let nextTurnPlayer = turnPlayer;
+  let nextActionPoints = actionPoints;
+  let nextHasRolledDice = hasRolledDice;
+  let nextScores = scores;
+  let nextCapturedPieces = capturedPieces;
+  let nextChallengeActive = challengeActive;
+  let nextChallengedPiece = challengedPiece;
+  let nextTossRolls = context.tossRolls || { red: null, blue: null };
+  let nextTossWinner = context.tossWinner || null;
+  let nextChallengeTossRolls = context.challengeTossRolls || { red: null, blue: null };
+  let nextDice = context.dice ? { ...context.dice } : { values: [1, 1], isRolling: false, lastRoller: null };
+
+  const attackerPlayer = roleRed === 'attacker' ? 'red' : 'blue';
+  const defenderPlayer = roleRed === 'defender' ? 'red' : 'blue';
+  const actor = player ? player.toUpperCase() : 'SYSTEM';
+
+  let logsList = [];
+
+  if (type === 'toss-roll') {
+    const rVal = action.values.red;
+    const bVal = action.values.blue;
+    nextTossRolls = { red: rVal, blue: bVal };
+
+    if (rVal === bVal) {
+      nextPhase = 'toss';
+      nextRoleRed = null;
+      nextRoleBlue = null;
+      logsList.push('Toss roll was a tie! Roll again.');
+    } else {
+      nextTossWinner = rVal > bVal ? 'red' : 'blue';
+      nextPhase = 'role-selection';
+      logsList.push(`Toss won by ${nextTossWinner.toUpperCase()} (Red: ${rVal}, Blue: ${bVal}). Choose Role!`);
+    }
+  }
+
+  else if (type === 'toss-select-role') {
+    const selected = action.role;
+    if (nextTossWinner === 'red') {
+      nextRoleRed = selected;
+      nextRoleBlue = selected === 'attacker' ? 'defender' : 'attacker';
+    } else {
+      nextRoleBlue = selected;
+      nextRoleRed = selected === 'attacker' ? 'defender' : 'attacker';
+    }
+    nextPhase = 'setup-defender';
+    const attPlayer = nextRoleRed === 'attacker' ? 'RED' : 'BLUE';
+    const defPlayer = nextRoleRed === 'defender' ? 'RED' : 'BLUE';
+    logsList.push(`Roles selected. Attacker: ${attPlayer}, Defender: ${defPlayer}. Defender placing 3 point pieces.`);
+  }
+
+  else if (type === 'place') {
+    const { pieceType, r, c } = action;
+    const validation = validatePlacement(nextBoard, r, c, pieceType);
+    if (!validation.valid) return { board, error: validation.error };
+
+    if (phase === 'setup-defender' || phase === 'challenge-setup') {
+      if (player !== defenderPlayer) {
+        return { board, error: 'Only the DEFENDER can place point pieces.' };
+      }
+      nextBoard[r][c] = {
+        type: pieceType,
+        rotation: 0,
+        player: defenderPlayer
+      };
+
+      let placedCount = 0;
+      for (let row = 0; row < BOARD_SIZE; row++) {
+        for (let col = 0; col < BOARD_SIZE; col++) {
+          const cell = nextBoard[row][col];
+          if (cell && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(cell.type)) {
+            placedCount++;
+          }
+        }
+      }
+
+      if (placedCount === 3) {
+        if (phase === 'challenge-setup') {
+          nextPhase = 'playing';
+          logsList.push('Defender completed challenge setup. Set continues from next roll!');
+        } else {
+          nextPhase = 'setup-attacker';
+          logsList.push('Defender setup complete! Attacker placing LAZER piece on a corner square.');
+        }
+      } else {
+        logsList.push(`Defender placed ${pieceType.split('-')[1]} point piece. (${placedCount}/3 placed)`);
+      }
+    } 
+    
+    else if (phase === 'setup-attacker') {
+      if (player !== attackerPlayer) {
+        return { board, error: 'Only the ATTACKER can place the LAZER piece.' };
+      }
+      nextBoard[r][c] = {
+        type: BLOCK_TYPES.BLOCK_LAZER,
+        rotation: action.rotation || 0,
+        player: attackerPlayer
+      };
+
+      nextPhase = 'playing';
+      nextRound = 1;
+      nextTurnPlayer = 'defender';
+      nextHasRolledDice = false;
+      nextActionPoints = 0;
+      logsList.push('Attacker placed Lazer piece. Setup complete! Set 1 Round 1 starts. Defender rolls first.');
+    }
+  }
+
+  else if (type === 'start-roll') {
+    nextDice.isRolling = true;
+    nextDice.lastRoller = player;
+    logsList.push(`${player.toUpperCase()} is rolling the dice...`);
+  }
+
+  else if (type === 'end-roll') {
+    nextDice.isRolling = false;
+    nextDice.values = action.values || [1, 1];
+    nextDice.lastRoller = player;
+
+    nextActionPoints = nextDice.values[0] + nextDice.values[1];
+    nextHasRolledDice = true;
+    logsList.push(`${player.toUpperCase()} rolled: ${nextDice.values[0]} & ${nextDice.values[1]} (Action Points: ${nextActionPoints}).`);
+  }
+
+  else if (type === 'move') {
+    const checkErr = checkPlayActionValidity(phase, hasRolledDice, actionPoints, roleRed, player, turnPlayer);
+    if (checkErr) return { board, error: checkErr };
+
+    const { fromR, fromC, toR, toC } = action;
+    const validation = validateMovement(nextBoard, fromR, fromC, toR, toC, turnPlayer);
+    if (!validation.valid) return { board, error: validation.error };
+
+    const piece = nextBoard[fromR][fromC];
+    nextBoard[fromR][fromC] = null;
+    nextBoard[toR][toC] = piece;
+
+    nextActionPoints -= 1;
+  } 
+  
+  else if (type === 'rotate') {
+    const checkErr = checkPlayActionValidity(phase, hasRolledDice, actionPoints, roleRed, player, turnPlayer);
+    if (checkErr) return { board, error: checkErr };
+
+    let lazerPos = null;
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        const cell = nextBoard[r][c];
+        if (cell && cell.type === BLOCK_TYPES.BLOCK_LAZER) {
+          lazerPos = { r, c };
+          break;
+        }
+      }
+    }
+
+    if (!lazerPos) return { board, error: 'LAZER piece not found.' };
+    const block = nextBoard[lazerPos.r][lazerPos.c];
+
+    const dir = action.dir || 'cw';
+    let newRot = block.rotation || 0;
+    if (dir === 'cw') {
+      newRot = (newRot + 90) % 360;
+    } else {
+      newRot = (newRot - 90 + 360) % 360;
+    }
+
+    nextBoard[lazerPos.r][lazerPos.c] = {
+      ...block,
+      rotation: newRot
+    };
+
+    nextActionPoints -= 1;
+  } 
+  
+  else if (type === 'laser-press') {
+    const checkErr = checkPlayActionValidity(phase, hasRolledDice, actionPoints, roleRed, player, turnPlayer);
+    if (checkErr) return { board, error: checkErr };
+
+    let lazerPos = null;
+    let lazerDir = 0;
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        const cell = nextBoard[r][c];
+        if (cell && cell.type === BLOCK_TYPES.BLOCK_LAZER) {
+          lazerPos = { r, c };
+          lazerDir = cell.rotation || 0;
+          break;
+        }
+      }
+    }
+
+    if (!lazerPos) return { board, error: 'LAZER piece not found.' };
+
+    const trace = traceLaserBeam(nextBoard, lazerPos, lazerDir);
+    const hit = trace.hitPiece;
+
+    if (hit && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(hit.cell.type)) {
+      const capturedType = hit.cell.type;
+      nextBoard[hit.r][hit.c] = null;
+      nextCapturedPieces.push(capturedType);
+
+      let pts = 0;
+      if (capturedType === BLOCK_TYPES.BLOCK_20) pts = 20;
+      else if (capturedType === BLOCK_TYPES.BLOCK_30) pts = 30;
+      else if (capturedType === BLOCK_TYPES.BLOCK_50) pts = 50;
+
+      nextScores[attackerPlayer] += pts;
+      logsList.push(`Laser captured ${capturedType.split('-')[1]} point piece at (${hit.r}, ${hit.c})! (+${pts} pts)`);
+    } else {
+      logsList.push('Laser fired but missed.');
+    }
+
+    nextActionPoints -= 1;
+
+    let pointPiecesRemaining = 0;
+    for (let row = 0; row < BOARD_SIZE; row++) {
+      for (let col = 0; col < BOARD_SIZE; col++) {
+        const cell = nextBoard[row][col];
+        if (cell && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(cell.type)) {
+          pointPiecesRemaining++;
+        }
+      }
+    }
+
+    if (pointPiecesRemaining === 0) {
+      nextPhase = 'challenge-declaration';
+      nextActionPoints = 0;
+      nextHasRolledDice = false;
+      logsList.push('All point pieces captured! Attacker can choose to declare a CHALLENGE.');
+    }
+  }
+
+  else if (type === 'end-turn') {
+    nextActionPoints = 0;
+    nextHasRolledDice = false;
+
+    if (turnPlayer === 'defender') {
+      nextTurnPlayer = 'attacker';
+      logsList.push("Defender ended turn. Attacker's turn to roll.");
+    } else {
+      if (round < 3) {
+        nextRound = round + 1;
+        nextTurnPlayer = 'defender';
+        logsList.push(`Round completed. Starting Round ${nextRound}. Defender's turn to roll.`);
+      } else {
+        const setOutcome = endSetState(nextBoard, set, nextScores, roleRed, nextDice);
+        nextBoard = setOutcome.board;
+        nextPhase = setOutcome.phase;
+        nextSet = setOutcome.set;
+        nextRound = setOutcome.round;
+        nextRoleRed = setOutcome.roleRed;
+        nextRoleBlue = setOutcome.roleBlue;
+        nextTurnPlayer = setOutcome.turnPlayer;
+        nextActionPoints = setOutcome.actionPoints;
+        nextHasRolledDice = setOutcome.hasRolledDice;
+        nextScores = setOutcome.scores;
+        nextCapturedPieces = setOutcome.capturedPieces;
+        nextChallengeActive = setOutcome.challengeActive;
+        nextChallengedPiece = setOutcome.challengedPiece;
+        nextTossRolls = setOutcome.tossRolls;
+        nextTossWinner = setOutcome.tossWinner;
+        nextChallengeTossRolls = setOutcome.challengeTossRolls;
+        logsList.push(...setOutcome.logs);
+      }
+    }
+  }
+
+  else if (type === 'declare-challenge') {
+    const declare = action.declare;
+    if (!declare) {
+      logsList.push('Attacker declined challenge. Ending set.');
+      const setOutcome = endSetState(nextBoard, set, nextScores, roleRed, nextDice);
+      nextBoard = setOutcome.board;
+      nextPhase = setOutcome.phase;
+      nextSet = setOutcome.set;
+      nextRound = setOutcome.round;
+      nextRoleRed = setOutcome.roleRed;
+      nextRoleBlue = setOutcome.roleBlue;
+      nextTurnPlayer = setOutcome.turnPlayer;
+      nextActionPoints = setOutcome.actionPoints;
+      nextHasRolledDice = setOutcome.hasRolledDice;
+      nextScores = setOutcome.scores;
+      nextCapturedPieces = setOutcome.capturedPieces;
+      nextChallengeActive = setOutcome.challengeActive;
+      nextChallengedPiece = setOutcome.challengedPiece;
+      nextTossRolls = setOutcome.tossRolls;
+      nextTossWinner = setOutcome.tossWinner;
+      nextChallengeTossRolls = setOutcome.challengeTossRolls;
+      logsList.push(...setOutcome.logs);
+    } else {
+      nextChallengeActive = true;
+      nextChallengedPiece = action.pieceType;
+      nextPhase = 'challenge-toss';
+      logsList.push(`Attacker declared a challenge on ${nextChallengedPiece.split('-')[1]} block. Roll for Challenge Toss!`);
+    }
+  }
+
+  else if (type === 'challenge-roll') {
+    const rVal = action.values.red;
+    const bVal = action.values.blue;
+    nextChallengeTossRolls = { red: rVal, blue: bVal };
+
+    if (rVal === bVal) {
+      logsList.push('Challenge roll was a tie! Roll again.');
+    } else {
+      const attRoll = attackerPlayer === 'red' ? rVal : bVal;
+      const defRoll = defenderPlayer === 'red' ? rVal : bVal;
+
+      if (attRoll > defRoll) {
+        nextPhase = 'challenge-setup';
+        for (let r = 0; r < BOARD_SIZE; r++) {
+          for (let c = 0; c < BOARD_SIZE; c++) {
+            const cell = nextBoard[r][c];
+            if (cell && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(cell.type)) {
+              nextBoard[r][c] = null;
+            }
+          }
+        }
+        logsList.push(`Attacker won challenge toss (${attRoll} vs ${defRoll})! Defender must place point pieces.`);
+      } else {
+        let pts = 0;
+        if (challengedPiece === BLOCK_TYPES.BLOCK_20) pts = 20;
+        else if (challengedPiece === BLOCK_TYPES.BLOCK_30) pts = 30;
+        else if (challengedPiece === BLOCK_TYPES.BLOCK_50) pts = 50;
+
+        nextScores[attackerPlayer] -= pts;
+        logsList.push(`Attacker lost challenge toss (${attRoll} vs ${defRoll})! Deducted ${pts} pts.`);
+
+        const setOutcome = endSetState(nextBoard, set, nextScores, roleRed, nextDice);
+        nextBoard = setOutcome.board;
+        nextPhase = setOutcome.phase;
+        nextSet = setOutcome.set;
+        nextRound = setOutcome.round;
+        nextRoleRed = setOutcome.roleRed;
+        nextRoleBlue = setOutcome.roleBlue;
+        nextTurnPlayer = setOutcome.turnPlayer;
+        nextActionPoints = setOutcome.actionPoints;
+        nextHasRolledDice = setOutcome.hasRolledDice;
+        nextScores = setOutcome.scores;
+        nextCapturedPieces = setOutcome.capturedPieces;
+        nextChallengeActive = setOutcome.challengeActive;
+        nextChallengedPiece = setOutcome.challengedPiece;
+        nextTossRolls = setOutcome.tossRolls;
+        nextTossWinner = setOutcome.tossWinner;
+        nextChallengeTossRolls = setOutcome.challengeTossRolls;
+        logsList.push(...setOutcome.logs);
+      }
+    }
+  }
+
+  else if (type === 'clear') {
+    return getInitialState();
+  }
+
+  const sideEffects = evaluateBoardState(nextBoard, action, actor, context);
+
+  return {
+    board: nextBoard,
+    phase: nextPhase,
+    set: nextSet,
+    round: nextRound,
+    roleRed: nextRoleRed,
+    roleBlue: nextRoleBlue,
+    turnPlayer: nextTurnPlayer,
+    actionPoints: nextActionPoints,
+    hasRolledDice: nextHasRolledDice,
+    scores: nextScores,
+    capturedPieces: nextCapturedPieces,
+    challengeActive: nextChallengeActive,
+    challengedPiece: nextChallengedPiece,
+    tossRolls: nextTossRolls,
+    tossWinner: nextTossWinner,
+    challengeTossRolls: nextChallengeTossRolls,
+    dice: nextDice,
+    customData: sideEffects.customData,
+    logs: logsList,
+    error: null
+  };
+}
+
+export function getInitialState() {
+  const emptyBoard = getInitialBoard();
+  const initialSideEffects = evaluateBoardState(emptyBoard, null, 'system');
+
+  return {
+    board: emptyBoard,
+    phase: 'toss',
+    set: 1,
+    round: 1,
+    roleRed: null,
+    roleBlue: null,
+    tossRolls: { red: null, blue: null },
+    tossWinner: null,
+    tossDecisionPending: false,
+    turnPlayer: 'defender',
+    actionPoints: 0,
+    hasRolledDice: false,
+    dice: {
+      values: [1, 1],
+      isRolling: false,
+      lastRoller: null
+    },
+    scores: { red: 0, blue: 0 },
+    winner: null,
+    logs: ['Game initialized. Roll for Toss!'],
+    customData: initialSideEffects.customData,
+    error: null,
+    capturedPieces: [],
+    challengeActive: false,
+    challengedPiece: null,
+    challengeTossRolls: { red: null, blue: null }
+  };
+}

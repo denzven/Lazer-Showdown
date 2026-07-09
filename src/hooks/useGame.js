@@ -1,0 +1,326 @@
+import { useState, useEffect, useCallback } from 'react';
+import {
+  getInitialState,
+  applySandboxAction
+} from '../core/GameState';
+import { getBotSetupAction, getBotPlayAction } from '../core/BotEngine';
+
+export function useGame(network, mode, difficulty) {
+  const [gameState, setGameState] = useState(getInitialState);
+
+  const { role, status, lastMessage, sendPayload } = network;
+
+  // 1. Reconcile complete state on incoming WebRTC payloads
+  useEffect(() => {
+    if (!lastMessage) return;
+
+    const { type, payload } = lastMessage;
+
+    if (type === 'SYNC_GAME') {
+      setGameState({
+        board: payload.board,
+        phase: payload.phase,
+        set: payload.set,
+        round: payload.round,
+        roleRed: payload.roleRed,
+        roleBlue: payload.roleBlue,
+        turnPlayer: payload.turnPlayer,
+        actionPoints: payload.actionPoints,
+        hasRolledDice: payload.hasRolledDice,
+        scores: payload.scores,
+        winner: payload.winner,
+        logs: payload.logs,
+        customData: payload.customData,
+        capturedPieces: payload.capturedPieces,
+        challengeActive: payload.challengeActive,
+        challengedPiece: payload.challengedPiece,
+        tossRolls: payload.tossRolls,
+        tossWinner: payload.tossWinner,
+        challengeTossRolls: payload.challengeTossRolls,
+        dice: payload.dice || { values: [1, 1], isRolling: false, lastRoller: null },
+        error: null
+      });
+    }
+  }, [lastMessage]);
+
+  // 2. Host synchronizes full state with Guest upon connection
+  useEffect(() => {
+    if (status === 'connected' && role === 'red') {
+      sendPayload('SYNC_GAME', gameState);
+    }
+  }, [status, role, sendPayload]);
+
+  /**
+   * Unified dispatcher to execute actions locally and broadcast state changes over WebRTC.
+   * Enables seamless integration of future action types without hook signature updates.
+   * 
+   * @param {Object} action - Action details: { type, ...payload }
+   */
+  const executeAction = useCallback((action) => {
+    if (status !== 'connected') return;
+
+    setGameState((curr) => {
+      // Determine the acting player based on the active phase
+      const actor = (mode === 'local' || mode === 'bot') 
+        ? (action.player || (() => {
+            if (curr.phase === 'setup-defender' || curr.phase === 'challenge-setup') {
+              return curr.roleRed === 'defender' ? 'red' : 'blue';
+            }
+            if (curr.phase === 'setup-attacker') {
+              return curr.roleRed === 'attacker' ? 'red' : 'blue';
+            }
+            return curr.roleRed === curr.turnPlayer ? 'red' : 'blue';
+          })())
+        : role;
+
+      // Execute transaction with the ruleset evaluation pipeline
+      const res = applySandboxAction(curr.board, action, actor, {
+        phase: curr.phase,
+        roleRed: curr.roleRed,
+        roleBlue: curr.roleBlue,
+        set: curr.set,
+        round: curr.round,
+        turnPlayer: curr.turnPlayer,
+        actionPoints: curr.actionPoints,
+        hasRolledDice: curr.hasRolledDice,
+        scores: curr.scores,
+        capturedPieces: curr.capturedPieces,
+        challengeActive: curr.challengeActive,
+        challengedPiece: curr.challengedPiece,
+        tossRolls: curr.tossRolls,
+        tossWinner: curr.tossWinner,
+        challengeTossRolls: curr.challengeTossRolls,
+        dice: curr.dice,
+        enableTurns: true
+      });
+
+      if (!res.error) {
+        const nextState = {
+          board: res.board,
+          phase: res.phase,
+          set: res.set,
+          round: res.round,
+          roleRed: res.roleRed,
+          roleBlue: res.roleBlue,
+          turnPlayer: res.turnPlayer,
+          actionPoints: res.actionPoints,
+          hasRolledDice: res.hasRolledDice,
+          scores: res.scores,
+          winner: res.winner,
+          logs: [...curr.logs, ...res.logs],
+          customData: res.customData,
+          capturedPieces: res.capturedPieces,
+          challengeActive: res.challengeActive,
+          challengedPiece: res.challengedPiece,
+          tossRolls: res.tossRolls,
+          tossWinner: res.tossWinner,
+          challengeTossRolls: res.challengeTossRolls,
+          dice: res.dice,
+          error: null
+        };
+        // Broadcast the complete synchronized state
+        sendPayload('SYNC_GAME', nextState);
+        return nextState;
+      } else {
+        return { ...curr, error: res.error };
+      }
+    });
+  }, [status, role, sendPayload, mode]);
+
+  // 3. Computer Opponent Bot turn loop (Official Ruleset Sequence)
+  useEffect(() => {
+    if (mode !== 'bot' || gameState.winner) return;
+
+    const botPlayer = 'blue';
+    const isBotAttacker = gameState.roleBlue === 'attacker';
+    const isBotDefender = gameState.roleBlue === 'defender';
+
+    // A. Setup Placements
+    if (gameState.phase === 'setup-defender' && isBotDefender) {
+      const timer = setTimeout(() => {
+        const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer);
+        if (action) executeAction({ ...action, player: botPlayer });
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+
+    if (gameState.phase === 'setup-attacker' && isBotAttacker) {
+      const timer = setTimeout(() => {
+        const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer);
+        if (action) executeAction({ ...action, player: botPlayer });
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+
+    if (gameState.phase === 'challenge-setup' && isBotDefender) {
+      const timer = setTimeout(() => {
+        const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer);
+        if (action) executeAction({ ...action, player: botPlayer });
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+
+    // B. Gameplay turn
+    const isBotActiveTurn = gameState.phase === 'playing' && (
+      (gameState.turnPlayer === 'attacker' && isBotAttacker) ||
+      (gameState.turnPlayer === 'defender' && isBotDefender)
+    );
+
+    if (isBotActiveTurn) {
+      // Step 1: Roll dice if not rolled yet
+      if (!gameState.hasRolledDice && !gameState.dice.isRolling) {
+        const timer = setTimeout(() => {
+          executeAction({ type: 'start-roll', player: botPlayer });
+          setTimeout(() => {
+            const v1 = Math.floor(Math.random() * 6) + 1;
+            const v2 = Math.floor(Math.random() * 6) + 1;
+            executeAction({ type: 'end-roll', values: [v1, v2], player: botPlayer });
+          }, 600);
+        }, 1000);
+        return () => clearTimeout(timer);
+      }
+
+      // Step 2: Perform actions step-by-step
+      if (gameState.hasRolledDice && gameState.actionPoints > 0 && !gameState.dice.isRolling) {
+        const timer = setTimeout(() => {
+          const botRole = isBotAttacker ? 'attacker' : 'defender';
+          const action = getBotPlayAction(gameState.board, botRole, gameState.actionPoints, difficulty);
+          if (action) {
+            executeAction({ ...action, player: botPlayer });
+          } else {
+            // End turn if no useful moves are found or safe
+            executeAction({ type: 'end-turn', player: botPlayer });
+          }
+        }, 900); // Step delay
+        return () => clearTimeout(timer);
+      }
+    }
+
+    // C. Challenge Declaration
+    if (gameState.phase === 'challenge-declaration' && isBotAttacker) {
+      const timer = setTimeout(() => {
+        const captured = gameState.capturedPieces;
+        const target = captured.includes('block-50') 
+          ? 'block-50' 
+          : captured.includes('block-30') 
+            ? 'block-30' 
+            : 'block-20';
+        executeAction({ type: 'declare-challenge', declare: true, pieceType: target, player: botPlayer });
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+
+    // D. Challenge Toss Roll
+    const isBotChallengeTossActive = gameState.phase === 'challenge-toss' && gameState.challengeTossRolls.blue === null;
+    if (isBotChallengeTossActive) {
+      if (gameState.challengeTossRolls.red !== null) {
+        const timer = setTimeout(() => {
+          const redVal = gameState.challengeTossRolls.red;
+          const blueVal = Math.floor(Math.random() * 6) + 1;
+          executeAction({ type: 'challenge-roll', values: { red: redVal, blue: blueVal }, player: botPlayer });
+        }, 1000);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [mode, gameState.phase, gameState.turnPlayer, gameState.hasRolledDice, gameState.actionPoints, gameState.dice.isRolling, gameState.winner, gameState.capturedPieces, gameState.challengeTossRolls, difficulty, executeAction]);
+
+  // Dice rolling callback
+  const rollDice = useCallback(() => {
+    if (gameState.dice.isRolling) return;
+    executeAction({ type: 'start-roll' });
+    setTimeout(() => {
+      const v1 = Math.floor(Math.random() * 6) + 1;
+      const v2 = Math.floor(Math.random() * 6) + 1;
+      executeAction({ type: 'end-roll', values: [v1, v2] });
+    }, 600);
+  }, [executeAction, gameState.dice.isRolling]);
+
+  // Backwards-compatible helper shortcuts for Layout.jsx and Grid.jsx
+  const placeBlock = useCallback((type, r, c, rotation = 0) => {
+    executeAction({ type: 'place', pieceType: type, r, c, rotation });
+  }, [executeAction]);
+
+  const moveBlock = useCallback((fromR, fromC, toR, toC) => {
+    executeAction({ type: 'move', fromR, fromC, toR, toC });
+  }, [executeAction]);
+
+  const rotateBlock = useCallback((r, c, dir = 'cw') => {
+    executeAction({ type: 'rotate', r, c, dir });
+  }, [executeAction]);
+
+  const removeBlock = useCallback((r, c) => {
+    executeAction({ type: 'remove', r, c });
+  }, [executeAction]);
+
+  const clearWorkspace = useCallback(() => {
+    executeAction({ type: 'clear' });
+  }, [executeAction]);
+
+  const clearError = useCallback(() => {
+    setGameState(curr => ({ ...curr, error: null }));
+  }, []);
+
+  const rollToss = useCallback(() => {
+    const redVal = Math.floor(Math.random() * 6) + 1;
+    const blueVal = Math.floor(Math.random() * 6) + 1;
+    executeAction({ type: 'toss-roll', values: { red: redVal, blue: blueVal } });
+  }, [executeAction]);
+
+  const selectRole = useCallback((role) => {
+    executeAction({ type: 'toss-select-role', role });
+  }, [executeAction]);
+
+  const rollChallengeToss = useCallback(() => {
+    const redVal = Math.floor(Math.random() * 6) + 1;
+    const blueVal = Math.floor(Math.random() * 6) + 1;
+    executeAction({ type: 'challenge-roll', values: { red: redVal, blue: blueVal } });
+  }, [executeAction]);
+
+  const declareChallenge = useCallback((declare, pieceType) => {
+    executeAction({ type: 'declare-challenge', declare, pieceType });
+  }, [executeAction]);
+
+  const endTurn = useCallback(() => {
+    executeAction({ type: 'end-turn' });
+  }, [executeAction]);
+
+  return {
+    // Game States
+    board: gameState.board,
+    phase: gameState.phase,
+    set: gameState.set,
+    round: gameState.round,
+    roleRed: gameState.roleRed,
+    roleBlue: gameState.roleBlue,
+    turnPlayer: gameState.turnPlayer,
+    actionPoints: gameState.actionPoints,
+    hasRolledDice: gameState.hasRolledDice,
+    scores: gameState.scores,
+    winner: gameState.winner,
+    logs: gameState.logs,
+    customData: gameState.customData,
+    capturedPieces: gameState.capturedPieces,
+    challengeActive: gameState.challengeActive,
+    challengedPiece: gameState.challengedPiece,
+    tossRolls: gameState.tossRolls,
+    tossWinner: gameState.tossWinner,
+    challengeTossRolls: gameState.challengeTossRolls,
+    dice: gameState.dice,
+    error: gameState.error,
+
+    // Methods
+    executeAction,
+    placeBlock,
+    moveBlock,
+    rotateBlock,
+    removeBlock,
+    clearWorkspace,
+    clearError,
+    rollDice,
+    rollToss,
+    selectRole,
+    rollChallengeToss,
+    declareChallenge,
+    endTurn
+  };
+}
