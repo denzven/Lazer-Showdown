@@ -85,7 +85,7 @@ export function getBotSetupAction(board, phase, playerColor, difficulty = 'mediu
       else if (counts[BLOCK_TYPES.BLOCK_50] === 0) nextPieceType = BLOCK_TYPES.BLOCK_50;
     }
 
-    if (!nextPieceType) return null;
+    if (!nextPieceType) return { type: 'confirm-setup' };
 
     const legalCells = [];
     for (let r = 0; r < BOARD_SIZE; r++) {
@@ -97,22 +97,40 @@ export function getBotSetupAction(board, phase, playerColor, difficulty = 'mediu
     }
 
     if (legalCells.length > 0) {
-      let chosenCell = legalCells[Math.floor(Math.random() * legalCells.length)];
-      
-      if (difficulty === 'medium') { // Lizbishmir: center control
-        chosenCell = legalCells.sort((a, b) => {
-          const distA = Math.abs(a.r - 3.5) + Math.abs(a.c - 3.5);
-          const distB = Math.abs(b.r - 3.5) + Math.abs(b.c - 3.5);
-          return distA - distB;
-        })[0];
-      } else if (difficulty === 'hard') { // Shahlzrmir: edge defense
-        chosenCell = legalCells.sort((a, b) => {
-          const distA = Math.abs(a.r - 3.5) + Math.abs(a.c - 3.5);
-          const distB = Math.abs(b.r - 3.5) + Math.abs(b.c - 3.5);
-          return distB - distA;
-        })[0];
+      if (difficulty === 'easy') {
+        // Easy: Random placement
+        let chosenCell = legalCells[Math.floor(Math.random() * legalCells.length)];
+        return { type: 'place', pieceType: nextPieceType, r: chosenCell.r, c: chosenCell.c };
       }
 
+      // Medium & Hard: Analyze the board for cover (mirrors and obstacles block lasers)
+      const sortedCells = legalCells.sort((a, b) => {
+        let coverA = 0; let coverB = 0;
+        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+        
+        dirs.forEach(([dr, dc]) => {
+          const nrA = a.r + dr, ncA = a.c + dc;
+          if (nrA < 0 || nrA >= BOARD_SIZE || ncA < 0 || ncA >= BOARD_SIZE) coverA += 0.5; // Edges offer some cover
+          else if (board[nrA][ncA] !== null) coverA += 1; // Objects offer full cover
+          
+          const nrB = b.r + dr, ncB = b.c + dc;
+          if (nrB < 0 || nrB >= BOARD_SIZE || ncB < 0 || ncB >= BOARD_SIZE) coverB += 0.5;
+          else if (board[nrB][ncB] !== null) coverB += 1;
+        });
+
+        const distA = Math.abs(a.r - 3.5) + Math.abs(a.c - 3.5);
+        const distB = Math.abs(b.r - 3.5) + Math.abs(b.c - 3.5);
+
+        if (difficulty === 'medium') {
+          // Medium mixes cover evaluation with center control
+          return (coverB - coverA) * 2 + (distA - distB);
+        } else {
+          // Hard prioritizes pure cover and edge defense
+          return (coverB - coverA) * 5 + (distB - distA);
+        }
+      });
+
+      const chosenCell = sortedCells[0];
       return { type: 'place', pieceType: nextPieceType, r: chosenCell.r, c: chosenCell.c };
     }
   } 
@@ -122,13 +140,48 @@ export function getBotSetupAction(board, phase, playerColor, difficulty = 'mediu
     const legalCorners = corners.filter(c => validatePlacement(board, c.r, c.c, BLOCK_TYPES.BLOCK_LAZER).valid);
 
     if (legalCorners.length > 0) {
-      const corner = legalCorners[Math.floor(Math.random() * legalCorners.length)];
-      let rotation = 0;
-      if (corner.r === 0 && corner.c === 0) rotation = 90;
-      else if (corner.r === 0 && corner.c === 7) rotation = 180;
-      else if (corner.r === 7 && corner.c === 0) rotation = 0;
-      else if (corner.r === 7 && corner.c === 7) rotation = 270;
-      return { type: 'place', pieceType: BLOCK_TYPES.BLOCK_LAZER, r: corner.r, c: corner.c, rotation };
+      if (difficulty === 'easy') {
+        const corner = legalCorners[Math.floor(Math.random() * legalCorners.length)];
+        let rotation = 0;
+        if (corner.r === 0 && corner.c === 0) rotation = 90;
+        else if (corner.r === 0 && corner.c === 7) rotation = 180;
+        else if (corner.r === 7 && corner.c === 0) rotation = 0;
+        else if (corner.r === 7 && corner.c === 7) rotation = 270;
+        return { type: 'place', pieceType: BLOCK_TYPES.BLOCK_LAZER, r: corner.r, c: corner.c, rotation };
+      }
+
+      // Medium & Hard: Simulate raycasts from every possible corner rotation to find best hit
+      let bestPlacement = null;
+      let bestScore = -1;
+
+      legalCorners.forEach(corner => {
+        const possibleRotations = [];
+        if (corner.r === 0 && corner.c === 0) possibleRotations.push(90, 180);
+        if (corner.r === 0 && corner.c === 7) possibleRotations.push(180, 270);
+        if (corner.r === 7 && corner.c === 0) possibleRotations.push(0, 90);
+        if (corner.r === 7 && corner.c === 7) possibleRotations.push(270, 0);
+
+        possibleRotations.forEach(rot => {
+          const tempBoard = board.map(row => [...row]);
+          tempBoard[corner.r][corner.c] = { type: BLOCK_TYPES.BLOCK_LAZER, rotation: rot };
+          
+          const trace = traceLaserBeam(tempBoard, corner, rot);
+          
+          let score = trace.path.length; // Base score on how far laser goes
+          if (trace.hit === 'piece') score += 1000; // Instakill setup! Highest priority.
+          else if (trace.hit === 'mirror') score += 50; // Using mirrors is good
+          
+          // Introduce slight fuzziness for medium bot so it doesn't ALWAYS pick the perfect spot
+          if (difficulty === 'medium' && Math.random() < 0.2) score -= Math.random() * 50;
+
+          if (score > bestScore) {
+            bestScore = score;
+            bestPlacement = { type: 'place', pieceType: BLOCK_TYPES.BLOCK_LAZER, r: corner.r, c: corner.c, rotation: rot };
+          }
+        });
+      });
+
+      return bestPlacement || { type: 'place', pieceType: BLOCK_TYPES.BLOCK_LAZER, r: legalCorners[0].r, c: legalCorners[0].c, rotation: 0 };
     }
   }
   return null;

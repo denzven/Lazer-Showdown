@@ -26,7 +26,7 @@ function checkPlayActionValidity(phase, hasRolledDice, actionPoints, roleRed, pl
   return null;
 }
 
-function endSetState(board, currentSet, scores, roleRed, dice) {
+function endSetState(board, currentSet, scores, roleRed, dice, context) {
   if (currentSet === 1) {
     const nextRoleRed = roleRed === 'attacker' ? 'defender' : 'attacker';
     const nextRoleBlue = nextRoleRed === 'attacker' ? 'defender' : 'attacker';
@@ -215,13 +215,7 @@ export function applySandboxAction(board, action, player, context = {}) {
 
       const requiredCount = phase === 'challenge-setup' ? 1 : 3;
       if (placedCount === requiredCount) {
-        if (phase === 'challenge-setup') {
-          nextPhase = 'playing';
-          logsList.push('Defender completed challenge setup. Set continues from next roll!');
-        } else {
-          nextPhase = 'setup-attacker';
-          logsList.push('Defender setup complete! Attacker placing LAZER piece on a corner square.');
-        }
+        logsList.push(`Defender placed ${pieceType.split('-')[1]} point piece. (${placedCount}/${requiredCount} placed). Confirm setup when ready.`);
       } else {
         logsList.push(`Defender placed ${pieceType.split('-')[1]} point piece. (${placedCount}/${requiredCount} placed)`);
       }
@@ -231,18 +225,23 @@ export function applySandboxAction(board, action, player, context = {}) {
       if (player !== attackerPlayer) {
         return { board, error: 'Only the ATTACKER can place the LAZER piece.' };
       }
+
+      // Clear any existing LAZER piece so it can be replaced
+      for (let row = 0; row < BOARD_SIZE; row++) {
+        for (let col = 0; col < BOARD_SIZE; col++) {
+          if (nextBoard[row][col] && nextBoard[row][col].type === BLOCK_TYPES.BLOCK_LAZER) {
+            nextBoard[row][col] = null;
+          }
+        }
+      }
+
       nextBoard[r][c] = {
         type: BLOCK_TYPES.BLOCK_LAZER,
         rotation: action.rotation || 0,
         player: attackerPlayer
       };
 
-      nextPhase = 'playing';
-      nextRound = 1;
-      nextTurnPlayer = 'defender';
-      nextHasRolledDice = false;
-      nextActionPoints = 0;
-      logsList.push('Attacker placed Lazer piece. Setup complete! Set 1 Round 1 starts. Defender rolls first.');
+      logsList.push('Attacker placed Lazer piece. Rotate it or confirm setup.');
     }
   }
 
@@ -278,8 +277,12 @@ export function applySandboxAction(board, action, player, context = {}) {
   } 
   
   else if (type === 'rotate') {
-    const checkErr = checkPlayActionValidity(phase, hasRolledDice, actionPoints, roleRed, player, turnPlayer);
-    if (checkErr) return { board, error: checkErr };
+    if (phase !== 'setup-attacker') {
+      const checkErr = checkPlayActionValidity(phase, hasRolledDice, actionPoints, roleRed, player, turnPlayer);
+      if (checkErr) return { board, error: checkErr };
+    } else {
+      if (player !== attackerPlayer) return { board, error: 'Only the ATTACKER can rotate during setup.' };
+    }
 
     let lazerPos = null;
     for (let r = 0; r < BOARD_SIZE; r++) {
@@ -308,8 +311,78 @@ export function applySandboxAction(board, action, player, context = {}) {
       rotation: newRot
     };
 
-    nextActionPoints -= 1;
+    if (phase !== 'setup-attacker') {
+      nextActionPoints -= 1;
+    } else {
+      logsList.push('Attacker rotated the LAZER piece.');
+    }
   } 
+  
+  else if (type === 'remove') {
+    const { r, c } = action;
+    if (phase === 'setup-defender' || phase === 'challenge-setup') {
+      if (player !== defenderPlayer) return { board, error: 'Only the DEFENDER can remove pieces.' };
+      const cell = nextBoard[r][c];
+      if (cell && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(cell.type)) {
+        nextBoard[r][c] = null;
+        logsList.push(`Defender picked up ${cell.type.split('-')[1]} point piece.`);
+      }
+    } else if (phase === 'setup-attacker') {
+      if (player !== attackerPlayer) return { board, error: 'Only the ATTACKER can remove pieces.' };
+      const cell = nextBoard[r][c];
+      if (cell && cell.type === BLOCK_TYPES.BLOCK_LAZER) {
+        nextBoard[r][c] = null;
+        logsList.push('Attacker picked up LAZER piece.');
+      }
+    }
+  }
+
+  else if (type === 'confirm-setup') {
+    if (phase === 'setup-defender' || phase === 'challenge-setup') {
+      if (player !== defenderPlayer) return { board, error: 'Only the DEFENDER can confirm setup.' };
+      
+      let placedCount = 0;
+      for (let row = 0; row < BOARD_SIZE; row++) {
+        for (let col = 0; col < BOARD_SIZE; col++) {
+          const cell = nextBoard[row][col];
+          if (cell && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(cell.type)) {
+            placedCount++;
+          }
+        }
+      }
+      
+      const requiredCount = phase === 'challenge-setup' ? 1 : 3;
+      if (placedCount !== requiredCount) return { board, error: `Must place all ${requiredCount} pieces before confirming.` };
+
+      if (phase === 'challenge-setup') {
+        nextPhase = 'playing';
+        logsList.push('Defender confirmed challenge setup. Set continues from next roll!');
+      } else {
+        nextPhase = 'setup-attacker';
+        logsList.push('Defender setup confirmed! Attacker placing LAZER piece on a corner square.');
+      }
+    }
+    else if (phase === 'setup-attacker') {
+      if (player !== attackerPlayer) return { board, error: 'Only the ATTACKER can confirm setup.' };
+      
+      let hasLazer = false;
+      for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          if (nextBoard[r][c] && nextBoard[r][c].type === BLOCK_TYPES.BLOCK_LAZER) {
+            hasLazer = true; break;
+          }
+        }
+      }
+      if (!hasLazer) return { board, error: 'Place LAZER piece before confirming.' };
+
+      nextPhase = 'playing';
+      nextRound = 1;
+      nextTurnPlayer = 'defender';
+      nextHasRolledDice = false;
+      nextActionPoints = 0;
+      logsList.push(`Attacker setup complete! Set ${set} Round 1 starts. Defender rolls first.`);
+    }
+  }
   
   else if (type === 'laser-press') {
     const checkErr = checkPlayActionValidity(phase, hasRolledDice, actionPoints, roleRed, player, turnPlayer);
@@ -365,7 +438,7 @@ export function applySandboxAction(board, action, player, context = {}) {
       nextPhase = 'challenge-declaration';
       nextActionPoints = 0;
       nextHasRolledDice = false;
-      logsList.push('All point pieces captured! Attacker can choose to declare a CHALLENGE.');
+      logsList.push('All point pieces on the board captured! Attacker can declare a CHALLENGE.');
     }
   }
 
@@ -430,6 +503,7 @@ export function applySandboxAction(board, action, player, context = {}) {
       nextChallengeActive = true;
       nextChallengedPiece = action.pieceType;
       nextPhase = 'challenge-toss';
+      nextChallengeTossRolls = { red: null, blue: null };
       logsList.push(`Attacker declared a challenge on ${nextChallengedPiece.split('-')[1]} block. Roll for Challenge Toss!`);
     }
   }
@@ -483,24 +557,11 @@ export function applySandboxAction(board, action, player, context = {}) {
         nextScores[attackerPlayer] -= pts;
         logsList.push(`Attacker lost challenge toss (${attRoll} vs ${defRoll})! Deducted ${pts} pts.`);
 
-        const setOutcome = endSetState(nextBoard, set, nextScores, roleRed, nextDice, context);
-        nextBoard = setOutcome.board;
-        nextPhase = setOutcome.phase;
-        nextSet = setOutcome.set;
-        nextRound = setOutcome.round;
-        nextRoleRed = setOutcome.roleRed;
-        nextRoleBlue = setOutcome.roleBlue;
-        nextTurnPlayer = setOutcome.turnPlayer;
-        nextActionPoints = setOutcome.actionPoints;
-        nextHasRolledDice = setOutcome.hasRolledDice;
-        nextScores = setOutcome.scores;
-        nextCapturedPieces = setOutcome.capturedPieces;
-        nextChallengeActive = setOutcome.challengeActive;
-        nextChallengedPiece = setOutcome.challengedPiece;
-        nextTossRolls = setOutcome.tossRolls;
-        nextTossWinner = setOutcome.tossWinner;
-        nextChallengeTossRolls = setOutcome.challengeTossRolls;
-        logsList.push(...setOutcome.logs);
+        // Loop back to challenge declaration
+        nextPhase = 'challenge-declaration';
+        nextChallengeTossRolls = { red: null, blue: null };
+        nextChallengedPiece = null;
+        logsList.push('Attacker can declare another challenge or decline to end the set.');
       }
     }
   }

@@ -117,11 +117,16 @@ export default function Layout({ network, game, mode, difficulty }) {
       return keys;
     }
     if (phase === 'challenge-setup') {
+      const hasPlacedChallengedPiece = board.some(row => row.some(cell => cell && cell.type === challengedPiece));
+      if (hasPlacedChallengedPiece) return [];
+      
       if (challengedPiece === 'block-20') return ['BLOCK_20'];
       if (challengedPiece === 'block-30') return ['BLOCK_30'];
       if (challengedPiece === 'block-50') return ['BLOCK_50'];
     }
     if (phase === 'setup-attacker') {
+      const hasPlacedLazer = board.some(row => row.some(cell => cell && cell.type === 'block-lazer'));
+      if (hasPlacedLazer) return [];
       return ['BLOCK_LAZER'];
     }
     return []; // No palette elements during gameplay rounds
@@ -152,6 +157,7 @@ export default function Layout({ network, game, mode, difficulty }) {
 
     if (phase === 'setup-attacker') {
       const isMyTurn = (mode === 'local') ? true : (mode === 'bot' ? (roleRed === 'attacker') : (roleRed === 'attacker' ? role === 'red' : role === 'blue'));
+      
       return (
         <div style={{ background: 'rgba(255, 42, 133, 0.08)', border: '1px solid var(--neon-red)', padding: '10px 16px', borderRadius: '8px', color: 'var(--neon-red)', fontSize: '0.85rem', fontWeight: 'bold', width: '100%', textAlign: 'center', marginBottom: '16px', textShadow: '0 0 4px var(--neon-red-glow)' }}>
           {isMyTurn ? 'ATTACKER SETUP: Drag and place the LAZER Piece on one of the 4 corner squares. Tap it to rotate facing direction.' : 'WAITING: Attacker is placing LAZER piece...'}
@@ -212,8 +218,13 @@ export default function Layout({ network, game, mode, difficulty }) {
             </div>
 
             {canRoll && (
-              <button className={`cyber-button ${btnClass}`} onClick={rollToss} style={{ width: '100%' }}>
+              <button className={`cyber-button ${btnClass}`} onClick={rollToss} style={{ width: '100%', marginBottom: (phase === 'toss' && tossRolls.red === null && tossRolls.blue === null) ? '10px' : '0' }}>
                 {btnText}
+              </button>
+            )}
+            {phase === 'toss' && tossRolls.red === null && tossRolls.blue === null && (
+              <button className="cyber-button" onClick={disconnect} style={{ width: '100%' }}>
+                BACK
               </button>
             )}
             {!canRoll && phase === 'toss' && mode !== 'local' && (
@@ -222,12 +233,12 @@ export default function Layout({ network, game, mode, difficulty }) {
               </p>
             )}
             {!canRoll && phase === 'toss' && mode === 'local' && (
-              <p style={{ fontSize: '0.8rem', color: 'var(--neon-blue)', fontWeight: 'bold' }}>
+              <p style={{ fontSize: '0.8rem', color: 'var(--neon-blue)', fontWeight: 'bold', marginTop: '10px' }}>
                 Rolling...
               </p>
             )}
             {phase === 'toss-result' && (
-              <p style={{ fontSize: '0.9rem', color: 'var(--neon-blue)', fontWeight: 'bold' }}>
+              <p style={{ fontSize: '0.9rem', color: 'var(--neon-blue)', fontWeight: 'bold', marginTop: '10px' }}>
                 Evaluating results...
               </p>
             )}
@@ -247,7 +258,7 @@ export default function Layout({ network, game, mode, difficulty }) {
           <div className="modal-content glass-panel" style={{ maxWidth: '450px' }}>
             <h2 className="modal-title glow-text-red">Choose Role</h2>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-              {tossWinner.toUpperCase()} won the toss! Choose your role:
+              <span style={{ color: tossWinner === 'red' ? 'var(--neon-red)' : 'var(--neon-blue)', fontWeight: 'bold' }}>{tossWinner.toUpperCase()}</span> won the toss! Choose your role:
             </p>
 
             {isTossWinnerLocal ? (
@@ -288,7 +299,7 @@ export default function Layout({ network, game, mode, difficulty }) {
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '20px', width: '100%' }}>
                 <div style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', textAlign: 'left' }}>SELECT PIECE TO CHALLENGE:</div>
                 <div style={{ display: 'flex', gap: '8px' }}>
-                  {capturedPieces.map((type, idx) => (
+                  {[...new Set(capturedPieces)].map((type, idx) => (
                     <button 
                       key={idx} 
                       className="cyber-button" 
@@ -423,44 +434,20 @@ export default function Layout({ network, game, mode, difficulty }) {
   return (
     <div className="game-layout">
       {/* Sidebar Left: Connection, Controls, Actions */}
-      <div className="sidebar-panel glass-panel" style={{ justifyContent: 'flex-start' }}>
-        <div>
+      <div className="sidebar-panel sidebar-left glass-panel" style={{ justifyContent: 'flex-start' }}>
+        <div className="game-controls-header">
           <h2 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>Game Controls</h2>
-          <div style={{ fontSize: '0.85rem', color: role === 'red' ? 'var(--neon-red)' : 'var(--neon-blue)', fontWeight: 'bold' }}>
-            ROLE: {role ? role.toUpperCase() : ''}
-          </div>
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
-            {getStatusText()}
+          <div>
+            <div style={{ fontSize: '0.85rem', color: role === 'red' ? 'var(--neon-red)' : 'var(--neon-blue)', fontWeight: 'bold' }}>
+              ROLE: {role ? role.toUpperCase() : ''}
+            </div>
+            <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', marginTop: '4px' }}>
+              {getStatusText()}
+            </div>
           </div>
         </div>
 
-        {/* Set & Round HUD Panel */}
-        {phase !== 'toss' && phase !== 'role-selection' && phase !== 'game-over' && (
-          <div style={{ border: '1px solid rgba(255,255,255,0.05)', padding: '12px', borderRadius: '8px', background: 'rgba(0,0,0,0.1)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-              <span style={{ color: 'var(--text-secondary)' }}>SET:</span>
-              <span style={{ fontWeight: 'bold' }}>{set} of 2</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-              <span style={{ color: 'var(--text-secondary)' }}>ROUND:</span>
-              <span style={{ fontWeight: 'bold' }}>{round} of 3</span>
-            </div>
-            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem' }}>
-              <span style={{ color: 'var(--text-secondary)' }}>ROLLER:</span>
-              <span style={{ fontWeight: 'bold', color: activePlayerColor === 'red' ? 'var(--neon-red)' : 'var(--neon-blue)' }}>
-                {turnPlayer.toUpperCase()}
-              </span>
-            </div>
-            {phase === 'playing' && (
-              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8rem', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '8px', marginTop: '4px' }}>
-                <span style={{ color: 'var(--text-secondary)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <Zap size={12} color="#39ff14" /> AP LEFT:
-                </span>
-                <span style={{ fontWeight: 'bold', color: '#39ff14' }}>{actionPoints} AP</span>
-              </div>
-            )}
-          </div>
-        )}
+
 
         {/* Dice Rolling Panel */}
         {phase === 'playing' && (
@@ -486,9 +473,58 @@ export default function Layout({ network, game, mode, difficulty }) {
           </div>
         )}
 
+        {/* Setup Defender Panel */}
+        {(phase === 'setup-defender' || phase === 'challenge-setup') && isLocalTurn && (() => {
+          const placedCount = board.reduce((count, row) => count + row.filter(cell => cell && ['block-20', 'block-30', 'block-50'].includes(cell.type)).length, 0);
+          const requiredCount = phase === 'challenge-setup' ? 1 : 3;
+          if (placedCount === requiredCount) {
+            return (
+              <div className="setup-panel" style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', marginTop: '10px' }}>
+                <button
+                  className="cyber-button blue"
+                  onClick={() => executeAction({ type: 'confirm-setup' })}
+                  style={{ width: '100%', fontSize: '0.8rem', fontWeight: 'bold' }}
+                >
+                  CONFIRM POINT PLACEMENTS
+                </button>
+              </div>
+            );
+          }
+          return null;
+        })()}
+
+        {/* Setup Attacker Panel */}
+        {phase === 'setup-attacker' && isLocalTurn && board.some(row => row.some(cell => cell && cell.type === 'block-lazer')) && (
+          <div className="setup-panel" style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button
+                className="cyber-button"
+                onClick={() => executeAction({ type: 'rotate', dir: 'ccw' })}
+                style={{ flex: 1, fontSize: '0.75rem', padding: '10px 0' }}
+              >
+                ROTATE CCW
+              </button>
+              <button
+                className="cyber-button"
+                onClick={() => executeAction({ type: 'rotate', dir: 'cw' })}
+                style={{ flex: 1, fontSize: '0.75rem', padding: '10px 0' }}
+              >
+                ROTATE CW
+              </button>
+            </div>
+            <button
+              className="cyber-button red"
+              onClick={() => executeAction({ type: 'confirm-setup' })}
+              style={{ width: '100%', fontSize: '0.8rem', fontWeight: 'bold' }}
+            >
+              CONFIRM LAZER PLACEMENT
+            </button>
+          </div>
+        )}
+
         {/* Action Panel */}
         {phase === 'playing' && hasRolledDice && isLocalTurn && (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
+          <div className="action-panel" style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
             {turnPlayer === 'attacker' && (
               <>
                 <button
@@ -608,6 +644,76 @@ export default function Layout({ network, game, mode, difficulty }) {
           </div>
         </div>
 
+        {/* Set & Round HUD Panel (Central Pill) */}
+        {phase !== 'toss' && phase !== 'role-selection' && phase !== 'game-over' && (
+          <div className="hud-panel-horizontal" style={{
+            display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '16px',
+            background: 'linear-gradient(90deg, rgba(0,0,0,0.6) 0%, rgba(30,30,40,0.8) 50%, rgba(0,0,0,0.6) 100%)', 
+            border: '1px solid rgba(255,255,255,0.15)',
+            padding: '8px 24px', borderRadius: '999px', margin: '0 auto 12px auto', width: 'fit-content',
+            boxShadow: '0 4px 16px rgba(0,0,0,0.6), inset 0 0 12px rgba(255,255,255,0.05)',
+            backdropFilter: 'blur(8px)'
+          }}>
+            {/* Set Indicator */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title={`Set ${set} of 2`}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem', fontWeight: 'bold', letterSpacing: '1px' }}>SET</span>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                {[1, 2].map(s => (
+                  <div key={s} style={{ 
+                    width: '10px', height: '10px', borderRadius: '50%', 
+                    background: s <= set ? 'var(--neon-blue)' : 'rgba(255,255,255,0.15)',
+                    boxShadow: s <= set ? '0 0 8px var(--neon-blue)' : 'none',
+                    transition: 'all 0.3s ease'
+                  }} />
+                ))}
+              </div>
+            </div>
+
+            <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)' }} />
+
+            {/* Round Indicator */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title={`Round ${round} of 3`}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem', fontWeight: 'bold', letterSpacing: '1px' }}>RND</span>
+              <div style={{ display: 'flex', gap: '4px' }}>
+                {[1, 2, 3].map(r => (
+                  <div key={r} style={{ 
+                    width: '10px', height: '10px', transform: 'rotate(45deg)', 
+                    background: r <= round ? 'var(--neon-red)' : 'rgba(255,255,255,0.15)',
+                    boxShadow: r <= round ? '0 0 8px var(--neon-red)' : 'none',
+                    transition: 'all 0.3s ease'
+                  }} />
+                ))}
+              </div>
+            </div>
+
+            <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)' }} />
+
+            {/* Turn Indicator */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title={`${turnPlayer}'s turn`}>
+              <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem', fontWeight: 'bold', letterSpacing: '1px' }}>TURN</span>
+              <div style={{ 
+                width: '12px', height: '12px', borderRadius: '3px',
+                background: activePlayerColor === 'red' ? 'var(--neon-red)' : 'var(--neon-blue)',
+                boxShadow: activePlayerColor === 'red' ? '0 0 10px var(--neon-red)' : '0 0 10px var(--neon-blue)',
+                transition: 'all 0.3s ease'
+              }} />
+            </div>
+
+            {phase === 'playing' && (
+              <>
+                <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)' }} />
+                {/* AP Indicator */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }} title={`${actionPoints} Action Points remaining`}>
+                  <Zap size={14} color="#39ff14" style={{ filter: 'drop-shadow(0 0 4px #39ff14)' }} />
+                  <span style={{ fontWeight: '900', color: '#39ff14', fontSize: '1.1rem', textShadow: '0 0 8px #39ff14' }}>
+                    {actionPoints}
+                  </span>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
         {/* Setup Banner prompts */}
         {renderSetupBanner()}
 
@@ -645,15 +751,12 @@ export default function Layout({ network, game, mode, difficulty }) {
       </div>
 
       {/* Sidebar Right: Palette of Infinite Blocks */}
-      <div className="sidebar-panel glass-panel">
-        <div className="tray-title font-display">Setup inventory</div>
-        
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '10px' }}>
-          {getVisiblePaletteKeys().length === 0 ? (
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.8rem', textAlign: 'center', marginTop: '20px' }}>
-              Inventory inactive. Pieces can only be placed during initial setup.
-            </p>
-          ) : getVisiblePaletteKeys().map((key) => {
+      {getVisiblePaletteKeys().length > 0 && (
+        <div className="sidebar-panel sidebar-right glass-panel">
+          <div className="tray-title font-display">Setup inventory</div>
+          
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '10px' }}>
+            {getVisiblePaletteKeys().map((key) => {
             const blockType = BLOCK_TYPES[key];
             const color = getBlockColor(blockType);
             const isSelected = selectedPaletteBlock === blockType;
@@ -705,14 +808,14 @@ export default function Layout({ network, game, mode, difficulty }) {
                       <rect x="11" y="11" width="18" height="18" rx="3" fill={color} opacity="0.15" />
                       <text
                         x="50%"
-                        y="58%"
+                        y="55%"
                         dominantBaseline="middle"
                         textAnchor="middle"
                         fill={color}
-                        fontSize="12.5"
-                        fontWeight="800"
+                        fontSize="15"
+                        fontWeight="900"
                         fontFamily="monospace"
-                        letterSpacing="-0.5px"
+                        letterSpacing="0px"
                       >
                         {blockType === BLOCK_TYPES.BLOCK_20 ? '20' : blockType === BLOCK_TYPES.BLOCK_30 ? '30' : '50'}
                       </text>
@@ -728,6 +831,7 @@ export default function Layout({ network, game, mode, difficulty }) {
           })}
         </div>
       </div>
+      )}
 
       {/* Overlays (Toss, Challenge, Game Over) */}
       {renderOverlay()}

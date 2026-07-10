@@ -145,14 +145,14 @@ export default function Cell({
               <rect x="11" y="11" width="18" height="18" rx="3" fill={coreColor} opacity="0.15" />
               <text
                 x="50%"
-                y="58%"
+                y="55%"
                 dominantBaseline="middle"
                 textAnchor="middle"
                 fill={coreColor}
-                fontSize="12.5"
-                fontWeight="800"
+                fontSize="15"
+                fontWeight="900"
                 fontFamily="monospace"
-                letterSpacing="-0.5px"
+                letterSpacing="0px"
               >
                 {text}
               </text>

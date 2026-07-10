@@ -222,12 +222,39 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
     // C. Challenge Declaration
     if (gameState.phase === 'challenge-declaration' && isBotAttacker) {
       const timer = setTimeout(() => {
+        const roll = Math.random();
+        let declare = true;
+
+        if (difficulty === 'easy' && roll < 0.4) {
+          declare = false; // 40% chance easy bot skips challenge
+        } else if (difficulty === 'medium' && roll < 0.15) {
+          declare = false; // 15% chance medium bot skips
+        }
+
+        if (!declare) {
+          executeAction({ type: 'declare-challenge', declare: false, player: botPlayer });
+          return;
+        }
+
         const captured = gameState.capturedPieces;
-        const target = captured.includes('block-50') 
-          ? 'block-50' 
-          : captured.includes('block-30') 
-            ? 'block-30' 
-            : 'block-20';
+        let target = 'block-50';
+
+        if (difficulty === 'easy') {
+          // Easy bot challenges a random captured piece
+          target = captured[Math.floor(Math.random() * captured.length)];
+        } else if (difficulty === 'medium') {
+          // Medium bot has a 30% chance to make a suboptimal challenge (not 50)
+          if (roll > 0.7) {
+             const subOptimal = captured.filter(c => c !== 'block-50');
+             target = subOptimal.length > 0 ? subOptimal[Math.floor(Math.random() * subOptimal.length)] : captured[0];
+          } else {
+             target = captured.includes('block-50') ? 'block-50' : captured.includes('block-30') ? 'block-30' : 'block-20';
+          }
+        } else {
+          // Hard bot always targets the best piece
+          target = captured.includes('block-50') ? 'block-50' : captured.includes('block-30') ? 'block-30' : 'block-20';
+        }
+
         executeAction({ type: 'declare-challenge', declare: true, pieceType: target, player: botPlayer });
       }, 1500);
       return () => clearTimeout(timer);

@@ -129,6 +129,15 @@ export default function Grid({
             else if (r === 7 && c === 7) rotation = 270;
           }
           placeBlock(blockType, r, c, rotation);
+        } else if (data.source === 'board') {
+          // Allow moving pieces on the board during setup phases
+          const block = board[data.r][data.c];
+          if (block) {
+            const blockType = block.type;
+            const rotation = block.rotation || 0;
+            removeBlock(data.r, data.c);
+            placeBlock(blockType, r, c, rotation);
+          }
         }
       }
     } catch (err) {
