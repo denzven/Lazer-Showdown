@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNetwork } from './hooks/useNetwork';
 import { useGame } from './hooks/useGame';
 import ConnectionScreen from './components/Lobby/ConnectionScreen';
@@ -75,6 +75,34 @@ function App() {
   const [selectedBoardName, setSelectedBoardName] = useState('default');
   const [boardDropdownOpen, setBoardDropdownOpen] = useState(false);
   const network = useNetwork();
+
+  // Hardware Back Button Interception
+  const backPressTimer = useRef(null);
+  const [showExitToast, setShowExitToast] = useState(false);
+  const exitReady = useRef(false);
+
+  useEffect(() => {
+    window.history.pushState({ app: 'lazer' }, '');
+
+    const handlePopState = (e) => {
+      if (!exitReady.current) {
+        exitReady.current = true;
+        setShowExitToast(true);
+        window.history.pushState({ app: 'lazer' }, ''); // Push state again to intercept
+
+        if (backPressTimer.current) clearTimeout(backPressTimer.current);
+        backPressTimer.current = setTimeout(() => {
+          exitReady.current = false;
+          setShowExitToast(false);
+        }, 2000);
+      } else {
+        // Second press - let it exit
+      }
+    };
+
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   // Create local network mock for offline local Pass & Play
   const mockLocalNetwork = {
@@ -512,6 +540,29 @@ function App() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+      
+      {showExitToast && (
+        <div style={{
+          position: 'fixed',
+          bottom: '10%',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          background: 'rgba(0, 240, 255, 0.1)',
+          backdropFilter: 'blur(10px)',
+          color: 'var(--neon-blue)',
+          padding: '12px 24px',
+          borderRadius: '30px',
+          zIndex: 9999,
+          fontSize: '0.95rem',
+          fontWeight: 'bold',
+          border: '1px solid var(--neon-blue)',
+          boxShadow: '0 0 15px var(--neon-blue-glow)',
+          pointerEvents: 'none',
+          animation: 'fadeInOut 2s ease-in-out forwards'
+        }}>
+          Press back again to exit
         </div>
       )}
     </>

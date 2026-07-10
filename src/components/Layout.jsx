@@ -57,6 +57,8 @@ export default function Layout({ network, game, mode, difficulty }) {
         setShowLaserBeam(false);
       }, 1500);
       return () => clearTimeout(timer);
+    } else {
+      setShowLaserBeam(false);
     }
   }, [customData?.laserFired, logs?.length]);
 

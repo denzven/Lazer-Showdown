@@ -1149,4 +1149,5 @@ h4,
 .modal-title {
   font-size: 2rem;
   font-weight: 800;
-}
+}@ k e y f r a m e s   f a d e I n O u t   {   0 %   {   o p a c i t y :   0 ;   t r a n s f o r m :   t r a n s l a t e ( - 5 0 % ,   2 0 p x ) ;   }   1 5 %   {   o p a c i t y :   1 ;   t r a n s f o r m :   t r a n s l a t e ( - 5 0 % ,   0 ) ;   }   8 5 %   {   o p a c i t y :   1 ;   t r a n s f o r m :   t r a n s l a t e ( - 5 0 % ,   0 ) ;   }   1 0 0 %   {   o p a c i t y :   0 ;   t r a n s f o r m :   t r a n s l a t e ( - 5 0 % ,   - 2 0 p x ) ;   }   }  
+ 
