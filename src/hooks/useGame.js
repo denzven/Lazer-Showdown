@@ -207,7 +207,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
       if (gameState.hasRolledDice && gameState.actionPoints > 0 && !gameState.dice.isRolling) {
         const timer = setTimeout(() => {
           const botRole = isBotAttacker ? 'attacker' : 'defender';
-          const action = getBotPlayAction(gameState.board, botRole, gameState.actionPoints, difficulty);
+          const action = getBotPlayAction(gameState.board, botRole, gameState.actionPoints, difficulty, gameState, botPlayer);
           if (action) {
             executeAction({ ...action, player: botPlayer });
           } else {
