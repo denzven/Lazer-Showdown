@@ -3,6 +3,7 @@ import { Trash2, LogOut, Info, AlertTriangle, X, Zap, Undo2 } from 'lucide-react
 import Grid from './Board/Grid';
 import AnalysisPanel from './AnalysisPanel';
 import { BLOCK_TYPES, PLAYERS, getReachableCells } from '../core/Ruleset';
+import { getEngineLines, getPieceThreatLevels, getBoardAnalysis, classifyMove, getChallengeRecommendation } from '../core/BotStrategies';
 
 export default function Layout({ network, game, mode, difficulty }) {
   const { status, role, playerName, opponentName, disconnect } = network;
@@ -49,12 +50,59 @@ export default function Layout({ network, game, mode, difficulty }) {
     setAnalysisMode,
     analysisData,
     threatMap,
-    history
+    history,
+    reviewIndex,
+    setReviewIndex,
+    stepForward,
+    stepBackward
   } = game;
 
   const [selectedCell, setSelectedCell] = useState(null);
   const [selectedPaletteBlock, setSelectedPaletteBlock] = useState(null);
   const [showLaserBeam, setShowLaserBeam] = useState(false);
+  const [showHeatmap, setShowHeatmap] = useState(true);
+  const [showGhostRays, setShowGhostRays] = useState(true);
+  const [showPieceThreats, setShowPieceThreats] = useState(true);
+  const [highlightedCell, setHighlightedCell] = useState(null);
+
+  const challengeRecommendation = React.useMemo(() => {
+    if (phase !== 'challenge-declaration') return null;
+    return getChallengeRecommendation(capturedPieces || []);
+  }, [phase, capturedPieces]);
+
+  const engineLines = React.useMemo(() => {
+    if (!analysisMode) return [];
+    return getEngineLines(board, turnPlayer, difficulty || 'medium', game);
+  }, [board, turnPlayer, difficulty, game, analysisMode]);
+
+  const pieceThreats = React.useMemo(() => {
+    if (!analysisMode) return [];
+    return getPieceThreatLevels(board);
+  }, [board, analysisMode]);
+
+  const moveClassification = React.useMemo(() => {
+    if (reviewIndex === null || reviewIndex === 0 || !analysisMode) return null;
+    
+    const beforeState = history.past[reviewIndex - 1];
+    const afterState = history.past[reviewIndex];
+    
+    if (!beforeState || !afterState) return null;
+
+    // The player who made the move is the turnPlayer of the beforeState
+    const actorPlayer = beforeState.turnPlayer;
+    // We need to know what role (attacker or defender) that player was
+    const actorRole = actorPlayer === 'red' 
+      ? beforeState.roleRed 
+      : beforeState.roleBlue;
+
+    // We evaluate the board BEFORE the move, from the actor's perspective
+    const beforeAnalysis = getBoardAnalysis(beforeState.board, actorRole, difficulty || 'hard', beforeState, actorPlayer);
+    // We evaluate the board AFTER the move, from the actor's perspective
+    const afterAnalysis = getBoardAnalysis(afterState.board, actorRole, difficulty || 'hard', afterState, actorPlayer);
+
+    // classifyMove expects positive diff to be good
+    return classifyMove(beforeAnalysis.totalScore, afterAnalysis.totalScore, actorRole);
+  }, [reviewIndex, analysisMode, history.past, difficulty]);
 
   useEffect(() => {
     if (customData?.laserFired) {
@@ -405,7 +453,7 @@ export default function Layout({ network, game, mode, difficulty }) {
     }
 
     // 5. GAME OVER
-    if (phase === 'game-over') {
+    if (phase === 'game-over' && reviewIndex === null) {
       const redScore = scores.red;
       const blueScore = scores.blue;
       const finalWinner = redScore > blueScore ? 'RED PLAYER' : blueScore > redScore ? 'BLUE PLAYER' : 'DRAW';
@@ -440,9 +488,22 @@ export default function Layout({ network, game, mode, difficulty }) {
               </div>
             )}
 
-            <button className="cyber-button" onClick={clearWorkspace} style={{ width: '100%', borderColor: 'var(--neon-blue)', color: 'var(--neon-blue)' }}>
-              PLAY AGAIN
-            </button>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button 
+                className="cyber-button blue" 
+                onClick={() => {
+                  setAnalysisMode(true);
+                  const firstPlayingIndex = history.past.findIndex(state => state.phase === 'playing');
+                  setReviewIndex(firstPlayingIndex !== -1 ? firstPlayingIndex : 0);
+                }} 
+                style={{ flex: 1 }}
+              >
+                GAME REVIEW
+              </button>
+              <button className="cyber-button" onClick={clearWorkspace} style={{ flex: 1, borderColor: 'var(--neon-blue)', color: 'var(--neon-blue)' }}>
+                PLAY AGAIN
+              </button>
+            </div>
           </div>
         </div>
       );
@@ -641,6 +702,30 @@ export default function Layout({ network, game, mode, difficulty }) {
             onClose={() => setAnalysisMode(false)} 
             history={game.history}
             dice={game.dice}
+            threatMap={threatMap}
+            lazerPos={lazerPos}
+            engineLines={engineLines}
+            pieceThreats={pieceThreats}
+            showHeatmap={showHeatmap}
+            setShowHeatmap={setShowHeatmap}
+            showGhostRays={showGhostRays}
+            setShowGhostRays={setShowGhostRays}
+            showPieceThreats={showPieceThreats}
+            setShowPieceThreats={setShowPieceThreats}
+            reviewIndex={reviewIndex}
+            stepForward={stepForward}
+            stepBackward={stepBackward}
+            moveClassification={moveClassification}
+            maxHistoryIndex={history.past.length}
+            onHighlightMove={(r, c) => {
+              if (highlightedCell && highlightedCell.r === r && highlightedCell.c === c) {
+                setHighlightedCell(null); // toggle off
+              } else {
+                setHighlightedCell({ r, c });
+              }
+            }}
+            phase={phase}
+            challengeRecommendation={challengeRecommendation}
           />
         )}
 
@@ -776,7 +861,9 @@ export default function Layout({ network, game, mode, difficulty }) {
           activePlayerColor={activePlayerColor}
           reachableCells={selectedCell ? getReachableCells(board, selectedCell.r, selectedCell.c, actionPoints, turnPlayer) : []}
           showLaserBeam={showLaserBeam}
-          threatMap={threatMap}
+          threatMap={showHeatmap ? threatMap : null}
+          possibilityWeb={showGhostRays ? game.possibilityWeb : null}
+          highlightedCell={highlightedCell}
         />
 
         <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>

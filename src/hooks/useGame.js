@@ -3,7 +3,7 @@ import {
   getInitialState,
   applySandboxAction
 } from '../core/GameState';
-import { getBotSetupAction, getBotPlayAction, generateThreatMap, getBoardAnalysis } from '../core/BotEngine';
+import { getBotSetupAction, getBotPlayAction, generateThreatMap, getBoardAnalysis, generatePossibilityWeb } from '../core/BotEngine';
 
 export function useGame(network, mode, difficulty, customBoardData = null) {
   const [gameState, setGameState] = useState(() => getInitialState(customBoardData));
@@ -12,12 +12,15 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
   const [analysisMode, setAnalysisMode] = useState(false);
   const [analysisData, setAnalysisData] = useState(null);
   const [threatMap, setThreatMap] = useState(null);
+  const [possibilityWeb, setPossibilityWeb] = useState(null);
+  const [reviewIndex, setReviewIndex] = useState(null);
 
   // Generate Analysis Data whenever board or analysis mode changes
   useEffect(() => {
     if (!analysisMode) {
       setAnalysisData(null);
       setThreatMap(null);
+      setPossibilityWeb(null);
       return;
     }
 
@@ -30,6 +33,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
 
     setAnalysisData(getBoardAnalysis(gameState.board, targetRole, analysisDiff, gameState, targetPlayer));
     setThreatMap(generateThreatMap(gameState.board));
+    setPossibilityWeb(generatePossibilityWeb(gameState.board));
   }, [analysisMode, gameState.board, gameState.roleBlue, gameState.roleRed, difficulty, mode, network.role]);
 
   // Handle Elo update on game over
@@ -175,10 +179,12 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
           error: null
         };
         // History management
-        if (['place', 'move', 'rotate', 'laser-press'].includes(action.type)) {
-          setHistory(h => ({ past: [...h.past, curr], future: [] }));
-        } else if (['end-turn', 'end-roll', 'toss-roll', 'toss-resolve', 'toss-start-roll', 'toss-select-role', 'challenge-start-roll', 'challenge-roll', 'challenge-toss-resolve', 'clear'].includes(action.type)) {
+        if (action.type === 'clear' || action.type === 'toss-select-role') {
+          // Only clear history on full game reset
           setHistory({ past: [], future: [] });
+        } else if (['place', 'move', 'rotate', 'laser-press', 'end-roll', 'declare-challenge', 'challenge-toss-resolve'].includes(action.type)) {
+          // Record significant game actions in history for clean replayability
+          setHistory(h => ({ past: [...h.past, curr], future: [] }));
         }
 
         // Broadcast the complete synchronized state
@@ -504,30 +510,51 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
     executeAction
   ]);
 
+  const stepBackward = useCallback(() => {
+    setReviewIndex(prev => {
+      const maxIndex = history.past.length;
+      if (maxIndex === 0) return null;
+      if (prev === null) return maxIndex - 1;
+      if (prev > 0) return prev - 1;
+      return 0;
+    });
+  }, [history.past.length]);
+
+  const stepForward = useCallback(() => {
+    setReviewIndex(prev => {
+      if (prev === null) return null;
+      const maxIndex = history.past.length;
+      if (prev < maxIndex - 1) return prev + 1;
+      return null;
+    });
+  }, [history.past.length]);
+
+  const activeState = (reviewIndex !== null && history.past[reviewIndex]) ? history.past[reviewIndex] : gameState;
+
   return {
     // Game States
-    board: gameState.board,
-    phase: gameState.phase,
-    set: gameState.set,
-    round: gameState.round,
-    roleRed: gameState.roleRed,
-    roleBlue: gameState.roleBlue,
-    turnPlayer: gameState.turnPlayer,
-    actionPoints: gameState.actionPoints,
-    hasRolledDice: gameState.hasRolledDice,
-    scores: gameState.scores,
-    winner: gameState.winner,
-    logs: gameState.logs,
-    customData: gameState.customData,
-    capturedPieces: gameState.capturedPieces,
-    challengeActive: gameState.challengeActive,
-    challengedPiece: gameState.challengedPiece,
-    tossRolls: gameState.tossRolls,
-    tossWinner: gameState.tossWinner,
-    challengeTossRolls: gameState.challengeTossRolls,
-    dice: gameState.dice,
-    customBoardData: gameState.customBoardData,
-    error: gameState.error,
+    board: activeState.board,
+    phase: activeState.phase,
+    set: activeState.set,
+    round: activeState.round,
+    roleRed: activeState.roleRed,
+    roleBlue: activeState.roleBlue,
+    turnPlayer: activeState.turnPlayer,
+    actionPoints: activeState.actionPoints,
+    hasRolledDice: activeState.hasRolledDice,
+    scores: activeState.scores,
+    winner: activeState.winner,
+    logs: activeState.logs,
+    customData: activeState.customData,
+    capturedPieces: activeState.capturedPieces,
+    challengeActive: activeState.challengeActive,
+    challengedPiece: activeState.challengedPiece,
+    tossRolls: activeState.tossRolls,
+    tossWinner: activeState.tossWinner,
+    challengeTossRolls: activeState.challengeTossRolls,
+    dice: activeState.dice,
+    customBoardData: activeState.customBoardData,
+    error: activeState.error,
 
     // Methods
     executeAction,
@@ -545,11 +572,18 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
     endTurn,
     undo,
     redo,
+    history,
+    reviewIndex,
+    setReviewIndex,
+    stepForward,
+    stepBackward,
     canUndo: history.past.length > 0,
     canRedo: history.future.length > 0,
     analysisMode,
     setAnalysisMode,
     analysisData,
-    threatMap
+    threatMap,
+    possibilityWeb,
+    liveState: gameState
   };
 }

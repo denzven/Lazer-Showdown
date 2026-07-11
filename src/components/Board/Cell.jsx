@@ -16,7 +16,8 @@ export default function Cell({
   blockState = 'neutral',
   isReachable = false,
   reachableDist = 0,
-  threatProb = 0
+  threatObj = null,
+  isHighlighted = false
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -211,25 +212,41 @@ export default function Cell({
       )}
 
       {/* Threat Map Overlay */}
-      {threatProb > 0 && !block && (
-        <div style={{
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          right: 0,
-          bottom: 0,
-          backgroundColor: `rgba(255, 0, 60, ${threatProb * 0.6})`,
-          pointerEvents: 'none',
-          zIndex: 1,
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center'
-        }}>
-          <span style={{ color: 'white', fontSize: '0.7rem', fontWeight: 'bold', opacity: 0.8 }}>
-            {Math.round(threatProb * 100)}%
-          </span>
-        </div>
-      )}
+      {(() => {
+        const threatTotal = threatObj ? threatObj.total : 0;
+        if (!threatObj || threatTotal === 0 || block) return null;
+
+        const colors = {
+          'TL': '0, 255, 255',    // Cyan
+          'TR': '255, 0, 255',    // Magenta
+          'BL': '255, 255, 0',    // Yellow
+          'BR': '0, 255, 0',      // Green
+          '0': '0, 255, 255',     // Cyan
+          '90': '255, 0, 255',    // Magenta
+          '180': '255, 255, 0',   // Yellow
+          '270': '0, 255, 0'      // Green
+        };
+
+        return (
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            pointerEvents: 'none', zIndex: 1, display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            overflow: 'hidden'
+          }}>
+            {Object.entries(threatObj.sources).map(([source, prob]) => (
+              <div key={source} style={{
+                position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                backgroundColor: `rgba(${colors[source] || '255,255,255'}, ${prob * 0.45})`,
+                mixBlendMode: 'screen'
+              }} />
+            ))}
+            <span style={{ color: 'white', fontSize: '0.7rem', fontWeight: 'bold', opacity: 0.9, zIndex: 2, textShadow: '0 0 4px black' }}>
+              {Math.round(threatTotal * 100)}%
+            </span>
+          </div>
+        );
+      })()}
 
       {/* Reachable overlay displaying Action Point cost */}
       {isReachable && (
@@ -255,6 +272,15 @@ export default function Cell({
         >
           {reachableDist}
         </div>
+      )}
+      {/* Highlight Target Overlay */}
+      {isHighlighted && (
+        <div style={{
+          position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+          border: '3px solid #00f0ff', borderRadius: '4px',
+          boxShadow: '0 0 15px #00f0ff, inset 0 0 15px #00f0ff',
+          animation: 'afkPulse 1.5s infinite', zIndex: 10, pointerEvents: 'none'
+        }} />
       )}
     </div>
   );

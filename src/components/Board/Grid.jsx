@@ -21,7 +21,9 @@ export default function Grid({
   activePlayerColor,
   reachableCells = [],
   showLaserBeam = false,
-  threatMap = null
+  threatMap = null,
+  possibilityWeb = null,
+  highlightedCell = null
 }) {
   const handleCellClick = (r, c) => {
     // Disable interaction if it's not the local player's turn
@@ -154,7 +156,7 @@ export default function Grid({
     <div className="board-container glass-panel">
       <div className="grid-wrapper" style={{ position: 'relative', zIndex: 1 }}>
         {/* Bouncing Laser SVG Overlay */}
-        {showLaserBeam && lazerPos && laserPath.length > 0 && (
+        {(possibilityWeb || (showLaserBeam && lazerPos && laserPath.length > 0)) && (
           <svg 
             viewBox="0 0 800 800"
             style={{ 
@@ -167,19 +169,48 @@ export default function Grid({
               zIndex: 10 
             }}
           >
+            {/* Possibility Web Ghost Rays */}
+            {possibilityWeb && possibilityWeb.map((webNode, idx) => {
+              const colors = {
+                'TL': '#ff2a85', // Red
+                'TR': '#00f0ff', // Cyan
+                'BL': '#39ff14', // Green
+                'BR': '#b026ff', // Purple
+                '0': '#00f0ff',  // Cyan
+                '90': '#ff00ff', // Magenta
+                '180': '#ffff00',// Yellow
+                '270': '#39ff14' // Lime
+              };
+              const color = colors[webNode.source] || 'var(--neon-blue)';
+              return (
+                <polyline
+                  key={`web-${idx}`}
+                  points={webNode.path.map(pt => `${pt.c * 100 + 50},${pt.r * 100 + 50}`).join(' ')}
+                  fill="none"
+                  stroke={color}
+                  strokeWidth="1.5"
+                  opacity="0.12"
+                  style={{ filter: `drop-shadow(0 0 3px ${color})`, mixBlendMode: 'screen' }}
+                />
+              );
+            })}
+
             {/* Outer Thick Glowing Beam */}
-            <polyline
-              points={[lazerPos, ...laserPath].map(pt => `${pt.c * 100 + 50},${pt.r * 100 + 50}`).join(' ')}
-              fill="none"
-              stroke={laserColor}
-              strokeWidth="5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              opacity="0.55"
-              style={{ filter: `drop-shadow(0 0 8px ${laserColor})` }}
-            />
+            {showLaserBeam && lazerPos && laserPath.length > 0 && (
+              <polyline
+                points={[lazerPos, ...laserPath].map(pt => `${pt.c * 100 + 50},${pt.r * 100 + 50}`).join(' ')}
+                fill="none"
+                stroke={laserColor}
+                strokeWidth="5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                opacity="0.55"
+                style={{ filter: `drop-shadow(0 0 8px ${laserColor})` }}
+              />
+            )}
             {/* Core Bright Beam Line */}
-            <polyline
+            {showLaserBeam && lazerPos && laserPath.length > 0 && (
+              <polyline
               points={[lazerPos, ...laserPath].map(pt => `${pt.c * 100 + 50},${pt.r * 100 + 50}`).join(' ')}
               fill="none"
               stroke="#ffffff"
@@ -188,6 +219,7 @@ export default function Grid({
               strokeLinejoin="round"
               opacity="0.95"
             />
+            )}
           </svg>
         )}
 
@@ -195,8 +227,9 @@ export default function Grid({
           row.map((block, c) => {
             const isSelected = selectedCell && selectedCell.r === r && selectedCell.c === c;
             const reachableInfo = reachableCells.find(cell => cell.r === r && cell.c === c);
+            const isHighlighted = highlightedCell && highlightedCell.r === r && highlightedCell.c === c;
 
-            const threatProb = threatMap ? threatMap[r][c] : 0;
+            const threatObj = threatMap ? threatMap[r][c] : null;
 
             return (
               <Cell
@@ -205,6 +238,7 @@ export default function Grid({
                 c={c}
                 block={block}
                 isSelected={isSelected}
+                isHighlighted={isHighlighted}
                 onClick={() => handleCellClick(r, c)}
                 onDragOver={handleDragOver}
                 onDrop={(e) => handleDrop(e, r, c)}
@@ -214,7 +248,7 @@ export default function Grid({
                 blockState="neutral"
                 isReachable={!!reachableInfo}
                 reachableDist={reachableInfo ? reachableInfo.dist : 0}
-                threatProb={threatProb}
+                threatObj={threatObj}
               />
             );
           })

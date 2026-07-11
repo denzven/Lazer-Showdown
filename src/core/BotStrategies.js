@@ -362,7 +362,7 @@ export const EasyStrategy = {
     const actions = getPossibleActions(board, role);
     if (actions.length === 0) return null;
 
-    const { lazerPos, pointPieces } = getBoardState(board);
+    const { lazerPos, lazerDir, pointPieces } = getBoardState(board);
     if (!lazerPos || pointPieces.length === 0) {
       if (Math.random() < 0.15) return null; 
       return actions[Math.floor(Math.random() * actions.length)];
@@ -449,46 +449,270 @@ export const HardStrategy = {
 };
 
 // --- ANALYSIS TOOLS ---
-export function generateThreatMap(board) {
-  const { lazerPos, lazerDir } = getBoardState(board);
-  const map = Array(8).fill(null).map(() => Array(8).fill(0));
-  if (!lazerPos) return map;
-
+export function generatePossibilityWeb(board) {
+  const { lazerPos } = getBoardState(board);
+  const webPaths = [];
   const rotations = [0, 90, 180, 270];
+
+  if (!lazerPos) {
+    const corners = [
+      { r: 0, c: 0, dirs: [90, 180], id: 'TL' },
+      { r: 0, c: 7, dirs: [180, 270], id: 'TR' },
+      { r: 7, c: 0, dirs: [0, 90], id: 'BL' },
+      { r: 7, c: 7, dirs: [270, 0], id: 'BR' }
+    ];
+    for (const corner of corners) {
+      if (board[corner.r][corner.c] !== null) continue;
+      for (const rot of corner.dirs) {
+        const tempBoard = board.map(row => [...row]);
+        tempBoard[corner.r][corner.c] = { type: BLOCK_TYPES.BLOCK_LAZER, rotation: rot };
+        const trace = traceLaserBeam(tempBoard, corner, rot);
+        webPaths.push({ source: corner.id, path: [corner, ...trace.path] });
+      }
+    }
+    return webPaths;
+  }
 
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
-      if (board[r][c] !== null) continue; // Only mapping empty spaces for potential point piece deaths
-
-      let minAPToHit = 999;
-
-      // Check immediate threats
-      for (const rot of rotations) {
-        const trace = traceLaserBeam(board, lazerPos, rot);
-        if (trace.path.some(step => step.r === r && step.c === c)) {
-          const ap = (rot === lazerDir) ? 1 : 2;
-          if (ap < minAPToHit) minAPToHit = ap;
-        }
-      }
-
-      // Check movement threats (reverse trace)
+      if (board[r][c] !== null && !(r === lazerPos.r && c === lazerPos.c)) continue; 
+      
       for (const rot of rotations) {
         const trace = traceLaserBeam(board, { r, c }, rot);
-        for (const step of trace.path) {
-          if (step.type === 'beam' && board[step.r][step.c] === null) {
-            const moveDist = Math.abs(lazerPos.r - step.r) + Math.abs(lazerPos.c - step.c);
-            const ap = moveDist + 2; 
-            if (ap < minAPToHit) minAPToHit = ap;
-          }
-        }
-      }
-
-      if (minAPToHit < 999) {
-        map[r][c] = get2d6CumulativeProbability(minAPToHit);
+        webPaths.push({ source: rot.toString(), path: [{ r, c }, ...trace.path] });
       }
     }
   }
+  
+  return webPaths;
+}
+
+export function generateThreatMap(board) {
+  const { lazerPos, lazerDir } = getBoardState(board);
+  const map = Array(8).fill(null).map(() => Array(8).fill(null).map(() => ({ total: 0, sources: {} })));
+  const rotations = [0, 90, 180, 270];
+
+  if (!lazerPos) {
+    // Generate initial nodal heatmap from the 4 corners
+    const corners = [
+      { r: 0, c: 0, dirs: [90, 180], id: 'TL' },
+      { r: 0, c: 7, dirs: [180, 270], id: 'TR' },
+      { r: 7, c: 0, dirs: [0, 90], id: 'BL' },
+      { r: 7, c: 7, dirs: [270, 0], id: 'BR' }
+    ];
+
+    const minAPMap = Array(8).fill(null).map(() => 
+      Array(8).fill(null).map(() => ({ 'TL': 999, 'TR': 999, 'BL': 999, 'BR': 999 }))
+    );
+
+    for (const corner of corners) {
+      if (board[corner.r][corner.c] !== null) continue;
+
+      for (let lr = 0; lr < 8; lr++) {
+        for (let lc = 0; lc < 8; lc++) {
+          if (board[lr][lc] !== null && !(lr === corner.r && lc === corner.c)) continue;
+          
+          const moveDist = Math.abs(corner.r - lr) + Math.abs(corner.c - lc);
+          
+          for (const rot of rotations) {
+            const minRotationCost = Math.min(...corner.dirs.map(d => (d === rot ? 0 : 1)));
+            const apCost = moveDist + minRotationCost + 1; // 1 AP to shoot
+            
+            const trace = traceLaserBeam(board, { r: lr, c: lc }, rot);
+            for (const step of trace.path) {
+              if (step.r >= 0 && step.r < 8 && step.c >= 0 && step.c < 8) {
+                if (apCost < minAPMap[step.r][step.c][corner.id]) {
+                  minAPMap[step.r][step.c][corner.id] = apCost;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        if (board[r][c] === null || board[r][c].type !== 'mirror') {
+          let maxProb = 0;
+          let cumulativeP = 1;
+          for (const corner of corners) {
+            if (minAPMap[r][c][corner.id] < 999) {
+              const prob = get2d6CumulativeProbability(minAPMap[r][c][corner.id]);
+              map[r][c].sources[corner.id] = prob;
+              if (prob > maxProb) maxProb = prob;
+              cumulativeP *= (1 - prob);
+            }
+          }
+          if (maxProb > 0) {
+            map[r][c].total = maxProb;
+          }
+        }
+      }
+    }
+    return map;
+  }
+
+  const minAPMap = Array(8).fill(null).map(() => 
+    Array(8).fill(null).map(() => ({ 0: 999, 90: 999, 180: 999, 270: 999 }))
+  );
+
+  for (let lr = 0; lr < 8; lr++) {
+    for (let lc = 0; lc < 8; lc++) {
+      if (board[lr][lc] !== null && !(lr === lazerPos.r && lc === lazerPos.c)) continue;
+      
+      const moveDist = Math.abs(lazerPos.r - lr) + Math.abs(lazerPos.c - lc);
+      
+      for (const rot of rotations) {
+        const rotationCost = (lazerDir === rot) ? 0 : 1;
+        const apCost = moveDist + rotationCost + 1; // 1 AP to shoot
+        
+        const trace = traceLaserBeam(board, { r: lr, c: lc }, rot);
+        for (const step of trace.path) {
+          if (step.r >= 0 && step.r < 8 && step.c >= 0 && step.c < 8) {
+            if (apCost < minAPMap[step.r][step.c][rot]) {
+              minAPMap[step.r][step.c][rot] = apCost;
+            }
+          }
+        }
+      }
+    }
+  }
+
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      if (board[r][c] === null || board[r][c].type !== 'mirror') {
+        let maxProb = 0;
+        let cumulativeP = 1;
+        for (const rot of rotations) {
+          if (minAPMap[r][c][rot] < 999) {
+            const prob = get2d6CumulativeProbability(minAPMap[r][c][rot]);
+            map[r][c].sources[rot.toString()] = prob;
+            if (prob > maxProb) maxProb = prob;
+            cumulativeP *= (1 - prob);
+          }
+        }
+        if (maxProb > 0) {
+          map[r][c].total = maxProb;
+        }
+      }
+    }
+  }
+
   return map;
+}
+
+export function classifyMove(beforeScore, afterScore, turnPlayer) {
+  let diff = afterScore - beforeScore;
+  
+  // If it was the defender's turn, a lower attacker score means the defender did well
+  if (turnPlayer === 'defender') {
+    diff = beforeScore - afterScore;
+  }
+
+  if (diff >= 0) return { label: 'Best Move', color: '#39ff14' };
+  if (diff >= -500) return { label: 'Excellent', color: '#00f0ff' };
+  if (diff >= -2000) return { label: 'Good', color: '#ffff00' };
+  if (diff >= -5000) return { label: 'Inaccuracy', color: '#ffcc00' };
+  if (diff >= -10000) return { label: 'Mistake', color: '#ff5500' };
+  return { label: 'Blunder', color: '#ff003c' };
+}
+
+export function getChallengeRecommendation(capturedPieces) {
+  const has50 = capturedPieces.includes(BLOCK_TYPES.BLOCK_50);
+  const has30 = capturedPieces.includes(BLOCK_TYPES.BLOCK_30);
+  const has20 = capturedPieces.includes(BLOCK_TYPES.BLOCK_20);
+
+  if (!has50) {
+    return {
+      recommend: true,
+      probability: 99,
+      reason: 'The 50pt piece is still hiding! Challenge to force it out.'
+    };
+  } else if (!has30 || !has20) {
+    return {
+      recommend: true,
+      probability: 75,
+      reason: 'Minor point pieces are hiding. Good chance to score extra points.'
+    };
+  } else {
+    return {
+      recommend: false,
+      probability: 5,
+      reason: 'All pieces captured. Nothing left to challenge for.'
+    };
+  }
+}
+
+export function getPieceThreatLevels(board) {
+  const map = generateThreatMap(board);
+  const threats = [];
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const cell = board[r][c];
+      if (cell && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(cell.type)) {
+        threats.push({
+          r, c,
+          type: cell.type,
+          threatLevel: map[r][c].total || 0
+        });
+      }
+    }
+  }
+  return threats.sort((a, b) => b.threatLevel - a.threatLevel);
+}
+
+export function getEngineLines(board, role, difficulty, gameState) {
+  const cautiousness = getCautiousness(gameState, gameState.turnPlayer);
+  let evalFn;
+  if (difficulty === 'medium') {
+    evalFn = role === 'attacker' ? evaluateMediumAttacker : evaluateMediumDefender;
+  } else {
+    evalFn = role === 'attacker' ? evaluateBoardAttacker : evaluateBoardDefender;
+  }
+
+  const actions = getPossibleActions(board, role);
+  if (actions.length === 0) return [];
+
+  const evaluatedActions = [];
+  for (const action of actions) {
+    const board1 = applyLightweightAction(board, action);
+    let score = evalFn(board1, cautiousness);
+
+    // Depth 2
+    const oppRole = role === 'attacker' ? 'defender' : 'attacker';
+    const oppActions = getPossibleActions(board1, oppRole);
+    let worstCaseOppScore = Infinity;
+    
+    if (oppActions.length > 0) {
+      for (const oppAction of oppActions) {
+        const board2 = applyLightweightAction(board1, oppAction);
+        const oppScore = evalFn(board2, cautiousness);
+        if (oppScore < worstCaseOppScore) {
+          worstCaseOppScore = oppScore;
+        }
+      }
+      score = worstCaseOppScore;
+    }
+
+    evaluatedActions.push({ action, score });
+  }
+
+  evaluatedActions.sort((a, b) => b.score - a.score);
+
+  return evaluatedActions.slice(0, 3).map(ea => {
+    let text = 'Unknown Move';
+    if (ea.action.type === 'place') {
+      text = `Place ${ea.action.pieceType.replace('block-', '')} at (${ea.action.r}, ${ea.action.c})`;
+    } else if (ea.action.type === 'laser-press') {
+      text = 'Fire Lazer!';
+    } else if (ea.action.type === 'move') {
+      text = `Move to (${ea.action.toR}, ${ea.action.toC})`;
+    } else if (ea.action.type === 'rotate') {
+      text = `Rotate ${ea.action.dir === 'cw' ? 'CW' : 'CCW'}`;
+    }
+    return { text, score: Math.round(ea.score) };
+  });
 }
 
 export function getBoardAnalysis(board, role, difficulty, gameState, botPlayer) {
