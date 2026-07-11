@@ -1,4 +1,4 @@
-import { EasyStrategy, MediumStrategy, HardStrategy } from './BotStrategies';
+import { EasyStrategy, MediumStrategy, HardStrategy, generateThreatMap, getBoardAnalysis } from './BotStrategies';
 
 // --- MAIN ROUTERS ---
 
@@ -19,3 +19,5 @@ export function getBotPlayAction(board, role, actionPoints, difficulty = 'medium
 
   return null;
 }
+
+export { generateThreatMap, getBoardAnalysis };

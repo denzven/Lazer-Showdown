@@ -3,11 +3,53 @@ import {
   getInitialState,
   applySandboxAction
 } from '../core/GameState';
-import { getBotSetupAction, getBotPlayAction } from '../core/BotEngine';
+import { getBotSetupAction, getBotPlayAction, generateThreatMap, getBoardAnalysis } from '../core/BotEngine';
 
 export function useGame(network, mode, difficulty, customBoardData = null) {
   const [gameState, setGameState] = useState(() => getInitialState(customBoardData));
   const [history, setHistory] = useState({ past: [], future: [] });
+
+  const [analysisMode, setAnalysisMode] = useState(false);
+  const [analysisData, setAnalysisData] = useState(null);
+  const [threatMap, setThreatMap] = useState(null);
+
+  // Generate Analysis Data whenever board or analysis mode changes
+  useEffect(() => {
+    if (!analysisMode) {
+      setAnalysisData(null);
+      setThreatMap(null);
+      return;
+    }
+
+    const targetPlayer = mode === 'bot' ? 'blue' : (network.role === 'blue' ? 'blue' : 'red');
+    const targetRole = targetPlayer === 'blue' 
+      ? (gameState.roleBlue === 'attacker' ? 'attacker' : 'defender') 
+      : (gameState.roleRed === 'attacker' ? 'attacker' : 'defender');
+    
+    const analysisDiff = mode === 'bot' ? difficulty : 'hard';
+
+    setAnalysisData(getBoardAnalysis(gameState.board, targetRole, analysisDiff, gameState, targetPlayer));
+    setThreatMap(generateThreatMap(gameState.board));
+  }, [analysisMode, gameState.board, gameState.roleBlue, gameState.roleRed, difficulty, mode, network.role]);
+
+  // Handle Elo update on game over
+  useEffect(() => {
+    if (gameState.phase === 'game-over' && mode === 'bot' && !gameState.eloProcessed) {
+      const botElo = difficulty === 'easy' ? 800 : (difficulty === 'medium' ? 1200 : 1600);
+      const currentElo = parseInt(localStorage.getItem('playerElo')) || 1000;
+      
+      let playerWins = 0;
+      if (gameState.winner === 'red') playerWins = 1;
+      else if (gameState.winner === 'draw') playerWins = 0.5;
+
+      const expectedScore = 1 / (1 + Math.pow(10, (botElo - currentElo) / 400));
+      const kFactor = 32;
+      const newElo = Math.round(currentElo + kFactor * (playerWins - expectedScore));
+      
+      localStorage.setItem('playerElo', newElo);
+      setGameState(curr => ({ ...curr, eloProcessed: true, newElo, eloDiff: newElo - currentElo }));
+    }
+  }, [gameState.phase, gameState.winner, difficulty, mode, gameState.eloProcessed]);
 
   const { role, status, lastMessage, sendPayload } = network;
 
@@ -504,6 +546,10 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
     undo,
     redo,
     canUndo: history.past.length > 0,
-    canRedo: history.future.length > 0
+    canRedo: history.future.length > 0,
+    analysisMode,
+    setAnalysisMode,
+    analysisData,
+    threatMap
   };
 }

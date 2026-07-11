@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Trash2, LogOut, Info, AlertTriangle, X, Zap } from 'lucide-react';
+import { Trash2, LogOut, Info, AlertTriangle, X, Zap, Undo2 } from 'lucide-react';
 import Grid from './Board/Grid';
+import AnalysisPanel from './AnalysisPanel';
 import { BLOCK_TYPES, PLAYERS, getReachableCells } from '../core/Ruleset';
 
 export default function Layout({ network, game, mode, difficulty }) {
@@ -43,7 +44,12 @@ export default function Layout({ network, game, mode, difficulty }) {
     undo,
     redo,
     canUndo,
-    canRedo
+    canRedo,
+    analysisMode,
+    setAnalysisMode,
+    analysisData,
+    threatMap,
+    history
   } = game;
 
   const [selectedCell, setSelectedCell] = useState(null);
@@ -83,8 +89,7 @@ export default function Layout({ network, game, mode, difficulty }) {
   };
 
   const laserPath = customData?.laserPath || [];
-  const hitPiece = customData?.hitPiece || null;
-  const blockStates = {}; // Points pieces hit are marked appropriately in Grid/Cell
+  const lazerPos = customData?.lazerPos;
 
   const { values = [1, 1], isRolling = false, lastRoller = null } = dice || {};
 
@@ -422,6 +427,19 @@ export default function Layout({ network, game, mode, difficulty }) {
                 <span style={{ fontWeight: 'bold' }}>{blueScore} pts</span>
               </div>
             </div>
+
+            {mode === 'bot' && game.eloProcessed && (
+              <div style={{ marginBottom: '20px', padding: '12px', backgroundColor: 'rgba(255, 204, 0, 0.1)', border: '1px solid rgba(255, 204, 0, 0.3)', borderRadius: '8px' }}>
+                <div style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', textTransform: 'uppercase', marginBottom: '4px' }}>Rating Update</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 'bold', color: '#ffcc00' }}>
+                  {game.newElo} ELO 
+                  <span style={{ fontSize: '0.9rem', marginLeft: '8px', color: game.eloDiff >= 0 ? '#39ff14' : 'var(--neon-red)' }}>
+                    ({game.eloDiff >= 0 ? '+' : ''}{game.eloDiff})
+                  </span>
+                </div>
+              </div>
+            )}
+
             <button className="cyber-button" onClick={clearWorkspace} style={{ width: '100%', borderColor: 'var(--neon-blue)', color: 'var(--neon-blue)' }}>
               PLAY AGAIN
             </button>
@@ -438,7 +456,16 @@ export default function Layout({ network, game, mode, difficulty }) {
       {/* Sidebar Left: Connection, Controls, Actions */}
       <div className="sidebar-panel sidebar-left glass-panel" style={{ justifyContent: 'flex-start' }}>
         <div className="game-controls-header">
-          <h2 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>Game Controls</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <h2 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>Game Controls</h2>
+            <button 
+              className={`cyber-button ${analysisMode ? 'blue' : ''}`}
+              style={{ fontSize: '0.65rem', padding: '4px 8px' }}
+              onClick={() => setAnalysisMode(!analysisMode)}
+            >
+              {analysisMode ? 'HIDE ANALYSIS' : 'ANALYSIS'}
+            </button>
+          </div>
           <div>
             <div style={{ fontSize: '0.85rem', color: role === 'red' ? 'var(--neon-red)' : 'var(--neon-blue)', fontWeight: 'bold' }}>
               ROLE: {role ? role.toUpperCase() : ''}
@@ -448,8 +475,6 @@ export default function Layout({ network, game, mode, difficulty }) {
             </div>
           </div>
         </div>
-
-
 
         {/* Dice Rolling Panel */}
         {phase === 'playing' && (
@@ -607,7 +632,18 @@ export default function Layout({ network, game, mode, difficulty }) {
       </div>
 
       {/* Center Panel: Collaborative Grid */}
-      <div className="main-board-panel">
+      <div className="main-board-panel" style={{ position: 'relative' }}>
+        
+        {/* Render Analysis Panel */}
+        {analysisMode && (
+          <AnalysisPanel 
+            data={analysisData} 
+            onClose={() => setAnalysisMode(false)} 
+            history={game.history}
+            dice={game.dice}
+          />
+        )}
+
         <div className="hud-header">
           {/* Host Info */}
           <div className={`hud-player red ${roleRed === turnPlayer && phase === 'playing' ? 'active' : ''}`} style={{ display: 'flex', gap: '16px', alignItems: 'center' }}>
@@ -731,7 +767,7 @@ export default function Layout({ network, game, mode, difficulty }) {
           rotateBlock={rotateBlock}
           removeBlock={removeBlock}
           laserPath={laserPath}
-          lazerPos={customData?.lazerPos}
+          lazerPos={lazerPos}
           mode={mode}
           phase={phase}
           isLocalTurn={isLocalTurn}
@@ -740,6 +776,7 @@ export default function Layout({ network, game, mode, difficulty }) {
           activePlayerColor={activePlayerColor}
           reachableCells={selectedCell ? getReachableCells(board, selectedCell.r, selectedCell.c, actionPoints, turnPlayer) : []}
           showLaserBeam={showLaserBeam}
+          threatMap={threatMap}
         />
 
         <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>

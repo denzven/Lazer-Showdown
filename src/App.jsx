@@ -74,6 +74,7 @@ function App() {
   const [lorePage, setLorePage] = useState(0);
   const [selectedBoardName, setSelectedBoardName] = useState('default');
   const [boardDropdownOpen, setBoardDropdownOpen] = useState(false);
+  const [playerElo, setPlayerElo] = useState(() => parseInt(localStorage.getItem('playerElo')) || 1000);
   const network = useNetwork();
 
   // Hardware Back Button Interception

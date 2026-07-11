@@ -20,7 +20,8 @@ export default function Grid({
   role,
   activePlayerColor,
   reachableCells = [],
-  showLaserBeam = false
+  showLaserBeam = false,
+  threatMap = null
 }) {
   const handleCellClick = (r, c) => {
     // Disable interaction if it's not the local player's turn
@@ -195,6 +196,8 @@ export default function Grid({
             const isSelected = selectedCell && selectedCell.r === r && selectedCell.c === c;
             const reachableInfo = reachableCells.find(cell => cell.r === r && cell.c === c);
 
+            const threatProb = threatMap ? threatMap[r][c] : 0;
+
             return (
               <Cell
                 key={`${r}-${c}`}
@@ -211,6 +214,7 @@ export default function Grid({
                 blockState="neutral"
                 isReachable={!!reachableInfo}
                 reachableDist={reachableInfo ? reachableInfo.dist : 0}
+                threatProb={threatProb}
               />
             );
           })

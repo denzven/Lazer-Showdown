@@ -15,7 +15,8 @@ export default function Cell({
   showControls,
   blockState = 'neutral',
   isReachable = false,
-  reachableDist = 0
+  reachableDist = 0,
+  threatProb = 0
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
 
@@ -208,6 +209,28 @@ export default function Cell({
           </button>
         </div>
       )}
+
+      {/* Threat Map Overlay */}
+      {threatProb > 0 && !block && (
+        <div style={{
+          position: 'absolute',
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          backgroundColor: `rgba(255, 0, 60, ${threatProb * 0.6})`,
+          pointerEvents: 'none',
+          zIndex: 1,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center'
+        }}>
+          <span style={{ color: 'white', fontSize: '0.7rem', fontWeight: 'bold', opacity: 0.8 }}>
+            {Math.round(threatProb * 100)}%
+          </span>
+        </div>
+      )}
+
       {/* Reachable overlay displaying Action Point cost */}
       {isReachable && (
         <div 

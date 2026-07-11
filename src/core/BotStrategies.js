@@ -89,6 +89,41 @@ function getPieceValue(type) {
   return 0;
 }
 
+// Evaluate board for Medium Attacker (Lizbishmir: True Blended Heuristic)
+function evaluateMediumAttacker(board, cautiousness = 1.0) {
+  const { lazerPos, lazerDir, pointPieces } = getBoardState(board);
+  if (!lazerPos) return -99999;
+  
+  let score = 0;
+  
+  const remainingTypes = pointPieces.map(p => p.type);
+  if (!remainingTypes.includes(BLOCK_TYPES.BLOCK_50)) score += 50000;
+  if (!remainingTypes.includes(BLOCK_TYPES.BLOCK_30)) score += 30000;
+  if (!remainingTypes.includes(BLOCK_TYPES.BLOCK_20)) score += 20000;
+
+  if (pointPieces.length === 0) return score + 100000;
+
+  let targetPiece = pointPieces.sort((a, b) => getPieceValue(b.type) - getPieceValue(a.type))[0];
+
+  // Easy Bot Logic: Penalize physical distance heavily so she marches
+  const manhattanDist = Math.abs(lazerPos.r - targetPiece.r) + Math.abs(lazerPos.c - targetPiece.c);
+  score -= manhattanDist * 100;
+
+  // Hard Bot Logic: Capture reward
+  const trace = traceLaserBeam(board, lazerPos, lazerDir);
+  if (trace.hitPiece && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(trace.hitPiece.cell.type)) {
+     score += getPieceValue(trace.hitPiece.cell.type) * 2 * cautiousness; 
+     
+     // Easy Bot Logic: Straight-shot bonus
+     const usesMirrors = trace.path.some(p => p.type === 'mirror-bounce');
+     if (!usesMirrors) {
+        score += 1000; 
+     }
+  }
+
+  return score;
+}
+
 // Evaluate board for Attacker (higher is better for attacker)
 function evaluateBoardAttacker(board, cautiousness = 1.0) {
   const { lazerPos, lazerDir, pointPieces } = getBoardState(board);
@@ -139,6 +174,60 @@ function get2d6CumulativeProbability(targetAP) {
   if (targetAP === 11) return 3/36;
   if (targetAP === 12) return 1/36;
   return 0; // >12
+}
+
+// Evaluate board for Medium Defender (Lizbishmir: True Blended Heuristic)
+function evaluateMediumDefender(board, cautiousness = 1.0) {
+  const { lazerPos, lazerDir, pointPieces } = getBoardState(board);
+  let score = 0;
+
+  for (const p of pointPieces) {
+    score += getPieceValue(p.type) * 10;
+  }
+
+  if (!lazerPos) return score;
+
+  const rotations = [0, 90, 180, 270];
+
+  for (const p of pointPieces) {
+    let minAPToHit = 999;
+
+    // Hard Bot Logic: Calculate Threat Map
+    for (const rot of rotations) {
+      const trace = traceLaserBeam(board, lazerPos, rot);
+      if (trace.hitPiece && trace.hitPiece.r === p.r && trace.hitPiece.c === p.c) {
+        const ap = (rot === lazerDir) ? 1 : 2; 
+        if (ap < minAPToHit) minAPToHit = ap;
+      }
+    }
+
+    for (const rot of rotations) {
+      const trace = traceLaserBeam(board, p, rot);
+      for (const step of trace.path) {
+        if (step.type === 'beam') {
+          const r = step.r;
+          const c = step.c;
+          if (r === lazerPos.r && c === lazerPos.c) continue; 
+          if (board[r][c] === null) { 
+            const moveDist = Math.abs(lazerPos.r - r) + Math.abs(lazerPos.c - c);
+            const ap = moveDist + 2; 
+            if (ap < minAPToHit) minAPToHit = ap;
+          }
+        }
+      }
+    }
+
+    if (minAPToHit < 999) {
+      const prob = get2d6CumulativeProbability(minAPToHit);
+      score -= getPieceValue(p.type) * 20 * prob * cautiousness;
+    }
+
+    // Easy Bot Logic: Maximize physical distance to Lazer
+    const physicalDistToLazer = Math.abs(lazerPos.r - p.r) + Math.abs(lazerPos.c - p.c);
+    score += physicalDistToLazer * 10;
+  }
+
+  return score;
 }
 
 // Evaluate board for Defender (higher is better for defender)
@@ -297,16 +386,11 @@ export const EasyStrategy = {
       dist += (Math.random() - 0.5) * 2; // Random noise
 
       if (role === 'attacker') {
-        let hasStraightShot = false;
-        const trace = traceLaserBeam(b1, state1.lazerPos, state1.lazerDir);
-        if (trace.hitPiece && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(trace.hitPiece.cell.type)) {
-           const usesMirrors = trace.path.some(p => p.type === 'mirror-bounce');
-           if (!usesMirrors) hasStraightShot = true;
-        }
-
-        // Massively reward a direct, mirror-less shot to make the bot turn and fire
-        if (hasStraightShot) {
-           dist -= 1000;
+        if (action.type === 'laser-press') {
+          const currentTrace = traceLaserBeam(board, lazerPos, lazerDir);
+          if (currentTrace.hitPiece && !currentTrace.path.some(p => p.type === 'mirror-bounce')) {
+            return action; 
+          }
         }
 
         if (dist < bestScore) {
@@ -331,19 +415,14 @@ export const MediumStrategy = {
     return genericSetupAction(board, phase, 'medium', challengedPiece);
   },
   getPlayAction: (board, role, actionPoints, gameState, botPlayer) => {
-    // True Mix: 50% chance to use the physical-only Easy logic for this move
-    if (Math.random() < 0.5) {
-      return EasyStrategy.getPlayAction(board, role, actionPoints, gameState, botPlayer);
-    }
-
-    // Otherwise, use the advanced Threat Map (like Hard), but only looking 1 step ahead
     const cautiousness = getCautiousness(gameState, botPlayer);
-    const evalFn = role === 'attacker' ? evaluateBoardAttacker : evaluateBoardDefender;
+    const evalFn = role === 'attacker' ? evaluateMediumAttacker : evaluateMediumDefender;
     const currentScore = evalFn(board, cautiousness);
+    
+    // Lizbishmir is methodical and rarely makes mistakes. Depth 1, strictly optimal.
     const { bestAction, bestScore } = findBestActionSequence(board, role, 1, evalFn, cautiousness);
     
-    // 20% chance to take a suboptimal move if it doesn't immediately improve the score
-    if (bestAction && (bestScore >= currentScore || Math.random() < 0.2)) {
+    if (bestAction && bestScore >= currentScore) {
       return bestAction;
     }
     return null;
@@ -368,6 +447,64 @@ export const HardStrategy = {
     return null;
   }
 };
+
+// --- ANALYSIS TOOLS ---
+export function generateThreatMap(board) {
+  const { lazerPos, lazerDir } = getBoardState(board);
+  const map = Array(8).fill(null).map(() => Array(8).fill(0));
+  if (!lazerPos) return map;
+
+  const rotations = [0, 90, 180, 270];
+
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      if (board[r][c] !== null) continue; // Only mapping empty spaces for potential point piece deaths
+
+      let minAPToHit = 999;
+
+      // Check immediate threats
+      for (const rot of rotations) {
+        const trace = traceLaserBeam(board, lazerPos, rot);
+        if (trace.path.some(step => step.r === r && step.c === c)) {
+          const ap = (rot === lazerDir) ? 1 : 2;
+          if (ap < minAPToHit) minAPToHit = ap;
+        }
+      }
+
+      // Check movement threats (reverse trace)
+      for (const rot of rotations) {
+        const trace = traceLaserBeam(board, { r, c }, rot);
+        for (const step of trace.path) {
+          if (step.type === 'beam' && board[step.r][step.c] === null) {
+            const moveDist = Math.abs(lazerPos.r - step.r) + Math.abs(lazerPos.c - step.c);
+            const ap = moveDist + 2; 
+            if (ap < minAPToHit) minAPToHit = ap;
+          }
+        }
+      }
+
+      if (minAPToHit < 999) {
+        map[r][c] = get2d6CumulativeProbability(minAPToHit);
+      }
+    }
+  }
+  return map;
+}
+
+export function getBoardAnalysis(board, role, difficulty, gameState, botPlayer) {
+  const cautiousness = getCautiousness(gameState, botPlayer);
+  let evalFn;
+  if (difficulty === 'medium') {
+    evalFn = role === 'attacker' ? evaluateMediumAttacker : evaluateMediumDefender;
+  } else {
+    evalFn = role === 'attacker' ? evaluateBoardAttacker : evaluateBoardDefender;
+  }
+  
+  // Note: For a true vector breakdown, we would rewrite the eval functions to return objects.
+  // For now, we will return the total score and the raw calculated variables if possible.
+  const totalScore = evalFn(board, cautiousness);
+  return { totalScore, cautiousness, difficulty, role };
+}
 
 // Generic Setup logic extracted from original
 function genericSetupAction(board, phase, difficulty, challengedPiece) {
