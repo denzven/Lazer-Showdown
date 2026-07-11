@@ -4,7 +4,7 @@ import {
   validatePlacement,
   validateMovement,
   traceLaserBeam 
-} from './Ruleset';
+} from './Ruleset.js';
 
 // --- SHARED HELPER FUNCTIONS ---
 
@@ -89,6 +89,96 @@ function getPieceValue(type) {
   return 0;
 }
 
+export function calculateMobility(board, role) {
+  return getPossibleActions(board, role).length;
+}
+
+export function calculateCenterControl(board) {
+  const { lazerPos, pointPieces } = getBoardState(board);
+  let score = 0;
+  if (lazerPos) {
+    score -= (Math.abs(lazerPos.r - 3.5) + Math.abs(lazerPos.c - 3.5));
+  }
+  pointPieces.forEach(p => {
+    score += (Math.abs(p.r - 3.5) + Math.abs(p.c - 3.5));
+  });
+  return score;
+}
+
+export function calculateMirrorUtilization(board) {
+  let totalMirrors = 0;
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      if (board[r][c] && board[r][c].type === BLOCK_TYPES.BLOCK_MIRROR) {
+        totalMirrors++;
+      }
+    }
+  }
+  if (totalMirrors === 0) return 0;
+
+  const { lazerPos, lazerDir } = getBoardState(board);
+  if (!lazerPos) return 0;
+
+  const trace = traceLaserBeam(board, lazerPos, lazerDir);
+  const usedMirrors = trace.path.filter(p => p.type === 'mirror-bounce').length;
+  
+  return usedMirrors / totalMirrors;
+}
+
+export function getPrimaryTarget(board) {
+  const { lazerPos, lazerDir, pointPieces } = getBoardState(board);
+  if (!lazerPos || pointPieces.length === 0) return null;
+
+  const trace = traceLaserBeam(board, lazerPos, lazerDir);
+  if (trace.hitPiece && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(trace.hitPiece.cell.type)) {
+    return { type: trace.hitPiece.cell.type, r: trace.hitPiece.r, c: trace.hitPiece.c, isHit: true, apToHit: 1 };
+  }
+
+  const rotations = [0, 90, 180, 270];
+  let minAPToHit = 999;
+  let highestValueTarget = null;
+
+  for (const p of pointPieces) {
+    let pieceAP = 999;
+    for (const rot of rotations) {
+      const t = traceLaserBeam(board, lazerPos, rot);
+      if (t.hitPiece && t.hitPiece.r === p.r && t.hitPiece.c === p.c) {
+        const ap = (rot === lazerDir) ? 1 : 2; 
+        if (ap < pieceAP) pieceAP = ap;
+      }
+    }
+    for (const rot of rotations) {
+      const t = traceLaserBeam(board, p, rot);
+      for (const step of t.path) {
+        if (step.type === 'beam') {
+          const r = step.r;
+          const c = step.c;
+          if (r === lazerPos.r && c === lazerPos.c) continue; 
+          if (board[r][c] === null) { 
+            const moveDist = Math.abs(lazerPos.r - r) + Math.abs(lazerPos.c - c);
+            const ap = moveDist + 2; 
+            if (ap < pieceAP) pieceAP = ap;
+          }
+        }
+      }
+    }
+    
+    if (pieceAP < 999) {
+      if (!highestValueTarget || getPieceValue(p.type) > getPieceValue(highestValueTarget.type)) {
+        highestValueTarget = p;
+        minAPToHit = pieceAP;
+      } else if (getPieceValue(p.type) === getPieceValue(highestValueTarget.type) && pieceAP < minAPToHit) {
+        minAPToHit = pieceAP;
+      }
+    }
+  }
+
+  if (highestValueTarget) {
+    return { type: highestValueTarget.type, r: highestValueTarget.r, c: highestValueTarget.c, isHit: false, apToHit: minAPToHit };
+  }
+  return null;
+}
+
 // Evaluate board for Medium Attacker (Lizbishmir: True Blended Heuristic)
 function evaluateMediumAttacker(board, cautiousness = 1.0) {
   const { lazerPos, lazerDir, pointPieces } = getBoardState(board);
@@ -125,7 +215,7 @@ function evaluateMediumAttacker(board, cautiousness = 1.0) {
 }
 
 // Evaluate board for Attacker (higher is better for attacker)
-function evaluateBoardAttacker(board, cautiousness = 1.0) {
+export function evaluateBoardAttacker(board, cautiousness = 1.0) {
   const { lazerPos, lazerDir, pointPieces } = getBoardState(board);
   if (!lazerPos) return -99999;
   
@@ -139,12 +229,55 @@ function evaluateBoardAttacker(board, cautiousness = 1.0) {
 
   if (pointPieces.length === 0) return score + 100000; // Win state
 
-  // 2. Chasing logic: Find path to hit the highest value piece
-  let targetPiece = pointPieces.sort((a, b) => getPieceValue(b.type) - getPieceValue(a.type))[0];
+  // 2. Chasing logic: Find minimum AP to hit the best pieces
+  const rotations = [0, 90, 180, 270];
+  let minAPToHit = 999;
+  let highestValueTarget = null;
 
-  // Penalize distance to target piece
-  const manhattanDist = Math.abs(lazerPos.r - targetPiece.r) + Math.abs(lazerPos.c - targetPiece.c);
-  score -= manhattanDist * 100;
+  for (const p of pointPieces) {
+    let pieceAP = 999;
+
+    // A. Check immediate threats from LAZER's current position
+    for (const rot of rotations) {
+      const trace = traceLaserBeam(board, lazerPos, rot);
+      if (trace.hitPiece && trace.hitPiece.r === p.r && trace.hitPiece.c === p.c) {
+        const ap = (rot === lazerDir) ? 1 : 2; 
+        if (ap < pieceAP) pieceAP = ap;
+      }
+    }
+
+    // B. Check movement threats
+    for (const rot of rotations) {
+      const trace = traceLaserBeam(board, p, rot);
+      for (const step of trace.path) {
+        if (step.type === 'beam') {
+          const r = step.r;
+          const c = step.c;
+          if (r === lazerPos.r && c === lazerPos.c) continue; 
+          if (board[r][c] === null) { 
+            const moveDist = Math.abs(lazerPos.r - r) + Math.abs(lazerPos.c - c);
+            const ap = moveDist + 2; 
+            if (ap < pieceAP) pieceAP = ap;
+          }
+        }
+      }
+    }
+    
+    // Weight the AP by the value of the piece it hits
+    if (pieceAP < 999) {
+      if (!highestValueTarget || getPieceValue(p.type) > getPieceValue(highestValueTarget.type)) {
+        highestValueTarget = p;
+        minAPToHit = pieceAP;
+      } else if (getPieceValue(p.type) === getPieceValue(highestValueTarget.type) && pieceAP < minAPToHit) {
+        minAPToHit = pieceAP;
+      }
+    }
+  }
+
+  // Penalize based on AP required to hit the best target
+  if (minAPToHit < 999) {
+    score -= minAPToHit * 100;
+  }
 
   // 3. Are we hitting a piece currently?
   const trace = traceLaserBeam(board, lazerPos, lazerDir);
@@ -157,6 +290,9 @@ function evaluateBoardAttacker(board, cautiousness = 1.0) {
   const mirrorBounces = trace.path.filter(p => p.type === 'mirror-bounce').length;
   // If cautious/desperate, complex trick shots are valued slightly less compared to guaranteed captures
   score += mirrorBounces * 10 * (1 / cautiousness);
+
+  score += calculateMobility(board, 'attacker') * 5;
+  score += calculateCenterControl(board) * 10;
 
   return score;
 }
@@ -231,7 +367,7 @@ function evaluateMediumDefender(board, cautiousness = 1.0) {
 }
 
 // Evaluate board for Defender (higher is better for defender)
-function evaluateBoardDefender(board, cautiousness = 1.0) {
+export function evaluateBoardDefender(board, cautiousness = 1.0) {
   const { lazerPos, lazerDir, pointPieces } = getBoardState(board);
   let score = 0;
 
@@ -279,10 +415,37 @@ function evaluateBoardDefender(board, cautiousness = 1.0) {
       score -= getPieceValue(p.type) * 20 * prob * cautiousness;
     }
 
-    // Bonus for being near edges/corners (harder to surround/hit)
-    const edgeDist = Math.min(p.r, 7 - p.r) + Math.min(p.c, 7 - p.c);
-    score -= edgeDist * 10; 
+    // Calculate Clustering Penalty and Collinear Penalty (instead of infinite dispersion)
+    for (const otherP of pointPieces) {
+      if (otherP !== p) {
+        const dist = Math.abs(p.r - otherP.r) + Math.abs(p.c - otherP.c);
+        if (dist <= 2) {
+          score -= 50; // Severe penalty for clustering
+        }
+        if (p.r === otherP.r) {
+           const minC = Math.min(p.c, otherP.c);
+           const maxC = Math.max(p.c, otherP.c);
+           let blocked = false;
+           for (let c = minC + 1; c < maxC; c++) {
+              if (board[p.r][c] !== null && board[p.r][c].type === BLOCK_TYPES.BLOCK_MIRROR) blocked = true;
+           }
+           if (!blocked) score -= 30;
+        }
+        if (p.c === otherP.c) {
+           const minR = Math.min(p.r, otherP.r);
+           const maxR = Math.max(p.r, otherP.r);
+           let blocked = false;
+           for (let r = minR + 1; r < maxR; r++) {
+              if (board[r][p.c] !== null && board[r][p.c].type === BLOCK_TYPES.BLOCK_MIRROR) blocked = true;
+           }
+           if (!blocked) score -= 30;
+        }
+      }
+    }
   }
+
+  score += calculateMobility(board, 'defender') * 5;
+  score -= calculateCenterControl(board) * 10;
 
   return score;
 }
@@ -441,10 +604,11 @@ export const HardStrategy = {
     const currentScore = evalFn(board, cautiousness);
     const { bestAction, bestScore } = findBestActionSequence(board, role, depth, evalFn, cautiousness);
     
-    if (bestAction && bestScore > -Infinity) {
+    // Only perform the action if it improves our situation
+    if (bestAction && bestScore > currentScore) {
       return bestAction;
     }
-    return null;
+    return null; // Will trigger 'end-turn' in useGame.js
   }
 };
 
@@ -603,12 +767,9 @@ export function generateThreatMap(board) {
 }
 
 export function classifyMove(beforeScore, afterScore, turnPlayer) {
+  // beforeScore and afterScore are calculated from the actor's perspective, 
+  // so a positive diff means the move improved their position!
   let diff = afterScore - beforeScore;
-  
-  // If it was the defender's turn, a lower attacker score means the defender did well
-  if (turnPlayer === 'defender') {
-    diff = beforeScore - afterScore;
-  }
 
   if (diff >= 0) return { label: 'Best Move', color: '#39ff14' };
   if (diff >= -500) return { label: 'Excellent', color: '#00f0ff' };
@@ -618,29 +779,100 @@ export function classifyMove(beforeScore, afterScore, turnPlayer) {
   return { label: 'Blunder', color: '#ff003c' };
 }
 
-export function getChallengeRecommendation(capturedPieces) {
-  const has50 = capturedPieces.includes(BLOCK_TYPES.BLOCK_50);
-  const has30 = capturedPieces.includes(BLOCK_TYPES.BLOCK_30);
-  const has20 = capturedPieces.includes(BLOCK_TYPES.BLOCK_20);
+export function getChallengeRecommendation(capturedPieces, round, actionPoints, attackerScore, defenderScore, setNum) {
+  const availableValues = [];
+  if (capturedPieces.includes(BLOCK_TYPES.BLOCK_50)) availableValues.push(50);
+  if (capturedPieces.includes(BLOCK_TYPES.BLOCK_30)) availableValues.push(30);
+  if (capturedPieces.includes(BLOCK_TYPES.BLOCK_20)) availableValues.push(20);
+  
+  if (availableValues.length === 0) {
+     return {
+        recommend: false,
+        probability: 0,
+        reason: 'No pieces captured to challenge for.',
+        suggestedPiece: null
+     };
+  }
+  
+  availableValues.sort((a, b) => a - b); // Ascending order
+  
+  const roundsRemaining = 3 - round;
+  const totalApproxAP = roundsRemaining * 7; 
 
-  if (!has50) {
+  let probCaptureIfWin = 0;
+  if (totalApproxAP >= 10) probCaptureIfWin = 0.9;
+  else if (totalApproxAP >= 7) probCaptureIfWin = 0.6;
+  else if (totalApproxAP >= 4) probCaptureIfWin = 0.3;
+  else probCaptureIfWin = 0.05;
+
+  let probability = Math.round(probCaptureIfWin * 100);
+
+  // SET 1 LOGIC: Defender hasn't scored yet. Maximize points safely.
+  if (setNum === 1) {
+    if (probCaptureIfWin < 0.6) {
+      return {
+        recommend: false,
+        probability,
+        reason: `Too risky! Only ~${totalApproxAP} expected AP left. You don't have enough time to safely recapture a piece.`,
+        suggestedPiece: `block-${availableValues[availableValues.length - 1]}`
+      };
+    }
+    
+    // Find a piece that won't ruin our score if we lose the toss.
+    // Rule of thumb: Don't wager more than half your current score if possible.
+    let targetV = availableValues[0];
+    for (let i = availableValues.length - 1; i >= 0; i--) {
+      if (availableValues[i] <= attackerScore / 2) {
+        targetV = availableValues[i];
+        break;
+      }
+    }
+    
     return {
       recommend: true,
-      probability: 99,
-      reason: 'The 50pt piece is still hiding! Challenge to force it out.'
+      probability,
+      reason: `You have plenty of AP (~${totalApproxAP}). Challenging the ${targetV}pt piece safely pads your Set 1 score without risking a devastating penalty.`,
+      suggestedPiece: `block-${targetV}`
     };
-  } else if (!has30 || !has20) {
-    return {
-      recommend: true,
-      probability: 75,
-      reason: 'Minor point pieces are hiding. Good chance to score extra points.'
-    };
+  }
+  
+  // SET 2 LOGIC: We know exactly what we need to win.
+  const scoreDeficit = defenderScore - attackerScore;
+  
+  if (scoreDeficit <= 0) {
+     return {
+       recommend: false,
+       probability,
+       reason: `You are already winning by ${-scoreDeficit} pts (or tied). Do not risk your lead!`,
+       suggestedPiece: `block-${availableValues[0]}`
+     };
+  }
+  
+  // We are losing. Find the SMALLEST piece that wins or ties the game.
+  let targetV = null;
+  for (const v of availableValues) {
+    if (v >= scoreDeficit) {
+      targetV = v;
+      break;
+    }
+  }
+  
+  if (targetV !== null) {
+     return {
+       recommend: true,
+       probability,
+       reason: `You are behind by ${scoreDeficit} pts! Challenging the ${targetV}pt piece is the safest exact wager to tie/win the game.`,
+       suggestedPiece: `block-${targetV}`
+     };
   } else {
-    return {
-      recommend: false,
-      probability: 5,
-      reason: 'All pieces captured. Nothing left to challenge for.'
-    };
+     // No single piece can save us. Pick the largest as a desperation play.
+     const maxV = availableValues[availableValues.length - 1];
+     return {
+       recommend: probCaptureIfWin >= 0.3,
+       probability,
+       reason: `You are behind by ${scoreDeficit} pts. Even the ${maxV}pt piece won't secure a win, but it's your best desperation play.`,
+       suggestedPiece: `block-${maxV}`
+     };
   }
 }
 
@@ -662,57 +894,115 @@ export function getPieceThreatLevels(board) {
   return threats.sort((a, b) => b.threatLevel - a.threatLevel);
 }
 
+export function classifyPlay(sequence, engineType) {
+  const hasFire = sequence.some(a => a.type === 'laser-press');
+  const hasMove = sequence.some(a => a.type === 'move');
+  const hasRotate = sequence.some(a => a.type === 'rotate');
+  
+  if (engineType === 'neural') {
+    if (hasFire && hasMove) return "Neural Strike Matrix";
+    if (hasFire && hasRotate) return "Vector Re-alignment";
+    if (hasFire) return "High-Probability Endstate";
+    if (hasMove && hasRotate) return "State Minimization Delta";
+    if (hasMove) return "Deep Value Extraction";
+    if (hasRotate) return "Pattern Match Pivot";
+    return "Neural Heuristic";
+  } else {
+    if (hasFire && hasMove) return "Flank & Fire";
+    if (hasFire && hasRotate) return "Aim & Fire";
+    if (hasFire) return "Direct Strike";
+    if (hasMove && hasRotate) return "Tactical Repositioning";
+    if (hasMove) return "Positional Setup";
+    if (hasRotate) return "Lazer Re-orientation";
+    return "Strategic Maneuver";
+  }
+}
+
+export function formatActionText(action) {
+  if (action.type === 'place') return `Place ${action.pieceType.replace('block-', '')}pt at (${action.r}, ${action.c})`;
+  if (action.type === 'laser-press') return 'Fire Lazer!';
+  if (action.type === 'move') return `Move to (${action.toR}, ${action.toC})`;
+  if (action.type === 'rotate') return `Rotate ${action.dir === 'cw' ? 'CW' : 'CCW'}`;
+  return 'Unknown Move';
+}
+
 export function getEngineLines(board, role, difficulty, gameState) {
   const cautiousness = getCautiousness(gameState, gameState.turnPlayer);
-  let evalFn;
-  if (difficulty === 'medium') {
-    evalFn = role === 'attacker' ? evaluateMediumAttacker : evaluateMediumDefender;
-  } else {
-    evalFn = role === 'attacker' ? evaluateBoardAttacker : evaluateBoardDefender;
+  let evalFn = difficulty === 'medium' 
+    ? (role === 'attacker' ? evaluateMediumAttacker : evaluateMediumDefender)
+    : (role === 'attacker' ? evaluateBoardAttacker : evaluateBoardDefender);
+
+  const maxDepth = Math.min(gameState?.actionPoints || 2, 2); // Cap at depth 2 for sync math engine
+  const evaluatedPlays = [];
+
+  function generatePlays(currentBoard, currentDepth, currentSequence) {
+    if (currentDepth === 0) {
+      evaluatedPlays.push({ sequence: currentSequence, board: currentBoard });
+      return;
+    }
+    
+    const possibleActions = getPossibleActions(currentBoard, role);
+    if (possibleActions.length === 0) {
+      evaluatedPlays.push({ sequence: currentSequence, board: currentBoard });
+      return;
+    }
+
+    for (const act of possibleActions) {
+      let nextBoard = act.type === 'laser-press' ? currentBoard : applyLightweightAction(currentBoard, act);
+      const nextSeq = [...currentSequence, act];
+      if (act.type === 'laser-press') {
+        evaluatedPlays.push({ sequence: nextSeq, board: nextBoard });
+      } else {
+        generatePlays(nextBoard, currentDepth - 1, nextSeq);
+      }
+    }
   }
 
-  const actions = getPossibleActions(board, role);
-  if (actions.length === 0) return [];
+  generatePlays(board, maxDepth, []);
 
-  const evaluatedActions = [];
-  for (const action of actions) {
-    const board1 = applyLightweightAction(board, action);
-    let score = evalFn(board1, cautiousness);
+  // Evaluate the final board state of each play sequence
+  for (const play of evaluatedPlays) {
+    let score = evalFn(play.board, cautiousness);
 
-    // Depth 2
+    // Opponent worst-case response (depth 1 lookahead for opponent)
     const oppRole = role === 'attacker' ? 'defender' : 'attacker';
-    const oppActions = getPossibleActions(board1, oppRole);
+    const oppActions = getPossibleActions(play.board, oppRole);
     let worstCaseOppScore = Infinity;
     
     if (oppActions.length > 0) {
-      for (const oppAction of oppActions) {
-        const board2 = applyLightweightAction(board1, oppAction);
-        const oppScore = evalFn(board2, cautiousness);
-        if (oppScore < worstCaseOppScore) {
-          worstCaseOppScore = oppScore;
-        }
-      }
+      // Pick top 5 opponent actions to save sync time
+      const oppEvals = oppActions.slice(0, 5).map(act => {
+        const b2 = applyLightweightAction(play.board, act);
+        return evalFn(b2, cautiousness);
+      });
+      worstCaseOppScore = Math.min(...oppEvals);
       score = worstCaseOppScore;
     }
 
-    evaluatedActions.push({ action, score });
+    play.score = score;
+    play.name = classifyPlay(play.sequence, role, 'math');
   }
 
-  evaluatedActions.sort((a, b) => b.score - a.score);
+  evaluatedPlays.sort((a, b) => b.score - a.score);
 
-  return evaluatedActions.slice(0, 3).map(ea => {
-    let text = 'Unknown Move';
-    if (ea.action.type === 'place') {
-      text = `Place ${ea.action.pieceType.replace('block-', '')} at (${ea.action.r}, ${ea.action.c})`;
-    } else if (ea.action.type === 'laser-press') {
-      text = 'Fire Lazer!';
-    } else if (ea.action.type === 'move') {
-      text = `Move to (${ea.action.toR}, ${ea.action.toC})`;
-    } else if (ea.action.type === 'rotate') {
-      text = `Rotate ${ea.action.dir === 'cw' ? 'CW' : 'CCW'}`;
+  // Return formatted unique top 3 plays
+  const uniquePlays = [];
+  const seenNames = new Set();
+  for (const p of evaluatedPlays) {
+    const sig = p.sequence.map(formatActionText).join('->');
+    if (!seenNames.has(sig)) {
+      seenNames.add(sig);
+      uniquePlays.push(p);
+      if (uniquePlays.length >= 3) break;
     }
-    return { text, score: Math.round(ea.score) };
-  });
+  }
+
+  return uniquePlays.map(p => ({
+    name: p.name,
+    sequence: p.sequence,
+    formattedSteps: p.sequence.map(formatActionText),
+    score: Math.round(p.score)
+  }));
 }
 
 export function getBoardAnalysis(board, role, difficulty, gameState, botPlayer) {
@@ -727,8 +1017,64 @@ export function getBoardAnalysis(board, role, difficulty, gameState, botPlayer) 
   // Note: For a true vector breakdown, we would rewrite the eval functions to return objects.
   // For now, we will return the total score and the raw calculated variables if possible.
   const totalScore = evalFn(board, cautiousness);
-  return { totalScore, cautiousness, difficulty, role };
+
+  const { pointPieces } = getBoardState(board);
+  const behaviorWarnings = [];
+
+  if (role === 'defender' && pointPieces.length >= 2) {
+    for (let i = 0; i < pointPieces.length; i++) {
+      for (let j = i + 1; j < pointPieces.length; j++) {
+        const p1 = pointPieces[i];
+        const p2 = pointPieces[j];
+        
+        // Clustered Defense
+        const dist = Math.abs(p1.r - p2.r) + Math.abs(p1.c - p2.c);
+        if (dist <= 2) {
+          if (!behaviorWarnings.some(w => w.type === 'clustered')) {
+            behaviorWarnings.push({ type: 'clustered', message: 'Clustered Defense: Pieces are dangerously close, vulnerable to splash damage or easy consecutive hits.' });
+          }
+        }
+
+        // Collinear Vulnerability
+        if (p1.r === p2.r) {
+           const minC = Math.min(p1.c, p2.c);
+           const maxC = Math.max(p1.c, p2.c);
+           let blocked = false;
+           for (let c = minC + 1; c < maxC; c++) {
+              if (board[p1.r][c] !== null && board[p1.r][c].type === BLOCK_TYPES.BLOCK_MIRROR) blocked = true;
+           }
+           if (!blocked && !behaviorWarnings.some(w => w.type === 'collinear')) {
+              behaviorWarnings.push({ type: 'collinear', message: 'Collinear Vulnerability: Pieces are in the same row without mirror protection.' });
+           }
+        }
+        if (p1.c === p2.c) {
+           const minR = Math.min(p1.r, p2.r);
+           const maxR = Math.max(p1.r, p2.r);
+           let blocked = false;
+           for (let r = minR + 1; r < maxR; r++) {
+              if (board[r][p1.c] !== null && board[r][p1.c].type === BLOCK_TYPES.BLOCK_MIRROR) blocked = true;
+           }
+           if (!blocked && !behaviorWarnings.some(w => w.type === 'collinear')) {
+              behaviorWarnings.push({ type: 'collinear', message: 'Collinear Vulnerability: Pieces are in the same column without mirror protection.' });
+           }
+        }
+      }
+    }
+  }
+
+  const advancedMetrics = {
+    attackerMobility: calculateMobility(board, 'attacker'),
+    defenderMobility: calculateMobility(board, 'defender'),
+    centerControl: calculateCenterControl(board),
+    mirrorUtilization: calculateMirrorUtilization(board),
+    primaryTarget: getPrimaryTarget(board),
+    turnStats: gameState && gameState.turnStats ? gameState.turnStats : null
+  };
+
+  return { totalScore, cautiousness, difficulty, role, behaviorWarnings, advancedMetrics };
 }
+
+
 
 // Generic Setup logic extracted from original
 function genericSetupAction(board, phase, difficulty, challengedPiece) {
@@ -768,23 +1114,68 @@ function genericSetupAction(board, phase, difficulty, challengedPiece) {
       }
 
       const sortedCells = legalCells.sort((a, b) => {
-        let coverA = 0; let coverB = 0;
-        const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
-        dirs.forEach(([dr, dc]) => {
-          const nrA = a.r + dr, ncA = a.c + dc;
-          if (nrA < 0 || nrA >= BOARD_SIZE || ncA < 0 || ncA >= BOARD_SIZE) coverA += 0.5;
-          else if (board[nrA][ncA] !== null) coverA += 1;
+        let scoreA = 0; let scoreB = 0;
+        
+        // Find existing point pieces
+        const existingPieces = [];
+        for (let r = 0; r < BOARD_SIZE; r++) {
+          for (let c = 0; c < BOARD_SIZE; c++) {
+            if (board[r][c] !== null && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(board[r][c].type)) {
+              existingPieces.push({ r, c });
+            }
+          }
+        }
+
+        const threatMap = difficulty === 'hard' ? generateThreatMap(board) : null;
+
+        const evaluateCell = (cell) => {
+          let score = 0;
           
-          const nrB = b.r + dr, ncB = b.c + dc;
-          if (nrB < 0 || nrB >= BOARD_SIZE || ncB < 0 || ncB >= BOARD_SIZE) coverB += 0.5;
-          else if (board[nrB][ncB] !== null) coverB += 1;
-        });
+          // Cover logic (being near edges is good, near pieces is mixed)
+          const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+          let cover = 0;
+          dirs.forEach(([dr, dc]) => {
+            const nr = cell.r + dr, nc = cell.c + dc;
+            if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) cover += 0.5; // Edges are good
+          });
+          score += cover * 2;
 
-        const distA = Math.abs(a.r - 3.5) + Math.abs(a.c - 3.5);
-        const distB = Math.abs(b.r - 3.5) + Math.abs(b.c - 3.5);
+          // Distance from center (Corners are generally safer)
+          const distFromCenter = Math.abs(cell.r - 3.5) + Math.abs(cell.c - 3.5);
+          score += distFromCenter;
 
-        if (difficulty === 'medium') return (coverB - coverA) * 2 + (distA - distB);
-        else return (coverB - coverA) * 5 + (distB - distA);
+          if (difficulty === 'hard') {
+            // Actively avoid high-threat baseline locations
+            if (threatMap) {
+               score -= (threatMap[cell.r][cell.c].total * 50);
+            }
+
+            // Dispersion Bonus / Anti-Clustering Penalty
+            existingPieces.forEach(p => {
+              const dist = Math.abs(cell.r - p.r) + Math.abs(cell.c - p.c);
+              if (dist <= 2) {
+                score -= 50; // Severe penalty for clustering
+              } else {
+                score += dist * 2; // Bonus for dispersion
+              }
+
+              // Collinear Penalty
+              if (cell.r === p.r || cell.c === p.c) {
+                score -= 30; // High penalty for straight lines
+              }
+            });
+          } else {
+            // Medium bot likes to hide pieces near other pieces
+            existingPieces.forEach(p => {
+              const dist = Math.abs(cell.r - p.r) + Math.abs(cell.c - p.c);
+              if (dist <= 1) score += 5;
+            });
+          }
+          
+          return score;
+        };
+
+        return evaluateCell(b) - evaluateCell(a);
       });
 
       const chosenCell = sortedCells[0];
@@ -839,6 +1230,26 @@ function genericSetupAction(board, phase, difficulty, challengedPiece) {
           let score = trace.path.length;
           if (trace.hitPiece && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(trace.hitPiece.cell.type)) {
             score += 1000;
+            if (trace.hitPiece.cell.type === BLOCK_TYPES.BLOCK_50) score += 500;
+            if (trace.hitPiece.cell.type === BLOCK_TYPES.BLOCK_30) score += 200;
+          } else {
+            // If no direct hit, evaluate distance to the highest value piece on board
+            let bestDistScore = 0;
+            for (let r = 0; r < 8; r++) {
+              for (let c = 0; c < 8; c++) {
+                const cell = board[r][c];
+                if (cell && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(cell.type)) {
+                  let weight = 1;
+                  if (cell.type === BLOCK_TYPES.BLOCK_50) weight = 5;
+                  if (cell.type === BLOCK_TYPES.BLOCK_30) weight = 3;
+                  // Calculate Manhattan distance from the corner
+                  const dist = Math.abs(corner.r - r) + Math.abs(corner.c - c);
+                  const distScore = (16 - dist) * weight;
+                  if (distScore > bestDistScore) bestDistScore = distScore;
+                }
+              }
+            }
+            score += bestDistScore;
           }
           
           const mirrorBounces = trace.path.filter(p => p.type === 'mirror-bounce').length;

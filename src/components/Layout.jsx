@@ -3,7 +3,8 @@ import { Trash2, LogOut, Info, AlertTriangle, X, Zap, Undo2 } from 'lucide-react
 import Grid from './Board/Grid';
 import AnalysisPanel from './AnalysisPanel';
 import { BLOCK_TYPES, PLAYERS, getReachableCells } from '../core/Ruleset';
-import { getEngineLines, getPieceThreatLevels, getBoardAnalysis, classifyMove, getChallengeRecommendation } from '../core/BotStrategies';
+import { getPieceThreatLevels, getBoardAnalysis, classifyMove, getChallengeRecommendation } from '../core/BotStrategies';
+import { getBoardAnalysisAsync, getBotEngineLinesAsync } from '../core/BotEngine';
 
 export default function Layout({ network, game, mode, difficulty }) {
   const { status, role, playerName, opponentName, disconnect } = network;
@@ -66,43 +67,133 @@ export default function Layout({ network, game, mode, difficulty }) {
   const [highlightedCell, setHighlightedCell] = useState(null);
 
   const challengeRecommendation = React.useMemo(() => {
-    if (phase !== 'challenge-declaration') return null;
-    return getChallengeRecommendation(capturedPieces || []);
-  }, [phase, capturedPieces]);
+    if (!analysisMode) return null;
+    const attackerScore = game.roleRed === 'attacker' ? game.scores.red : game.scores.blue;
+    const defenderScore = game.roleRed === 'attacker' ? game.scores.blue : game.scores.red;
+    return getChallengeRecommendation(game.capturedPieces || [], game.round, game.actionPoints, attackerScore, defenderScore, game.set);
+  }, [game.capturedPieces, game.round, game.actionPoints, game.scores, game.roleRed, game.set, analysisMode]);
 
-  const engineLines = React.useMemo(() => {
-    if (!analysisMode) return [];
-    return getEngineLines(board, turnPlayer, difficulty || 'medium', game);
-  }, [board, turnPlayer, difficulty, game, analysisMode]);
+  const [engineType, setEngineType] = useState('math'); // 'math' or 'neural'
+  const [boardAnalysis, setBoardAnalysis] = useState(null);
+  const [moveClassification, setMoveClassification] = useState(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  useEffect(() => {
+    if (!analysisMode) {
+      setBoardAnalysis(null);
+      return;
+    }
+    let isMounted = true;
+    const analyze = async () => {
+      const activeRole = role === 'attacker' ? (roleRed === 'attacker' ? 'red' : 'blue') : (roleRed === 'defender' ? 'red' : 'blue');
+      const difficultyToUse = engineType === 'neural' ? 'neural' : (difficulty || 'hard');
+      const res = await getBoardAnalysisAsync(board, role, difficultyToUse, { turnPlayer, roleRed, roleBlue }, activeRole);
+      if (isMounted) setBoardAnalysis(res);
+    };
+    analyze();
+    return () => { isMounted = false; };
+  }, [board, role, difficulty, analysisMode, turnPlayer, roleRed, roleBlue, engineType]);
+
+  useEffect(() => {
+    if (!analysisMode) {
+      setMoveClassification(null);
+      return;
+    }
+    
+    let beforeState = null;
+    let afterState = null;
+
+    if (reviewIndex === null) {
+      if (history.past.length === 0) return;
+      beforeState = history.past[history.past.length - 1];
+      afterState = game.liveState || game;
+    } else {
+      if (reviewIndex === 0) {
+        setMoveClassification(null);
+        return;
+      }
+      beforeState = history.past[reviewIndex - 1];
+      afterState = history.past[reviewIndex];
+    }
+
+    if (!beforeState || !afterState) {
+      setMoveClassification(null);
+      return;
+    }
+
+    const actorPlayer = beforeState.turnPlayer;
+    const actorRole = actorPlayer === 'red' ? beforeState.roleRed : beforeState.roleBlue;
+    const difficultyToUse = engineType === 'neural' ? 'neural' : (difficulty || 'hard');
+
+    let isMounted = true;
+    const analyzeMove = async () => {
+      setIsAnalyzing(true);
+      try {
+        const beforeAnalysis = await getBoardAnalysisAsync(beforeState.board, actorRole, difficultyToUse, beforeState, actorPlayer);
+        const afterAnalysis = await getBoardAnalysisAsync(afterState.board, actorRole, difficultyToUse, afterState, actorPlayer);
+        
+        if (isMounted) {
+          const classification = classifyMove(beforeAnalysis.totalScore, afterAnalysis.totalScore, actorRole);
+          setMoveClassification(classification);
+        }
+      } catch (e) {
+        console.error(e);
+      } finally {
+        if (isMounted) setIsAnalyzing(false);
+      }
+    };
+    analyzeMove();
+    return () => { isMounted = false; };
+  }, [reviewIndex, analysisMode, history.past, difficulty, engineType, game]);
+
+  const [engineLines, setEngineLines] = useState([]);
+
+  useEffect(() => {
+    let isMounted = true;
+    if (!analysisMode) {
+      if (isMounted) setEngineLines([]);
+      return;
+    }
+    const fetchLines = async () => {
+      try {
+        const difficultyToUse = engineType === 'neural' ? 'neural' : (difficulty || 'medium');
+        const lines = await getBotEngineLinesAsync(board, turnPlayer, game.actionPoints || 2, difficultyToUse, game);
+        if (isMounted) setEngineLines(lines);
+      } catch (e) {
+        console.error("Failed to fetch engine lines", e);
+      }
+    };
+    fetchLines();
+    return () => { isMounted = false; };
+  }, [board, turnPlayer, difficulty, game, analysisMode, engineType]);
 
   const pieceThreats = React.useMemo(() => {
     if (!analysisMode) return [];
     return getPieceThreatLevels(board);
   }, [board, analysisMode]);
 
-  const moveClassification = React.useMemo(() => {
-    if (reviewIndex === null || reviewIndex === 0 || !analysisMode) return null;
+  const startOfTurnThreats = React.useMemo(() => {
+    if (!analysisMode || history.past.length === 0) return [];
     
-    const beforeState = history.past[reviewIndex - 1];
-    const afterState = history.past[reviewIndex];
+    const activeIndex = reviewIndex !== null ? reviewIndex : history.past.length - 1;
+    let startState = null;
     
-    if (!beforeState || !afterState) return null;
+    for (let i = activeIndex; i >= 0; i--) {
+      // Look for the boundary of a turn (roll dice just happened, or it's not playing phase)
+      if (!history.past[i].hasRolledDice || history.past[i].phase !== 'playing') {
+        if (i + 1 <= activeIndex && history.past[i + 1]) {
+          startState = history.past[i + 1];
+        } else {
+          startState = history.past[i];
+        }
+        break;
+      }
+    }
+    if (!startState) startState = game.liveState || game;
+    return getPieceThreatLevels(startState.board);
+  }, [history.past, reviewIndex, game, analysisMode]);
 
-    // The player who made the move is the turnPlayer of the beforeState
-    const actorPlayer = beforeState.turnPlayer;
-    // We need to know what role (attacker or defender) that player was
-    const actorRole = actorPlayer === 'red' 
-      ? beforeState.roleRed 
-      : beforeState.roleBlue;
 
-    // We evaluate the board BEFORE the move, from the actor's perspective
-    const beforeAnalysis = getBoardAnalysis(beforeState.board, actorRole, difficulty || 'hard', beforeState, actorPlayer);
-    // We evaluate the board AFTER the move, from the actor's perspective
-    const afterAnalysis = getBoardAnalysis(afterState.board, actorRole, difficulty || 'hard', afterState, actorPlayer);
-
-    // classifyMove expects positive diff to be good
-    return classifyMove(beforeAnalysis.totalScore, afterAnalysis.totalScore, actorRole);
-  }, [reviewIndex, analysisMode, history.past, difficulty]);
 
   useEffect(() => {
     if (customData?.laserFired) {
@@ -698,8 +789,7 @@ export default function Layout({ network, game, mode, difficulty }) {
         {/* Render Analysis Panel */}
         {analysisMode && (
           <AnalysisPanel 
-            data={analysisData} 
-            onClose={() => setAnalysisMode(false)} 
+            data={boardAnalysis} 
             history={game.history}
             dice={game.dice}
             threatMap={threatMap}
@@ -712,11 +802,13 @@ export default function Layout({ network, game, mode, difficulty }) {
             setShowGhostRays={setShowGhostRays}
             showPieceThreats={showPieceThreats}
             setShowPieceThreats={setShowPieceThreats}
+            startOfTurnThreats={startOfTurnThreats}
+            onClose={() => setAnalysisMode(false)}
             reviewIndex={reviewIndex}
             stepForward={stepForward}
             stepBackward={stepBackward}
             moveClassification={moveClassification}
-            maxHistoryIndex={history.past.length}
+            maxHistoryIndex={game.history.past.length - 1}
             onHighlightMove={(r, c) => {
               if (highlightedCell && highlightedCell.r === r && highlightedCell.c === c) {
                 setHighlightedCell(null); // toggle off
@@ -724,6 +816,9 @@ export default function Layout({ network, game, mode, difficulty }) {
                 setHighlightedCell({ r, c });
               }
             }}
+            engineType={engineType}
+            setEngineType={setEngineType}
+            isAnalyzing={isAnalyzing}
             phase={phase}
             challengeRecommendation={challengeRecommendation}
           />

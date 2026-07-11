@@ -193,6 +193,14 @@ function App() {
 
               <button
                 className="cyber-button"
+                onClick={() => { setDifficulty('neural'); setMode('bot'); game.clearWorkspace(); }}
+                style={{ padding: '16px', fontSize: '1rem', width: '100%', textTransform: 'uppercase', borderColor: '#ff00ff', color: '#ff00ff' }}
+              >
+                AI (NEURAL NET)
+              </button>
+
+              <button
+                className="cyber-button"
                 onClick={() => setMode('mode-select')}
                 style={{ padding: '12px', fontSize: '0.9rem', width: '100%', marginTop: '16px', borderColor: 'var(--text-secondary)' }}
               >

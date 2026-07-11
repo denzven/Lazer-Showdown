@@ -85,6 +85,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
         tossWinner: payload.tossWinner,
         challengeTossRolls: payload.challengeTossRolls,
         dice: payload.dice || { values: [1, 1], isRolling: false, lastRoller: null },
+        turnStats: payload.turnStats || { lazerMove: 0, lazerRotate: 0, lazerFire: 0, pieceMove: 0, pieceMoveBreakdown: { 'block-20': 0, 'block-30': 0, 'block-50': 0 }, wastedAP: 0 },
         customBoardData: payload.customBoardData,
         error: null
       });
@@ -175,6 +176,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
           tossWinner: res.tossWinner,
           challengeTossRolls: res.challengeTossRolls,
           dice: res.dice,
+          turnStats: res.turnStats,
           customBoardData: res.customBoardData,
           error: null
         };
@@ -253,9 +255,9 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
 
       // Step 2: Perform actions step-by-step
       if (gameState.hasRolledDice && gameState.actionPoints > 0 && !gameState.dice.isRolling) {
-        const timer = setTimeout(() => {
+        const timer = setTimeout(async () => {
           const botRole = isBotAttacker ? 'attacker' : 'defender';
-          const action = getBotPlayAction(gameState.board, botRole, gameState.actionPoints, difficulty, gameState, botPlayer);
+          const action = await getBotPlayAction(gameState.board, botRole, gameState.actionPoints, difficulty, gameState, botPlayer);
           if (action) {
             executeAction({ ...action, player: botPlayer });
           } else {
@@ -553,6 +555,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
     tossWinner: activeState.tossWinner,
     challengeTossRolls: activeState.challengeTossRolls,
     dice: activeState.dice,
+    turnStats: activeState.turnStats,
     customBoardData: activeState.customBoardData,
     error: activeState.error,
 

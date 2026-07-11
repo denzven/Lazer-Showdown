@@ -4,9 +4,10 @@ import { X, Activity, Dices, Clock, Minus, Maximize2, Target } from 'lucide-reac
 export default function AnalysisPanel({ 
   data, history, dice, threatMap, lazerPos, engineLines, pieceThreats, 
   showHeatmap, setShowHeatmap, showGhostRays, setShowGhostRays, 
-  showPieceThreats, setShowPieceThreats, onClose,
+  showPieceThreats, setShowPieceThreats, startOfTurnThreats, onClose,
   reviewIndex, stepForward, stepBackward, moveClassification, maxHistoryIndex,
-  onHighlightMove, phase, challengeRecommendation
+  onHighlightMove, phase, challengeRecommendation,
+  engineType = 'math', setEngineType = () => {}, isAnalyzing = false
 }) {
   const [isMinimized, setIsMinimized] = useState(false);
   const [position, setPosition] = useState({ x: 20, y: typeof window !== 'undefined' ? window.innerHeight - 450 : 20 });
@@ -36,7 +37,7 @@ export default function AnalysisPanel({
 
   if (!data) return null;
 
-  const { totalScore, cautiousness, difficulty, role } = data;
+  const { totalScore, cautiousness, difficulty, role, advancedMetrics } = data;
   const { values = [1, 1], lastRoller } = dice || {};
 
   const getStyleForScore = (score) => {
@@ -157,7 +158,11 @@ export default function AnalysisPanel({
           style={{ padding: '10px 15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'grab', userSelect: 'none' }}
         >
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <Activity size={16} color="var(--neon-blue)" />
+            {isAnalyzing ? (
+               <div style={{ width: '16px', height: '16px', border: '2px solid var(--neon-blue)', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+            ) : (
+               <Activity size={16} color="var(--neon-blue)" />
+            )}
             <span className="font-display" style={{ fontSize: '0.9rem', color: 'var(--neon-blue)' }}>ENGINE</span>
           </div>
 
@@ -200,14 +205,31 @@ export default function AnalysisPanel({
         style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: isDragging ? 'grabbing' : 'grab', userSelect: 'none' }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <Activity size={18} color="var(--neon-blue)" />
-          <h3 className="font-display" style={{ margin: 0, fontSize: '1.1rem', color: 'var(--neon-blue)', letterSpacing: '0.1em' }}>ENGINE ANALYSIS</h3>
+          {isAnalyzing ? (
+            <div style={{ width: '16px', height: '16px', border: '2px solid var(--neon-blue)', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+          ) : (
+            <Activity size={18} color="var(--neon-blue)" />
+          )}
+          <span className="font-display" style={{ fontSize: '1.1rem', color: 'var(--neon-blue)' }}>ANALYSIS</span>
         </div>
-        <div style={{ display: 'flex', gap: '12px' }}>
+        
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          {/* Engine Toggle */}
+          <div style={{ display: 'flex', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', overflow: 'hidden' }}>
+            <button 
+              onClick={() => setEngineType('math')}
+              style={{ padding: '2px 8px', fontSize: '0.65rem', background: engineType === 'math' ? 'rgba(255,255,255,0.15)' : 'transparent', color: engineType === 'math' ? '#fff' : 'rgba(255,255,255,0.5)', border: 'none', cursor: 'pointer' }}
+            >MATH</button>
+            <button 
+              onClick={() => setEngineType('neural')}
+              style={{ padding: '2px 8px', fontSize: '0.65rem', background: engineType === 'neural' ? 'var(--neon-blue)' : 'transparent', color: engineType === 'neural' ? '#000' : 'rgba(255,255,255,0.5)', border: 'none', cursor: 'pointer', fontWeight: engineType === 'neural' ? 'bold' : 'normal' }}
+            >AI</button>
+          </div>
+
           <button onClick={() => setIsMinimized(true)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0 }}>
             <Minus size={18} />
           </button>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0 }}>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--neon-red)', cursor: 'pointer', padding: 0 }}>
             <X size={18} />
           </button>
         </div>
@@ -306,7 +328,81 @@ export default function AnalysisPanel({
             </div>
           </div>
         </div>
-        
+
+        {/* ADVANCED METRICS */}
+        {advancedMetrics && (
+          <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Activity size={10} /> ADVANCED POSITION METRICS
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.75rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Mobility (Options):</span>
+                <span>{role === 'attacker' ? advancedMetrics.attackerMobility : advancedMetrics.defenderMobility} moves</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Center Control:</span>
+                <span>{advancedMetrics.centerControl > 0 ? '+' : ''}{Math.round(advancedMetrics.centerControl)}</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Mirror Utilization:</span>
+                <span>{Math.round(advancedMetrics.mirrorUtilization * 100)}%</span>
+              </div>
+              {advancedMetrics.primaryTarget && (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--text-muted)' }}>Primary Target:</span>
+                  <span style={{ color: advancedMetrics.primaryTarget.isHit ? 'var(--neon-red)' : '#ffcc00' }}>
+                    {advancedMetrics.primaryTarget.type.replace('block-', '')}pt ({advancedMetrics.primaryTarget.isHit ? 'HIT' : `${advancedMetrics.primaryTarget.apToHit} AP`})
+                  </span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* AP UTILIZATION */}
+        {advancedMetrics?.turnStats && phase === 'playing' && (
+          <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Activity size={10} /> AP UTILIZATION (THIS TURN)
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.75rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Lazer Firing:</span>
+                <span style={{ color: advancedMetrics.turnStats.lazerFire > 0 ? 'var(--neon-red)' : '#fff' }}>{advancedMetrics.turnStats.lazerFire} AP</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Lazer Moving:</span>
+                <span>{advancedMetrics.turnStats.lazerMove} AP</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Lazer Turning:</span>
+                <span>{advancedMetrics.turnStats.lazerRotate} AP</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Piece Moving:</span>
+                <span>{advancedMetrics.turnStats.pieceMove} AP</span>
+              </div>
+              {advancedMetrics.turnStats.pieceMove > 0 && (
+                <div style={{ display: 'flex', flexDirection: 'column', paddingLeft: '12px', gap: '4px', marginTop: '-2px', marginBottom: '2px' }}>
+                  {Object.entries(advancedMetrics.turnStats.pieceMoveBreakdown).map(([type, count]) => count > 0 && (
+                    <div key={type} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem' }}>
+                      <span style={{ color: 'var(--text-muted)' }}>- {type.replace('block-', '')}pt:</span>
+                      <span>{count} AP</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {advancedMetrics.turnStats.wastedAP > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'var(--neon-red)' }}>Wasted AP:</span>
+                  <span style={{ color: 'var(--neon-red)', fontWeight: 'bold' }}>{advancedMetrics.turnStats.wastedAP} AP</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Toggles */}
         <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
           <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
@@ -335,12 +431,55 @@ export default function AnalysisPanel({
               <Activity size={10} /> PIECE THREAT LEVELS
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {pieceThreats.map((pt, i) => (
-                <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>{pt.type.replace('block-', '')}pt Piece at ({pt.r}, {pt.c})</span>
-                  <span style={{ fontWeight: 'bold', color: pt.threatLevel > 0.5 ? 'var(--neon-red)' : '#fff' }}>
-                    {Math.round(pt.threatLevel * 100)}% Danger
-                  </span>
+              {pieceThreats.map((pt, i) => {
+                let deltaStr = null;
+                let deltaColor = 'var(--text-muted)';
+                if (startOfTurnThreats) {
+                  const startPt = startOfTurnThreats.find(s => s.type === pt.type);
+                  if (startPt) {
+                    const diff = pt.threatLevel - startPt.threatLevel;
+                    if (Math.abs(diff) > 0.01) {
+                      const diffPct = Math.round(diff * 100);
+                      const sign = diff > 0 ? '+' : '';
+                      deltaStr = `${sign}${diffPct}%`;
+                      deltaColor = diff > 0 ? 'var(--neon-red)' : '#39ff14'; // Green is good for defender
+                    } else {
+                      deltaStr = '0%';
+                    }
+                  }
+                }
+
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem' }}>
+                    <span style={{ color: 'var(--text-muted)' }}>{pt.type.replace('block-', '')}pt Piece at ({pt.r}, {pt.c})</span>
+                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                      {deltaStr && (
+                        <span style={{ color: deltaColor, fontSize: '0.65rem', fontWeight: 'bold' }}>
+                          [{deltaStr}]
+                        </span>
+                      )}
+                      <span style={{ fontWeight: 'bold', color: pt.threatLevel > 0.5 ? 'var(--neon-red)' : '#fff' }}>
+                        {Math.round(pt.threatLevel * 100)}% Danger
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Behavior Warnings */}
+        {data.behaviorWarnings && data.behaviorWarnings.length > 0 && (
+          <div style={{ backgroundColor: 'rgba(255, 0, 60, 0.1)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255, 0, 60, 0.3)' }}>
+            <div style={{ fontSize: '0.65rem', color: 'var(--neon-red)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 'bold' }}>
+              <Target size={10} /> BEHAVIOR WARNINGS
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {data.behaviorWarnings.map((warning, i) => (
+                <div key={i} style={{ fontSize: '0.75rem', color: '#ffcc00', lineHeight: 1.3 }}>
+                  <span style={{ fontWeight: 'bold', color: 'var(--neon-red)' }}>{warning.type.toUpperCase()}: </span>
+                  {warning.message}
                 </div>
               ))}
             </div>
@@ -351,33 +490,29 @@ export default function AnalysisPanel({
         {engineLines && engineLines.length > 0 && (
           <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Activity size={10} /> BEST MOVES (PROJECTED)
+              <Activity size={10} /> TOP STRATEGIC PLAYS (PROJECTED)
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
               {engineLines.map((line, i) => {
-                let r = null, c = null;
-                const match = line.text.match(/\((\d+),\s*(\d+)\)/);
-                if (match) {
-                  r = parseInt(match[1]);
-                  c = parseInt(match[2]);
-                }
                 return (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem' }}>
-                    <span style={{ color: 'var(--text-muted)', flex: 1, display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      {i + 1}. {line.text}
-                      {r !== null && c !== null && (
-                        <button 
-                          onClick={(e) => { e.stopPropagation(); onHighlightMove(r, c); }}
-                          style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0, color: 'var(--neon-blue)', display: 'flex' }}
-                          title="Highlight on board"
-                        >
-                          <Target size={12} />
-                        </button>
-                      )}
-                    </span>
-                    <span style={{ fontWeight: 'bold', fontFamily: 'monospace', color: line.score > 0 ? '#39ff14' : 'var(--text-secondary)' }}>
-                      {line.score > 0 ? '+' : ''}{line.score}
-                    </span>
+                  <div key={i} style={{ display: 'flex', flexDirection: 'column', fontSize: '0.75rem', backgroundColor: 'rgba(255,255,255,0.02)', padding: '6px', borderRadius: '4px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                      <span style={{ fontWeight: 'bold', color: engineType === 'neural' ? 'var(--neon-blue)' : '#ffcc00' }}>
+                        {i + 1}. {line.name || 'Unknown Strategy'}
+                      </span>
+                      <span style={{ fontWeight: 'bold', fontFamily: 'monospace', color: line.score > 0 ? '#39ff14' : 'var(--text-secondary)' }}>
+                        {line.score > 0 ? '+' : ''}{line.score}
+                      </span>
+                    </div>
+                    <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+                      {line.formattedSteps && line.formattedSteps.map((step, idx) => (
+                        <React.Fragment key={idx}>
+                          <span>{step}</span>
+                          {idx < line.formattedSteps.length - 1 && <span style={{ color: 'rgba(255,255,255,0.3)' }}>➔</span>}
+                        </React.Fragment>
+                      ))}
+                      {!line.formattedSteps && <span>{line.text}</span>}
+                    </div>
                   </div>
                 );
               })}
@@ -395,8 +530,13 @@ export default function AnalysisPanel({
               <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: challengeRecommendation.recommend ? '#39ff14' : 'var(--text-secondary)' }}>
                 {challengeRecommendation.recommend ? 'CHALLENGE RECOMMENDED' : 'DO NOT CHALLENGE'} ({challengeRecommendation.probability}%)
               </div>
-              <div style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+              <div style={{ fontSize: '0.75rem', marginTop: '4px' }}>
                 {challengeRecommendation.reason}
+                {challengeRecommendation.suggestedPiece && (
+                  <div style={{ marginTop: '4px', fontWeight: 'bold' }}>
+                    Suggested Target: {challengeRecommendation.suggestedPiece.replace('block-', '')}pt Piece
+                  </div>
+                )}
               </div>
             </div>
           </div>

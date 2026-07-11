@@ -6,7 +6,7 @@ import {
   getInitialBoard,
   BLOCK_TYPES,
   traceLaserBeam
-} from './Ruleset';
+} from './Ruleset.js';
 
 function checkPlayActionValidity(phase, hasRolledDice, actionPoints, roleRed, player, turnPlayer) {
   if (phase !== 'playing') {
@@ -52,6 +52,7 @@ function endSetState(board, currentSet, scores, roleRed, dice, context) {
       tossRolls: { red: null, blue: null },
       tossWinner: null,
       challengeTossRolls: { red: null, blue: null },
+      turnStats: { lazerMove: 0, lazerRotate: 0, lazerFire: 0, pieceMove: 0, pieceMoveBreakdown: { 'block-20': 0, 'block-30': 0, 'block-50': 0 }, wastedAP: 0 },
       logs: ['Set 1 complete. Swapping roles for Set 2!', `New Attacker: ${attPlayer}, Defender: ${defPlayer}. Defender placing point pieces.`],
       customBoardData: context?.customBoardData || null
     };
@@ -79,6 +80,7 @@ function endSetState(board, currentSet, scores, roleRed, dice, context) {
       tossRolls: { red: null, blue: null },
       tossWinner: null,
       challengeTossRolls: { red: null, blue: null },
+      turnStats: { lazerMove: 0, lazerRotate: 0, lazerFire: 0, pieceMove: 0, pieceMoveBreakdown: { 'block-20': 0, 'block-30': 0, 'block-50': 0 }, wastedAP: 0 },
       customBoardData: context?.customBoardData || null
     };
   }
@@ -117,6 +119,7 @@ export function applySandboxAction(board, action, player, context = {}) {
   let nextTossWinner = context.tossWinner || null;
   let nextChallengeTossRolls = context.challengeTossRolls ? { ...context.challengeTossRolls } : { red: null, blue: null };
   let nextDice = context.dice ? { ...context.dice } : { values: [1, 1], isRolling: false, lastRoller: null };
+  let nextTurnStats = context.turnStats ? JSON.parse(JSON.stringify(context.turnStats)) : { lazerMove: 0, lazerRotate: 0, lazerFire: 0, pieceMove: 0, pieceMoveBreakdown: { 'block-20': 0, 'block-30': 0, 'block-50': 0 }, wastedAP: 0 };
   let nextCustomBoardData = context.customBoardData || null;
 
   const attackerPlayer = roleRed === 'attacker' ? 'red' : 'blue';
@@ -258,6 +261,10 @@ export function applySandboxAction(board, action, player, context = {}) {
 
     nextActionPoints = nextDice.values[0] + nextDice.values[1];
     nextHasRolledDice = true;
+    
+    // Reset turn stats for the new turn
+    nextTurnStats = { lazerMove: 0, lazerRotate: 0, lazerFire: 0, pieceMove: 0, pieceMoveBreakdown: { 'block-20': 0, 'block-30': 0, 'block-50': 0 }, wastedAP: 0 };
+    
     logsList.push(`${player.toUpperCase()} rolled: ${nextDice.values[0]} & ${nextDice.values[1]} (Action Points: ${nextActionPoints}).`);
   }
 
@@ -274,6 +281,14 @@ export function applySandboxAction(board, action, player, context = {}) {
     nextBoard[toR][toC] = piece;
 
     nextActionPoints -= 1;
+    if (piece.type === BLOCK_TYPES.BLOCK_LAZER) {
+      nextTurnStats.lazerMove += 1;
+    } else {
+      nextTurnStats.pieceMove += 1;
+      if (nextTurnStats.pieceMoveBreakdown[piece.type] !== undefined) {
+        nextTurnStats.pieceMoveBreakdown[piece.type] += 1;
+      }
+    }
   } 
   
   else if (type === 'rotate') {
@@ -313,6 +328,7 @@ export function applySandboxAction(board, action, player, context = {}) {
 
     if (phase !== 'setup-attacker') {
       nextActionPoints -= 1;
+      nextTurnStats.lazerRotate += 1;
     } else {
       logsList.push('Attacker rotated the LAZER piece.');
     }
@@ -423,6 +439,7 @@ export function applySandboxAction(board, action, player, context = {}) {
     }
 
     nextActionPoints -= 1;
+    nextTurnStats.lazerFire += 1;
 
     let pointPiecesRemaining = 0;
     for (let row = 0; row < BOARD_SIZE; row++) {
@@ -443,6 +460,9 @@ export function applySandboxAction(board, action, player, context = {}) {
   }
 
   else if (type === 'end-turn') {
+    if (nextActionPoints > 0) {
+      nextTurnStats.wastedAP = nextActionPoints;
+    }
     nextActionPoints = 0;
     nextHasRolledDice = false;
 
@@ -498,6 +518,7 @@ export function applySandboxAction(board, action, player, context = {}) {
       nextTossRolls = setOutcome.tossRolls;
       nextTossWinner = setOutcome.tossWinner;
       nextChallengeTossRolls = setOutcome.challengeTossRolls;
+      nextTurnStats = setOutcome.turnStats;
       logsList.push(...setOutcome.logs);
     } else {
       nextChallengeActive = true;
@@ -591,6 +612,7 @@ export function applySandboxAction(board, action, player, context = {}) {
     tossWinner: nextTossWinner,
     challengeTossRolls: nextChallengeTossRolls,
     dice: nextDice,
+    turnStats: nextTurnStats,
     customData: sideEffects.customData,
     customBoardData: nextCustomBoardData,
     logs: logsList,
@@ -629,6 +651,7 @@ export function getInitialState(customBoardData = null) {
     challengeActive: false,
     challengedPiece: null,
     challengeTossRolls: { red: null, blue: null },
+    turnStats: { lazerMove: 0, lazerRotate: 0, lazerFire: 0, pieceMove: 0, pieceMoveBreakdown: { 'block-20': 0, 'block-30': 0, 'block-50': 0 }, wastedAP: 0 },
     customBoardData: customBoardData
   };
 }
