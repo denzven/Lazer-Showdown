@@ -136,6 +136,20 @@ export function getBotSetupAction(board, phase, playerColor, difficulty = 'mediu
   } 
   
   else if (phase === 'setup-attacker') {
+    // Check if LAZER is already placed
+    let lazerPlaced = false;
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        if (board[r][c] && board[r][c].type === BLOCK_TYPES.BLOCK_LAZER) {
+          lazerPlaced = true;
+          break;
+        }
+      }
+      if (lazerPlaced) break;
+    }
+    
+    if (lazerPlaced) return { type: 'confirm-setup' };
+
     const corners = [{ r: 0, c: 0 }, { r: 0, c: 7 }, { r: 7, c: 0 }, { r: 7, c: 7 }];
     const legalCorners = corners.filter(c => validatePlacement(board, c.r, c.c, BLOCK_TYPES.BLOCK_LAZER).valid);
 
@@ -168,8 +182,13 @@ export function getBotSetupAction(board, phase, playerColor, difficulty = 'mediu
           const trace = traceLaserBeam(tempBoard, corner, rot);
           
           let score = trace.path.length; // Base score on how far laser goes
-          if (trace.hit === 'piece') score += 1000; // Instakill setup! Highest priority.
-          else if (trace.hit === 'mirror') score += 50; // Using mirrors is good
+          if (trace.hitPiece && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(trace.hitPiece.cell.type)) {
+            score += 1000; // Instakill setup! Highest priority.
+          }
+          
+          // Count mirrors used
+          const mirrorBounces = trace.path.filter(p => p.type === 'mirror-bounce').length;
+          score += mirrorBounces * 50;
           
           // Introduce slight fuzziness for medium bot so it doesn't ALWAYS pick the perfect spot
           if (difficulty === 'medium' && Math.random() < 0.2) score -= Math.random() * 50;
