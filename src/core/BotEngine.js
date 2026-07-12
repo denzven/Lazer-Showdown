@@ -38,6 +38,7 @@ export async function getBoardAnalysisAsync(board, role, difficulty, gameState, 
       totalScore: score, 
       cautiousness: mathAnalysis.cautiousness, 
       behaviorWarnings: mathAnalysis.behaviorWarnings,
+      advancedMetrics: mathAnalysis.advancedMetrics,
       difficulty, 
       role, 
       isNeural: true 

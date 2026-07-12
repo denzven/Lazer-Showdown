@@ -17,13 +17,15 @@ import { getChallengeRecommendation } from '../src/core/BotStrategies.js';
 
 // Fix for Windows DLOPEN error: Inject TensorFlow DLL paths into the system PATH
 const nodeCpuPath = path.resolve(process.cwd(), 'node_modules', '@tensorflow', 'tfjs-node', 'deps', 'lib');
-process.env.PATH = `${nodeCpuPath};${process.env.PATH || ''}`;
+const nodeGpuPath = path.resolve(process.cwd(), 'node_modules', '@tensorflow', 'tfjs-node-gpu', 'deps', 'lib');
+const cuda11Path = 'C:\\Program Files\\NVIDIA GPU Computing Toolkit\\CUDA\\v11.2\\bin';
+process.env.PATH = `${cuda11Path};${nodeGpuPath};${nodeCpuPath};${process.env.PATH || ''}`;
 
 let tf;
 process.env.TF_CPP_MIN_LOG_LEVEL = '3'; // Silence TensorFlow C++ warnings
 try {
-  tf = await import('@tensorflow/tfjs-node');
-  if (isMainThread) console.log('✅ Loaded C++ CPU Backend (@tensorflow/tfjs-node) successfully!');
+  tf = await import('@tensorflow/tfjs-node-gpu');
+  if (isMainThread) console.log('✅ Loaded C++ GPU Backend (@tensorflow/tfjs-node-gpu) successfully!\n');
 } catch (e) {
   tf = await import('@tensorflow/tfjs');
   if (isMainThread) console.log('⚠️ Using fallback JS Backend (@tensorflow/tfjs)');
