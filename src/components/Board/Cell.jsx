@@ -241,8 +241,8 @@ export default function Cell({
                 mixBlendMode: 'screen'
               }} />
             ))}
-            <span style={{ color: 'white', fontSize: '0.7rem', fontWeight: 'bold', opacity: 0.9, zIndex: 2, textShadow: '0 0 4px black' }}>
-              {Math.round(threatTotal * 100)}%
+            <span style={{ color: 'white', fontSize: '0.65rem', fontWeight: 'bold', opacity: 0.9, zIndex: 2, textShadow: '0 0 4px black' }}>
+              {threatTotal.toFixed(6)}
             </span>
           </div>
         );

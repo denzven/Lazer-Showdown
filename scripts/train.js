@@ -1,4 +1,4 @@
-import * as tf from '@tensorflow/tfjs';
+import './silence.js';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
@@ -15,8 +15,31 @@ import { getInitialState, applySandboxAction } from '../src/core/GameState.js';
 import { getBotSetupAction, getBotPlayAction } from '../src/core/BotEngine.js';
 import { getChallengeRecommendation } from '../src/core/BotStrategies.js';
 
-const GAMES_TO_PLAY = 1000;
+// Fix for Windows DLOPEN error: Inject TensorFlow DLL paths into the system PATH
+const nodeCpuPath = path.resolve(process.cwd(), 'node_modules', '@tensorflow', 'tfjs-node', 'deps', 'lib');
+process.env.PATH = `${nodeCpuPath};${process.env.PATH || ''}`;
+
+let tf;
+process.env.TF_CPP_MIN_LOG_LEVEL = '3'; // Silence TensorFlow C++ warnings
+try {
+  tf = await import('@tensorflow/tfjs-node');
+  if (isMainThread) console.log('✅ Loaded C++ CPU Backend (@tensorflow/tfjs-node) successfully!');
+} catch (e) {
+  tf = await import('@tensorflow/tfjs');
+  if (isMainThread) console.log('⚠️ Using fallback JS Backend (@tensorflow/tfjs)');
+}
+let GAMES_TO_PLAY = 500;
+let ITERATIONS = 1;
 const MAX_TURNS = 200;
+const MAX_REPLAY_SIZE = 50000;
+
+for (let i = 2; i < process.argv.length; i++) {
+  if (process.argv[i].startsWith('--iterations=')) {
+    ITERATIONS = parseInt(process.argv[i].split('=')[1]);
+  } else if (process.argv[i].startsWith('--games=')) {
+    GAMES_TO_PLAY = parseInt(process.argv[i].split('=')[1]);
+  }
+}
 
 // Load all custom boards for diverse training
 const boardsDir = path.resolve('./src/boards');
@@ -114,29 +137,6 @@ async function simulateGame() {
     if (state.phase === 'setup-defender' || state.phase === 'challenge-setup' || state.phase === 'setup-attacker') {
       let action = getBotSetupAction(state.board, state.phase, activeColor, activeBot, state.challengedPiece);
       
-      // Randomize Setup for better weight distribution (50% chance)
-      if (action && Math.random() < 0.5) {
-         if (state.phase === 'setup-attacker') {
-           const corners = [{r:0,c:0}, {r:0,c:7}, {r:7,c:0}, {r:7,c:7}];
-           const rots = [0, 90, 180, 270];
-           const corner = corners[Math.floor(Math.random() * 4)];
-           action.r = corner.r; action.c = corner.c; action.rotation = rots[Math.floor(Math.random() * 4)];
-         } else {
-           const validCells = [];
-           for (let r=0; r<8; r++) {
-             for (let c=0; c<8; c++) {
-               if (!state.board[r][c] && !((r===0&&c===0)||(r===0&&c===7)||(r===7&&c===0)||(r===7&&c===7)||(r>=3&&r<=4&&c>=3&&c<=4))) {
-                 validCells.push({r, c});
-               }
-             }
-           }
-           if (validCells.length > 0) {
-             const cell = validCells[Math.floor(Math.random() * validCells.length)];
-             action.r = cell.r; action.c = cell.c;
-           }
-         }
-      }
-
       if (action) state = applySandboxAction(state.board, action, activeColor.toLowerCase(), state);
       else {
         // Fallback or end setup
@@ -153,21 +153,20 @@ async function simulateGame() {
       
       let action = await getBotPlayAction(state.board, activeRole, state.actionPoints, activeBot, state, activeColor);
       
-      // Epsilon-Greedy: 15% chance to take a completely random valid move to explore state space
-      if (Math.random() < 0.15) {
-        const possibleActions = getPossibleActions(state.board, activeRole);
-        if (possibleActions.length > 0) {
-          action = possibleActions[Math.floor(Math.random() * possibleActions.length)];
-        }
-      }
-      
       if (action) {
         // Collect State before action
         const tensorArray = boardToTensorArray(state.board, state);
         
-        // Evaluate mathematical score for blending
-        const { evaluateBoardAttacker } = await import('../src/core/BotStrategies.js');
-        const mathScore = evaluateBoardAttacker(state.board, 1.0);
+        // Evaluate mathematical score for blending based on the actual bot personality
+        const { evaluateBoardAttacker, evaluateBoardDefender } = await import('../src/core/BotStrategies.js');
+        const cautiousness = activeBot === 'easy' ? 0.5 : activeBot === 'hard' ? 1.5 : 1.0;
+        
+        let mathScore = 0;
+        if (activeRole === 'attacker') {
+           mathScore = evaluateBoardAttacker(state.board, cautiousness);
+        } else {
+           mathScore = -evaluateBoardDefender(state.board, cautiousness);
+        }
         
         gameData.push({ tensorArray, mathScore, actorRole: activeRole, roleRed: state.roleRed });
         
@@ -217,78 +216,62 @@ async function simulateGame() {
     labels.push([blendedScore]);
   }
   
-  return { inputs, labels };
+  const winner = state.winner === 'tie' ? 'tie' : (state.roleRed === state.winner ? 'red' : 'blue');
+  const attackerWon = winner !== 'tie' && ((winner === 'red' && state.roleRed === 'attacker') || (winner === 'blue' && state.roleRed !== 'attacker'));
+  const defenderWon = winner !== 'tie' && !attackerWon;
+
+  return { inputs, labels, scoreDelta, attackerWon, defenderWon, turns };
 }
 
 async function generateBatch(games) {
   const allInputs = [];
   const allLabels = [];
   for (let i = 0; i < games; i++) {
-    const { inputs, labels } = await simulateGame();
+    const { inputs, labels, scoreDelta, attackerWon, defenderWon, turns } = await simulateGame();
     allInputs.push(...inputs);
     allLabels.push(...labels);
+    parentPort.postMessage({ type: 'progress', data: { scoreDelta, attackerWon, defenderWon, turns } });
   }
-  return { inputs: allInputs, labels: allLabels };
+  parentPort.postMessage({ type: 'result', data: { inputs: allInputs, labels: allLabels } });
 }
 
 if (!isMainThread) {
-  generateBatch(workerData.gamesToPlay).then(data => {
-    parentPort.postMessage(data);
-  });
+  generateBatch(workerData.gamesToPlay);
 } else {
 
 async function trainModel() {
   const numCores = os.cpus().length;
-  console.log(`\n🚀 Multithreading FULL GAME RL Simulation across ${numCores} CPU Cores...`);
-  
-  const gamesPerCore = Math.ceil(GAMES_TO_PLAY / numCores);
-  const workers = [];
-  
-  let totalInputs = [];
-  let totalLabels = [];
-  
-  const __filename = fileURLToPath(import.meta.url);
-
-  for (let i = 0; i < numCores; i++) {
-    workers.push(new Promise((resolve, reject) => {
-      const worker = new Worker(__filename, {
-        execArgv: ['--import', 'tsx'],
-        workerData: { gamesToPlay: gamesPerCore }
-      });
-      worker.on('message', (data) => {
-        totalInputs.push(...data.inputs);
-        totalLabels.push(...data.labels);
-      });
-      worker.on('error', reject);
-      worker.on('exit', (code) => {
-        if (code !== 0) reject(new Error(`Worker stopped with exit code ${code}`));
-        else resolve();
-      });
-    }));
-  }
-
-  process.stdout.write('Simulating Games (This may take several minutes)...');
-  const progressInterval = setInterval(() => { process.stdout.write('█'); }, 3000);
-
-  await Promise.all(workers);
-  clearInterval(progressInterval);
-  
-  console.log(`\n✅ Generated ${totalInputs.length} reinforcement learning states!`);
+  console.log(`\n🚀 Started Continuous RL Training: ${ITERATIONS} iterations, ${GAMES_TO_PLAY} games per iteration on ${numCores} CPU Cores.`);
   
   const savePath = path.resolve('./public/models/ai-bot');
   const modelPath = path.join(savePath, 'model.json');
+  const bufferPath = path.join(savePath, 'replay_buffer.json');
   
-  let model;
+  if (!fs.existsSync(savePath)) fs.mkdirSync(savePath, { recursive: true });
 
+  let globalInputs = [];
+  let globalLabels = [];
+
+  // Load existing replay buffer if it exists
+  if (fs.existsSync(bufferPath)) {
+    console.log(`\n🔄 Loading Experience Replay Buffer from disk...`);
+    try {
+      const bufferData = JSON.parse(fs.readFileSync(bufferPath, 'utf8'));
+      globalInputs = bufferData.inputs || [];
+      globalLabels = bufferData.labels || [];
+      console.log(`✅ Loaded ${globalInputs.length} past states.`);
+    } catch(e) {
+      console.error(`❌ Failed to load replay buffer. Starting fresh. Error: ${e.message}`);
+    }
+  }
+
+  let model;
   if (fs.existsSync(modelPath)) {
-    console.log(`\n🔄 Loading existing model from ${savePath}...`);
+    console.log(`\n🔄 Loading existing neural network model...`);
     try {
       model = await tf.loadLayersModel(new NodeFileSystem(savePath));
-      model.compile({
-        optimizer: tf.train.adam(0.001),
-        loss: 'meanSquaredError'
-      });
-      console.log(`✅ Model loaded successfully. Resuming training...`);
+      model.compile({ optimizer: tf.train.adam(0.001), loss: 'meanSquaredError' });
+      console.log(`✅ Model loaded successfully.`);
     } catch (e) {
       console.error(`❌ Failed to load existing model. Creating a fresh one. Error: ${e.message}`);
       model = null;
@@ -302,35 +285,123 @@ async function trainModel() {
     model.add(tf.layers.dense({ units: 64, activation: 'relu' }));
     model.add(tf.layers.dense({ units: 32, activation: 'relu' }));
     model.add(tf.layers.dense({ units: 1 }));
-
-    model.compile({
-      optimizer: tf.train.adam(0.001),
-      loss: 'meanSquaredError'
-    });
+    model.compile({ optimizer: tf.train.adam(0.001), loss: 'meanSquaredError' });
   }
 
-  const xs = tf.tensor2d(totalInputs, [totalInputs.length, 78]);
-  const ys = tf.tensor2d(totalLabels, [totalLabels.length, 1]);
+  for (let iter = 1; iter <= ITERATIONS; iter++) {
+    console.log(`\n======================================================`);
+    console.log(`🔥 ITERATION ${iter}/${ITERATIONS}`);
+    console.log(`======================================================`);
+    
+    const gamesPerCore = Math.ceil(GAMES_TO_PLAY / numCores);
+    const workers = [];
+    
+    let newInputs = [];
+    let newLabels = [];
+    
+    const __filename = fileURLToPath(import.meta.url);
 
-  console.log(`\n🧠 Training Neural Network...`);
-  
-  await model.fit(xs, ys, {
-    epochs: 20,
-    batchSize: 128,
-    shuffle: true,
-    callbacks: {
-      onEpochEnd: (epoch, logs) => {
-        const bar = '█'.repeat(Math.ceil((epoch + 1) / 20 * 30)).padEnd(30, '░');
-        console.log(`Epoch ${epoch + 1}/20 |${bar}| Loss: ${logs.loss.toFixed(2)}`);
-      }
+    let gamesCompleted = 0;
+    let totalAttackerWins = 0;
+    let totalDefenderWins = 0;
+    let totalScoreDelta = 0;
+    let totalTurns = 0;
+
+    for (let i = 0; i < numCores; i++) {
+      workers.push(new Promise((resolve, reject) => {
+        const worker = new Worker(__filename, {
+          execArgv: ['--import', 'tsx'],
+          workerData: { gamesToPlay: gamesPerCore },
+          env: { ...process.env, TF_CPP_MIN_LOG_LEVEL: '3' }
+        });
+        worker.on('message', (msg) => {
+          if (msg.type === 'progress') {
+            gamesCompleted++;
+            if (msg.data.attackerWon) totalAttackerWins++;
+            if (msg.data.defenderWon) totalDefenderWins++;
+            totalScoreDelta += msg.data.scoreDelta;
+            totalTurns += msg.data.turns;
+            
+            const winRate = ((totalAttackerWins / gamesCompleted) * 100).toFixed(1);
+            const avgDelta = (totalScoreDelta / gamesCompleted).toFixed(1);
+            const avgTurns = (totalTurns / gamesCompleted).toFixed(1);
+            
+            process.stdout.write(`\r🎮 Simulating: [${gamesCompleted}/${GAMES_TO_PLAY}] | Attacker Win: ${winRate}% | Avg Score Diff: ${avgDelta} | Avg Turns: ${avgTurns}    `);
+          } else if (msg.type === 'result') {
+            newInputs.push(...msg.data.inputs);
+            newLabels.push(...msg.data.labels);
+            resolve();
+          }
+        });
+        worker.on('error', reject);
+        worker.on('exit', (code) => {
+          if (code !== 0) reject(new Error(`Worker stopped with exit code ${code}`));
+        });
+      }));
     }
-  });
 
+    await Promise.all(workers);
+    
+    console.log(`\n✅ Generated ${newInputs.length} new reinforcement learning states.`);
+    
+    // Append to global buffer and truncate if necessary (FIFO)
+    globalInputs.push(...newInputs);
+    globalLabels.push(...newLabels);
+    
+    if (globalInputs.length > MAX_REPLAY_SIZE) {
+      console.log(`⚠️ Replay buffer exceeded max size (${MAX_REPLAY_SIZE}). Discarding oldest states.`);
+      const excess = globalInputs.length - MAX_REPLAY_SIZE;
+      globalInputs.splice(0, excess);
+      globalLabels.splice(0, excess);
+    }
+    
+    console.log(`💾 Saving Replay Buffer to disk...`);
+    fs.writeFileSync(bufferPath, JSON.stringify({ inputs: globalInputs, labels: globalLabels }));
 
-  if (!fs.existsSync(savePath)) fs.mkdirSync(savePath, { recursive: true });
+    console.log(`🧠 Training Neural Network on ${globalInputs.length} total states...`);
+    const xs = tf.tensor2d(globalInputs, [globalInputs.length, 78]);
+    const ys = tf.tensor2d(globalLabels, [globalLabels.length, 1]);
+
+    const history = await model.fit(xs, ys, {
+      epochs: 20,
+      batchSize: 128,
+      shuffle: true,
+      callbacks: {
+        onEpochEnd: (epoch, logs) => {
+          const bar = '█'.repeat(Math.ceil((epoch + 1) / 20 * 30)).padEnd(30, '░');
+          console.log(`Epoch ${epoch + 1}/20 |${bar}| Loss: ${logs.loss.toFixed(4)}`);
+        }
+      }
+    });
+
+    const finalLoss = history.history.loss[history.history.loss.length - 1];
+    const marginOfError = Math.sqrt(finalLoss).toFixed(0);
+    console.log(`\n🎯 Iteration ${iter} Final Margin of Error: ±${marginOfError} points`);
+
+    const metricsPath = path.join(savePath, 'metrics_history.json');
+    let metricsHistory = [];
+    if (fs.existsSync(metricsPath)) {
+      try {
+        metricsHistory = JSON.parse(fs.readFileSync(metricsPath, 'utf8'));
+      } catch (e) {}
+    }
+    metricsHistory.push({
+      iteration: iter,
+      timestamp: new Date().toISOString(),
+      loss: finalLoss,
+      marginOfError: parseInt(marginOfError),
+      statesTrainedOn: globalInputs.length
+    });
+    fs.writeFileSync(metricsPath, JSON.stringify(metricsHistory, null, 2));
+
+    xs.dispose();
+    ys.dispose();
+
+    await model.save(new NodeFileSystem(savePath));
+    console.log(`✅ Model saved to ${savePath}`);
+  }
   
-  await model.save(new NodeFileSystem(savePath));
-  console.log(`\n✅ Training Complete! Neural Network saved to ${savePath}`);
+  console.log(`\n🎉 Continuous Training Complete!`);
 }
 
 trainModel();

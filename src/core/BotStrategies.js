@@ -229,54 +229,11 @@ export function evaluateBoardAttacker(board, cautiousness = 1.0) {
 
   if (pointPieces.length === 0) return score + 100000; // Win state
 
-  // 2. Chasing logic: Find minimum AP to hit the best pieces
-  const rotations = [0, 90, 180, 270];
-  let minAPToHit = 999;
-  let highestValueTarget = null;
-
-  for (const p of pointPieces) {
-    let pieceAP = 999;
-
-    // A. Check immediate threats from LAZER's current position
-    for (const rot of rotations) {
-      const trace = traceLaserBeam(board, lazerPos, rot);
-      if (trace.hitPiece && trace.hitPiece.r === p.r && trace.hitPiece.c === p.c) {
-        const ap = (rot === lazerDir) ? 1 : 2; 
-        if (ap < pieceAP) pieceAP = ap;
-      }
-    }
-
-    // B. Check movement threats
-    for (const rot of rotations) {
-      const trace = traceLaserBeam(board, p, rot);
-      for (const step of trace.path) {
-        if (step.type === 'beam') {
-          const r = step.r;
-          const c = step.c;
-          if (r === lazerPos.r && c === lazerPos.c) continue; 
-          if (board[r][c] === null) { 
-            const moveDist = Math.abs(lazerPos.r - r) + Math.abs(lazerPos.c - c);
-            const ap = moveDist + 2; 
-            if (ap < pieceAP) pieceAP = ap;
-          }
-        }
-      }
-    }
-    
-    // Weight the AP by the value of the piece it hits
-    if (pieceAP < 999) {
-      if (!highestValueTarget || getPieceValue(p.type) > getPieceValue(highestValueTarget.type)) {
-        highestValueTarget = p;
-        minAPToHit = pieceAP;
-      } else if (getPieceValue(p.type) === getPieceValue(highestValueTarget.type) && pieceAP < minAPToHit) {
-        minAPToHit = pieceAP;
-      }
-    }
-  }
-
-  // Penalize based on AP required to hit the best target
-  if (minAPToHit < 999) {
-    score -= minAPToHit * 100;
+  // 2. Maximize threat against pieces on the board using the unified threat map
+  const threats = getPieceThreatLevels(board);
+  for (const t of threats) {
+     // A 100% threat level translates to a high bonus, encouraging positioning that ensures a hit
+     score += getPieceValue(t.type) * 2 * t.threatLevel; 
   }
 
   // 3. Are we hitting a piece currently?
@@ -321,46 +278,28 @@ function evaluateMediumDefender(board, cautiousness = 1.0) {
     score += getPieceValue(p.type) * 10;
   }
 
-  if (!lazerPos) return score;
-
-  const rotations = [0, 90, 180, 270];
+  const threats = getPieceThreatLevels(board);
+  for (const t of threats) {
+    // Apply threat penalty (Medium considers this directly via the threat map)
+    score -= getPieceValue(t.type) * 20 * t.threatLevel * cautiousness;
+  }
 
   for (const p of pointPieces) {
-    let minAPToHit = 999;
-
-    // Hard Bot Logic: Calculate Threat Map
-    for (const rot of rotations) {
-      const trace = traceLaserBeam(board, lazerPos, rot);
-      if (trace.hitPiece && trace.hitPiece.r === p.r && trace.hitPiece.c === p.c) {
-        const ap = (rot === lazerDir) ? 1 : 2; 
-        if (ap < minAPToHit) minAPToHit = ap;
-      }
+    if (lazerPos) {
+      // Easy Bot Logic: Maximize physical distance to Lazer
+      const physicalDistToLazer = Math.abs(lazerPos.r - p.r) + Math.abs(lazerPos.c - p.c);
+      score += physicalDistToLazer * 10;
     }
-
-    for (const rot of rotations) {
-      const trace = traceLaserBeam(board, p, rot);
-      for (const step of trace.path) {
-        if (step.type === 'beam') {
-          const r = step.r;
-          const c = step.c;
-          if (r === lazerPos.r && c === lazerPos.c) continue; 
-          if (board[r][c] === null) { 
-            const moveDist = Math.abs(lazerPos.r - r) + Math.abs(lazerPos.c - c);
-            const ap = moveDist + 2; 
-            if (ap < minAPToHit) minAPToHit = ap;
-          }
+    
+    // Avoid bunching of defence system
+    for (const otherP of pointPieces) {
+      if (otherP !== p) {
+        const dist = Math.abs(p.r - otherP.r) + Math.abs(p.c - otherP.c);
+        if (dist <= 2) {
+          score -= 25; // Penalty for bunching
         }
       }
     }
-
-    if (minAPToHit < 999) {
-      const prob = get2d6CumulativeProbability(minAPToHit);
-      score -= getPieceValue(p.type) * 20 * prob * cautiousness;
-    }
-
-    // Easy Bot Logic: Maximize physical distance to Lazer
-    const physicalDistToLazer = Math.abs(lazerPos.r - p.r) + Math.abs(lazerPos.c - p.c);
-    score += physicalDistToLazer * 10;
   }
 
   return score;
@@ -376,70 +315,38 @@ export function evaluateBoardDefender(board, cautiousness = 1.0) {
     score += getPieceValue(p.type) * 10;
   }
 
-  if (!lazerPos) return score;
+  // Check the threat of all pieces on the board directly using the unified threat map
+  const threats = getPieceThreatLevels(board);
+  for (const t of threats) {
+    score -= getPieceValue(t.type) * 20 * t.threatLevel * cautiousness;
+  }
 
-  const rotations = [0, 90, 180, 270];
-
-  for (const p of pointPieces) {
-    let minAPToHit = 999;
-
-    // A. Check immediate threats from LAZER's current position (rotations only)
-    for (const rot of rotations) {
-      const trace = traceLaserBeam(board, lazerPos, rot);
-      if (trace.hitPiece && trace.hitPiece.r === p.r && trace.hitPiece.c === p.c) {
-        const ap = (rot === lazerDir) ? 1 : 2; // 1 to fire, or 1 to rotate + 1 to fire
-        if (ap < minAPToHit) minAPToHit = ap;
+  // Calculate Clustering Penalty and Collinear Penalty
+  for (let i = 0; i < pointPieces.length; i++) {
+    for (let j = i + 1; j < pointPieces.length; j++) {
+      const p1 = pointPieces[i];
+      const p2 = pointPieces[j];
+      const dist = Math.abs(p1.r - p2.r) + Math.abs(p1.c - p2.c);
+      if (dist <= 2) {
+        score -= 50; // Severe penalty for clustering
       }
-    }
-
-    // B. Check movement threats by tracing backward from the point piece
-    for (const rot of rotations) {
-      const trace = traceLaserBeam(board, p, rot);
-      for (const step of trace.path) {
-        if (step.type === 'beam') {
-          const r = step.r;
-          const c = step.c;
-          if (r === lazerPos.r && c === lazerPos.c) continue; // Already handled
-          if (board[r][c] === null) { // Empty firing position
-            const moveDist = Math.abs(lazerPos.r - r) + Math.abs(lazerPos.c - c);
-            const ap = moveDist + 2; // moveDist to move, 1 to rotate, 1 to fire
-            if (ap < minAPToHit) minAPToHit = ap;
-          }
-        }
+      if (p1.r === p2.r) {
+         const minC = Math.min(p1.c, p2.c);
+         const maxC = Math.max(p1.c, p2.c);
+         let blocked = false;
+         for (let c = minC + 1; c < maxC; c++) {
+            if (board[p1.r][c] !== null && board[p1.r][c].type === BLOCK_TYPES.BLOCK_MIRROR) blocked = true;
+         }
+         if (!blocked) score -= 30;
       }
-    }
-
-    // Apply penalty scaled by the probability of the attacker getting enough AP and cautiousness
-    if (minAPToHit < 999) {
-      const prob = get2d6CumulativeProbability(minAPToHit);
-      score -= getPieceValue(p.type) * 20 * prob * cautiousness;
-    }
-
-    // Calculate Clustering Penalty and Collinear Penalty (instead of infinite dispersion)
-    for (const otherP of pointPieces) {
-      if (otherP !== p) {
-        const dist = Math.abs(p.r - otherP.r) + Math.abs(p.c - otherP.c);
-        if (dist <= 2) {
-          score -= 50; // Severe penalty for clustering
-        }
-        if (p.r === otherP.r) {
-           const minC = Math.min(p.c, otherP.c);
-           const maxC = Math.max(p.c, otherP.c);
-           let blocked = false;
-           for (let c = minC + 1; c < maxC; c++) {
-              if (board[p.r][c] !== null && board[p.r][c].type === BLOCK_TYPES.BLOCK_MIRROR) blocked = true;
-           }
-           if (!blocked) score -= 30;
-        }
-        if (p.c === otherP.c) {
-           const minR = Math.min(p.r, otherP.r);
-           const maxR = Math.max(p.r, otherP.r);
-           let blocked = false;
-           for (let r = minR + 1; r < maxR; r++) {
-              if (board[r][p.c] !== null && board[r][p.c].type === BLOCK_TYPES.BLOCK_MIRROR) blocked = true;
-           }
-           if (!blocked) score -= 30;
-        }
+      if (p1.c === p2.c) {
+         const minR = Math.min(p1.r, p2.r);
+         const maxR = Math.max(p1.r, p2.r);
+         let blocked = false;
+         for (let r = minR + 1; r < maxR; r++) {
+            if (board[r][p1.c] !== null && board[r][p1.c].type === BLOCK_TYPES.BLOCK_MIRROR) blocked = true;
+         }
+         if (!blocked) score -= 30;
       }
     }
   }
@@ -489,10 +396,7 @@ function findBestActionSequence(board, role, maxDepth, evaluateFn, cautiousness)
       }
     }
 
-    // Add slight randomness to break ties
-    currentScore += Math.random() * 0.1;
-
-    if (currentScore > bestScore) {
+    if (currentScore > bestScore || (currentScore === bestScore && Math.random() < 0.5)) {
       bestScore = currentScore;
       bestAction = action;
     }
@@ -527,7 +431,6 @@ export const EasyStrategy = {
 
     const { lazerPos, lazerDir, pointPieces } = getBoardState(board);
     if (!lazerPos || pointPieces.length === 0) {
-      if (Math.random() < 0.15) return null; 
       return actions[Math.floor(Math.random() * actions.length)];
     }
 
@@ -545,8 +448,6 @@ export const EasyStrategy = {
 
       let targetP = state1.pointPieces.sort((a,b) => getPieceValue(b.type) - getPieceValue(a.type))[0];
       let dist = Math.abs(state1.lazerPos.r - targetP.r) + Math.abs(state1.lazerPos.c - targetP.c);
-      
-      dist += (Math.random() - 0.5) * 2; // Random noise
 
       if (role === 'attacker') {
         if (action.type === 'laser-press') {
@@ -556,20 +457,19 @@ export const EasyStrategy = {
           }
         }
 
-        if (dist < bestScore) {
+        if (dist < bestScore || (dist === bestScore && Math.random() < 0.5)) {
            bestScore = dist;
            bestAction = action;
         }
       } else {
-        if (dist > bestScore) {
+        if (dist > bestScore || (dist === bestScore && Math.random() < 0.5)) {
            bestScore = dist;
            bestAction = action;
         }
       }
     }
 
-    if (bestAction && Math.random() < 0.8) return bestAction;
-    return actions[Math.floor(Math.random() * actions.length)];
+    return bestAction || actions[Math.floor(Math.random() * actions.length)];
   }
 };
 
@@ -679,7 +579,11 @@ export function generateThreatMap(board) {
           const moveDist = Math.abs(corner.r - lr) + Math.abs(corner.c - lc);
           
           for (const rot of rotations) {
-            const minRotationCost = Math.min(...corner.dirs.map(d => (d === rot ? 0 : 1)));
+            const minRotationCost = Math.min(...corner.dirs.map(d => {
+              let rotDiff = Math.abs(d - rot);
+              if (rotDiff > 180) rotDiff = 360 - rotDiff;
+              return rotDiff / 90;
+            }));
             const apCost = moveDist + minRotationCost + 1; // 1 AP to shoot
             
             const trace = traceLaserBeam(board, { r: lr, c: lc }, rot);
@@ -699,13 +603,11 @@ export function generateThreatMap(board) {
       for (let c = 0; c < 8; c++) {
         if (board[r][c] === null || board[r][c].type !== 'mirror') {
           let maxProb = 0;
-          let cumulativeP = 1;
           for (const corner of corners) {
             if (minAPMap[r][c][corner.id] < 999) {
               const prob = get2d6CumulativeProbability(minAPMap[r][c][corner.id]);
               map[r][c].sources[corner.id] = prob;
               if (prob > maxProb) maxProb = prob;
-              cumulativeP *= (1 - prob);
             }
           }
           if (maxProb > 0) {
@@ -728,7 +630,10 @@ export function generateThreatMap(board) {
       const moveDist = Math.abs(lazerPos.r - lr) + Math.abs(lazerPos.c - lc);
       
       for (const rot of rotations) {
-        const rotationCost = (lazerDir === rot) ? 0 : 1;
+        let rotDiff = Math.abs(lazerDir - rot);
+        if (rotDiff > 180) rotDiff = 360 - rotDiff;
+        const rotationCost = rotDiff / 90;
+        
         const apCost = moveDist + rotationCost + 1; // 1 AP to shoot
         
         const trace = traceLaserBeam(board, { r: lr, c: lc }, rot);
@@ -1165,12 +1070,20 @@ function genericSetupAction(board, phase, difficulty, challengedPiece) {
               }
             });
           } else {
-            // Medium bot likes to hide pieces near other pieces
-            existingPieces.forEach(p => {
-              const dist = Math.abs(cell.r - p.r) + Math.abs(cell.c - p.c);
-              if (dist <= 1) score += 5;
-            });
+            // Except positions that are lower than 6 ap from all corners
+            const dists = [
+              Math.abs(cell.r - 0) + Math.abs(cell.c - 0),
+              Math.abs(cell.r - 0) + Math.abs(cell.c - 7),
+              Math.abs(cell.r - 7) + Math.abs(cell.c - 0),
+              Math.abs(cell.r - 7) + Math.abs(cell.c - 7)
+            ];
+            if (dists.some(d => d < 6)) {
+              score -= 500;
+            }
           }
+          
+          // Introduce randomness to starting positions for all difficulties to ensure variety
+          score += Math.random() * 100;
           
           return score;
         };
@@ -1255,9 +1168,10 @@ function genericSetupAction(board, phase, difficulty, challengedPiece) {
           const mirrorBounces = trace.path.filter(p => p.type === 'mirror-bounce').length;
           score += mirrorBounces * 50;
           
-          if (difficulty === 'medium' && Math.random() < 0.2) score -= Math.random() * 50;
+          // Add some randomness to encourage different lazer rotations/positions instead of strictly deterministic
+          score += Math.random() * 600;
 
-          if (score > bestScore) {
+          if (score > bestScore || (score === bestScore && Math.random() < 0.5)) {
             bestScore = score;
             bestPlacement = { type: 'place', pieceType: BLOCK_TYPES.BLOCK_LAZER, r: corner.r, c: corner.c, rotation: rot };
           }

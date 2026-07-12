@@ -118,7 +118,7 @@ export default function AnalysisPanel({
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           {sources.map(src => {
             const val = totals[src.id] || 0;
-            const pct = Math.round((val / grandTotal) * 100);
+            const fraction = (val / grandTotal).toFixed(6);
             return (
               <div key={src.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -127,9 +127,9 @@ export default function AnalysisPanel({
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <div style={{ width: '60px', height: '4px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
-                    <div style={{ width: `${pct}%`, height: '100%', backgroundColor: src.color }} />
+                    <div style={{ width: `${Math.round((val / grandTotal) * 100)}%`, height: '100%', backgroundColor: src.color }} />
                   </div>
-                  <span style={{ fontWeight: 'bold', width: '25px', textAlign: 'right' }}>{pct}%</span>
+                  <span style={{ fontWeight: 'bold', width: '55px', textAlign: 'right' }}>{fraction}</span>
                 </div>
               </div>
             );
@@ -438,13 +438,13 @@ export default function AnalysisPanel({
                   const startPt = startOfTurnThreats.find(s => s.type === pt.type);
                   if (startPt) {
                     const diff = pt.threatLevel - startPt.threatLevel;
-                    if (Math.abs(diff) > 0.01) {
-                      const diffPct = Math.round(diff * 100);
+                    if (Math.abs(diff) > 0.000001) {
+                      const diffVal = diff.toFixed(6);
                       const sign = diff > 0 ? '+' : '';
-                      deltaStr = `${sign}${diffPct}%`;
+                      deltaStr = `${sign}${diffVal}`;
                       deltaColor = diff > 0 ? 'var(--neon-red)' : '#39ff14'; // Green is good for defender
                     } else {
-                      deltaStr = '0%';
+                      deltaStr = '0.000000';
                     }
                   }
                 }
@@ -459,7 +459,7 @@ export default function AnalysisPanel({
                         </span>
                       )}
                       <span style={{ fontWeight: 'bold', color: pt.threatLevel > 0.5 ? 'var(--neon-red)' : '#fff' }}>
-                        {Math.round(pt.threatLevel * 100)}% Danger
+                        {pt.threatLevel.toFixed(6)} Danger
                       </span>
                     </div>
                   </div>
