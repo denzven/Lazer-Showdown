@@ -17,6 +17,8 @@ export default function Cell({
   isReachable = false,
   reachableDist = 0,
   threatObj = null,
+  qValue = null,
+  engineType = 'math',
   isHighlighted = false
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
@@ -217,6 +219,7 @@ export default function Cell({
 
       {/* Threat Map Overlay */}
       {(() => {
+        if (engineType !== 'math') return null;
         const threatTotal = threatObj ? threatObj.total : 0;
         if (!threatObj || threatTotal === 0 || block) return null;
 
@@ -248,6 +251,81 @@ export default function Cell({
             ))}
             <span style={{ color: 'white', fontSize: '0.65rem', fontWeight: 'bold', opacity: 0.9, zIndex: 2, textShadow: '0 0 4px black' }}>
               {threatTotal.toFixed(6)}
+            </span>
+          </div>
+        );
+      })()}
+
+      {/* Q-Value Heatmap Overlay */}
+      {(() => {
+        if (engineType !== 'neural') return null;
+        if (qValue === null || qValue === undefined || block) return null;
+
+        const getQValueColor = (val) => {
+          if (val < 0) val = 0;
+          if (val > 1) val = 1;
+          
+          let r, g, b, a;
+          if (val <= 0.5) {
+            const t = val / 0.5;
+            r = Math.round(0 + t * (255 - 0));
+            g = Math.round(150 + t * (165 - 150));
+            b = Math.round(255 + t * (0 - 255));
+            a = 0.05 + t * (0.6 - 0.05); // slightly visible blue to yellow
+          } else {
+            const t = (val - 0.5) / 0.5;
+            r = Math.round(255 + t * (255 - 255));
+            g = Math.round(165 + t * (0 - 165));
+            b = Math.round(0 + t * (0 - 0));
+            a = 0.6 + t * (0.85 - 0.6); // yellow to red
+          }
+          return `rgba(${r}, ${g}, ${b}, ${a})`;
+        };
+
+        const bgColor = getQValueColor(qValue);
+
+        return (
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            pointerEvents: 'none', zIndex: 1, display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            backgroundColor: bgColor,
+            mixBlendMode: 'screen',
+            boxShadow: qValue > 0.8 ? `inset 0 0 15px rgba(255, 0, 0, ${(qValue - 0.8) * 4})` : 'none',
+            overflow: 'hidden'
+          }}>
+            {qValue > 0.1 && (
+              <span style={{ color: 'white', fontSize: '0.65rem', fontWeight: 'bold', opacity: 0.9, zIndex: 2, textShadow: '0 0 4px black' }}>
+                {qValue.toFixed(2)}
+              </span>
+            )}
+          </div>
+        );
+      })()}
+
+      {/* Comparison Delta Heatmap Overlay */}
+      {(() => {
+        if (engineType !== 'comparison' || block) return null;
+        
+        const threatTotal = threatObj ? threatObj.total : 0;
+        const neuralVal = qValue || 0;
+        const delta = neuralVal - threatTotal;
+        
+        if (Math.abs(delta) < 0.2) return null;
+
+        const bgColor = delta > 0 ? `rgba(0, 240, 255, ${delta})` : `rgba(255, 50, 50, ${Math.abs(delta)})`;
+        
+        return (
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            pointerEvents: 'none', zIndex: 1, display: 'flex',
+            alignItems: 'center', justifyContent: 'center',
+            backgroundColor: bgColor,
+            mixBlendMode: 'screen',
+            overflow: 'hidden'
+          }}>
+            <span style={{ color: 'white', fontSize: '0.65rem', fontWeight: 'bold', opacity: 0.9, zIndex: 2, textShadow: '0 0 4px black' }}>
+              {delta > 0 ? '+' : ''}{delta.toFixed(2)}
             </span>
           </div>
         );

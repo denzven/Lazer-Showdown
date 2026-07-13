@@ -24,6 +24,8 @@ export default function Grid({
   threatMap = null,
   possibilityWeb = null,
   highlightedCell = null,
+  qHeatmapData = null,
+  engineType = 'math',
   tutorialHighlight = null,
   tutorialHighlights = null
 }) {
@@ -255,6 +257,8 @@ export default function Grid({
                 isReachable={!!reachableInfo}
                 reachableDist={reachableInfo ? reachableInfo.dist : 0}
                 threatObj={threatObj}
+                qValue={qHeatmapData ? qHeatmapData[r][c] : null}
+                engineType={engineType}
               />
             );
           })

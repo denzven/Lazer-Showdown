@@ -100,39 +100,49 @@ export function getPossibleActions(board, role) {
   return actions;
 }
 
-// Cache the model so we don't load it every turn
-let cachedModel = null;
-let modelLoading = false;
-let modelPromise = null;
+// Cache the models so we don't load them every turn
+const cachedModels = { attacker: null, defender: null };
+const modelLoading = { attacker: false, defender: false };
+const modelPromises = { attacker: null, defender: null };
 
-export async function loadNeuralModel() {
-  if (cachedModel) return cachedModel;
-  if (modelLoading) return modelPromise;
+export async function loadNeuralModel(role = 'attacker') {
+  if (cachedModels[role]) return cachedModels[role];
+  if (modelLoading[role]) return modelPromises[role];
 
-  modelLoading = true;
-  modelPromise = (async () => {
+  modelLoading[role] = true;
+  modelPromises[role] = (async () => {
     try {
-      const model = await tf.loadLayersModel('/models/ai-bot/model.json');
-      console.log('Neural Network model loaded successfully!');
-      cachedModel = model;
+      const modelName = role === 'attacker' ? 'attacker_model.json' : 'defender_model.json';
+      let modelUrl = `/models/ai-bot/${modelName}`;
+      
+      // Fix for Node.js headless execution
+      if (typeof process !== 'undefined' && process.release && process.release.name === 'node') {
+        // Dynamic import to not break Vite bundler for browser
+        const path = await import('path');
+        modelUrl = `file://${path.resolve('./public/models/ai-bot/' + modelName)}`;
+      }
+
+      const model = await tf.loadLayersModel(modelUrl);
+      console.log(`Neural Network model (${role}) loaded successfully!`);
+      cachedModels[role] = model;
       return model;
     } catch (e) {
-      console.error('Failed to load neural model. Run train.bat first.', e);
+      console.error(`Failed to load ${role} neural model. Run train.bat first.`, e);
       return null;
     } finally {
-      modelLoading = false;
+      modelLoading[role] = false;
     }
   })();
-  return modelPromise;
+  return modelPromises[role];
 }
 
 export async function generateNeuralThreatMapAsync(board, gameState) {
-  const model = await loadNeuralModel();
+  const model = await loadNeuralModel('attacker');
   const map = Array(8).fill(null).map(() => Array(8).fill(null).map(() => ({ total: 0, sources: {} })));
   
   if (!model) return map;
   
-  const baseTensor = boardToTensorArray(board, gameState);
+  const baseTensor = ExpectedDQN.encodeState(board, gameState?.actionPoints || 0, 'attacker');
   const tensors = [];
   const coords = [];
   
@@ -144,19 +154,21 @@ export async function generateNeuralThreatMapAsync(board, gameState) {
       } else {
         occludedBoard[r][c] = { type: BLOCK_TYPES.BLOCK_20 };
       }
-      tensors.push(boardToTensorArray(occludedBoard, gameState));
+      const stateArr = ExpectedDQN.encodeState(occludedBoard, gameState?.actionPoints || 0, 'attacker');
+      // Spread Float32Array to build a flat array for tensor4d
+      for (let i = 0; i < stateArr.length; i++) tensors.push(stateArr[i]);
       coords.push({r, c});
     }
   }
   
-  const inputTensor = tf.tensor2d(tensors, [64, 79]);
+  const inputTensor = tf.tensor4d(tensors, [64, 8, 8, 4]);
   const predictions = model.predict(inputTensor);
   const scores = await predictions.data();
   
   inputTensor.dispose();
   predictions.dispose();
 
-  const baseScoreTensor = tf.tensor2d([baseTensor], [1, 79]);
+  const baseScoreTensor = tf.tensor4d(baseTensor, [1, 8, 8, 4]);
   const basePred = model.predict(baseScoreTensor);
   const baseScores = await basePred.data();
   const baseScore = baseScores[0];
@@ -183,6 +195,40 @@ export async function generateNeuralThreatMapAsync(board, gameState) {
   return map;
 }
 
+export async function generateQValueHeatmapAsync(board, role, actionPoints, gameState) {
+  const model = await loadNeuralModel(role);
+  const heatmap = Array(8).fill(null).map(() => Array(8).fill(0));
+  
+  if (!model) return heatmap;
+  
+  const stateArray = ExpectedDQN.encodeState(board, actionPoints || 0, role);
+  const stateTensor = tf.tensor4d(stateArray, [1, 8, 8, 4]);
+  const qValues = model.predict(stateTensor).dataSync();
+  stateTensor.dispose();
+  
+  let minQ = Infinity;
+  let maxQ = -Infinity;
+  
+  // Find min and max among the first 64 spatial Q-values
+  for (let i = 0; i < 64; i++) {
+    if (qValues[i] < minQ) minQ = qValues[i];
+    if (qValues[i] > maxQ) maxQ = qValues[i];
+  }
+  
+  const range = maxQ - minQ;
+  
+  // Normalize to 0.0 - 1.0 and populate the 8x8 matrix
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const idx = r * 8 + c;
+      const normalizedValue = range === 0 ? 0 : (qValues[idx] - minQ) / range;
+      heatmap[r][c] = normalizedValue;
+    }
+  }
+  
+  return heatmap;
+}
+
 // Neural Network Strategy Module
 export const NeuralStrategy = {
   getSetupAction: (board, phase, playerColor, challengedPiece) => {
@@ -190,7 +236,7 @@ export const NeuralStrategy = {
   },
 
   getPlayActionAsync: async (board, role, actionPoints, gameState, botPlayer) => {
-    const model = await loadNeuralModel();
+    const model = await loadNeuralModel(role);
     const actions = getPossibleActions(board, role);
     if (actions.length === 0) return null;
 
@@ -251,7 +297,7 @@ export const NeuralStrategy = {
   evaluateBoardAsync: async (board, role, gameState) => {
     // This evaluates a state. In ExpectedDQN, we don't evaluate states, we evaluate actions.
     // We will just evaluate a pass/noop action by passing 0 actionPoints.
-    const model = await loadNeuralModel();
+    const model = await loadNeuralModel(role);
     if (!model) return 0;
     
     const tensorArray = ExpectedDQN.encodeState(board, gameState?.actionPoints || 0, role);
@@ -273,7 +319,7 @@ export const NeuralStrategy = {
   },
 
   getRankedPlaysAsync: async (board, role, actionPoints, gameState) => {
-    const model = await loadNeuralModel();
+    const model = await loadNeuralModel(role);
     const actions = getPossibleActions(board, role);
     if (actions.length === 0) return [];
 

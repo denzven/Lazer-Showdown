@@ -4,9 +4,10 @@ import { formatActionText } from '../core/BotStrategies';
 
 export default function AnalysisPanel({ 
   data, history, dice, threatMap, lazerPos, engineLines, pieceThreats, 
-  showHeatmap, setShowHeatmap, showGhostRays, setShowGhostRays, 
-  showPieceThreats, setShowPieceThreats, startOfTurnThreats, onClose,
-  reviewIndex, stepForward, stepBackward, moveClassification, maxHistoryIndex,
+  showHeatmap, showGhostRays, 
+  showPieceThreats, showQHeatmap, 
+  startOfTurnThreats, onClose, reviewIndex, stepForward, stepBackward, 
+  moveClassification, maxHistoryIndex,
   onHighlightMove, phase, challengeRecommendation,
   engineType = 'math', setEngineType = () => {}, isAnalyzing = false
 }) {
@@ -38,22 +39,32 @@ export default function AnalysisPanel({
 
   if (!data) return null;
 
-  const { totalScore, neuralScore, cautiousness, difficulty, role, advancedMetrics } = data;
+  const { totalScore, attackerMathScore, defenderMathScore, neuralScore, attackerNeuralScore, defenderNeuralScore, cautiousness, difficulty, role, advancedMetrics } = data;
   const { values = [1, 1], lastRoller } = dice || {};
 
-  const getStyleForScore = (score) => {
-    if (score > 1000) return 'text-green-400';
-    if (score > 0) return 'text-green-200';
-    if (score < -1000) return 'text-red-400';
-    if (score < 0) return 'text-red-200';
-    return 'text-gray-300';
+  let totalStartThreat = 0;
+  let totalCurrentThreat = 0;
+  let threatDelta = 0;
+
+  if (startOfTurnThreats && pieceThreats) {
+    const calcThreat = (arr) => arr.reduce((acc, t) => acc + (t.threatLevel * parseInt(t.type.replace('block-', ''))), 0);
+    totalStartThreat = calcThreat(startOfTurnThreats);
+    totalCurrentThreat = calcThreat(pieceThreats);
+    threatDelta = totalCurrentThreat - totalStartThreat;
+  }
+
+  const formatHeuristicScore = (score) => {
+    if (score === undefined || score === null) return '0';
+    const sign = score > 0 ? '+' : '';
+    const abs = Math.abs(score);
+    if (abs >= 1000) return `${sign}${(score / 1000).toFixed(1)}k`;
+    return `${sign}${Math.round(score)}`;
   };
 
   const getBarWidth = (score) => {
     const maxVal = 5000;
     let percentage = (Math.abs(score) / maxVal) * 100;
-    if (percentage > 100) percentage = 100;
-    return `${percentage}%`;
+    return `${Math.min(percentage, 50)}%`;
   };
 
   const barColor = totalScore >= 0 ? '#39ff14' : '#ff003c';
@@ -99,9 +110,7 @@ export default function AnalysisPanel({
 
     if (grandTotal === 0) return null;
 
-    const sources = engineType === 'neural' ? [
-      { id: 'AI', label: 'Neural Occlusion Sensitivity', color: 'var(--neon-blue)' }
-    ] : !lazerPos ? [
+    const sources = !lazerPos ? [
       { id: 'TL', label: 'Top-Left Corner', color: '#00ffff' },
       { id: 'TR', label: 'Top-Right Corner', color: '#ff00ff' },
       { id: 'BL', label: 'Bottom-Left Corner', color: '#ffff00' },
@@ -227,6 +236,10 @@ export default function AnalysisPanel({
               onClick={() => setEngineType('neural')}
               style={{ padding: '2px 8px', fontSize: '0.65rem', background: engineType === 'neural' ? 'var(--neon-blue)' : 'transparent', color: engineType === 'neural' ? '#000' : 'rgba(255,255,255,0.5)', border: 'none', cursor: 'pointer', fontWeight: engineType === 'neural' ? 'bold' : 'normal' }}
             >AI</button>
+            <button 
+              onClick={() => setEngineType('comparison')}
+              style={{ padding: '2px 8px', fontSize: '0.65rem', background: engineType === 'comparison' ? '#b15cff' : 'transparent', color: engineType === 'comparison' ? '#000' : 'rgba(255,255,255,0.5)', border: 'none', cursor: 'pointer', fontWeight: engineType === 'comparison' ? 'bold' : 'normal' }}
+            >CMP</button>
           </div>
 
           <button onClick={() => setIsMinimized(true)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0 }}>
@@ -267,29 +280,83 @@ export default function AnalysisPanel({
             </div>
           )}
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
-            {engineType === 'neural' ? 'AI Win Probability' : 'Evaluation (Math Engine)'}
+            {engineType === 'neural' ? 'AI Win Probability (Dual-Brain)' : engineType === 'comparison' ? 'Engine Delta Analysis' : 'Evaluation (Dual-Brain Math)'}
           </div>
           {engineType === 'neural' ? (
-             <div style={{ color: 'var(--neon-blue)', fontSize: '2.5rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
-               {Math.round((((neuralScore || 0) + 1) / 2) * 100)}%
+             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(0, 240, 255, 0.2)' }}>
+               {/* Attacker Brain */}
+               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                 <span style={{ fontSize: '0.65rem', color: '#ffcc00', textTransform: 'uppercase' }}>Attacker Brain</span>
+                 <div style={{ color: 'var(--neon-blue)', fontSize: '2rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
+                   {attackerNeuralScore !== undefined ? Math.round((((attackerNeuralScore) + 1) / 2) * 100) : 0}%
+                 </div>
+               </div>
+               
+               <div style={{ width: '1px', height: '40px', backgroundColor: 'rgba(255,255,255,0.2)' }} />
+               
+               {/* Defender Brain */}
+               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                 <span style={{ fontSize: '0.65rem', color: '#39ff14', textTransform: 'uppercase' }}>Defender Brain</span>
+                 <div style={{ color: 'var(--neon-blue)', fontSize: '2rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
+                   {defenderNeuralScore !== undefined ? Math.round((((defenderNeuralScore) + 1) / 2) * 100) : 0}%
+                 </div>
+               </div>
              </div>
-          ) : (
-             <div className={getStyleForScore(totalScore)} style={{ fontSize: '2.5rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
-               {totalScore > 0 ? '+' : ''}{Math.round(totalScore)}
-             </div>
-          )}
+          ) : engineType === 'comparison' ? (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid #b15cff' }}>
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
+                  <span style={{ fontSize: '0.65rem', color: '#b15cff', textTransform: 'uppercase', fontWeight: 'bold' }}>Color Guide (Delta)</span>
+                  <div style={{ display: 'flex', gap: '15px', marginTop: '6px', fontSize: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <div style={{ width: '10px', height: '10px', backgroundColor: '#00f0ff', borderRadius: '2px', boxShadow: '0 0 4px #00f0ff' }}></div>
+                      <span>Neural prefers</span>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <div style={{ width: '10px', height: '10px', backgroundColor: '#ff5555', borderRadius: '2px', boxShadow: '0 0 4px #ff5555' }}></div>
+                      <span>Math prefers</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+           ) : (
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                {/* Attacker Eval */}
+                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.65rem', color: '#ffcc00', textTransform: 'uppercase' }}>Attacker Eval</span>
+                  <div style={{ color: 'var(--neon-blue)', fontSize: '2rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
+                    {formatHeuristicScore(attackerMathScore)}
+                  </div>
+                </div>
+                
+                <div style={{ width: '1px', height: '40px', backgroundColor: 'rgba(255,255,255,0.2)' }} />
+                
+                {/* Defender Eval */}
+                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.65rem', color: '#39ff14', textTransform: 'uppercase' }}>Defender Eval</span>
+                  <div style={{ color: 'var(--neon-blue)', fontSize: '2rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
+                    {formatHeuristicScore(defenderMathScore)}
+                  </div>
+                </div>
+              </div>
+           )}
           
           {/* Visual Bar */}
-          <div style={{ width: '100%', height: '8px', backgroundColor: 'rgba(255,255,255,0.1)', marginTop: '12px', borderRadius: '4px', overflow: 'hidden', position: 'relative' }}>
-             {engineType === 'neural' ? (
-                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: `${Math.round((((neuralScore || 0) + 1) / 2) * 100)}%`, backgroundColor: 'var(--neon-blue)', transition: 'width 0.3s ease' }} />
-             ) : (
-                <>
-                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: totalScore < 0 ? 'auto' : '50%', right: totalScore < 0 ? '50%' : 'auto', width: getBarWidth(totalScore), backgroundColor: barColor, transition: 'width 0.3s ease' }} />
-                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: '2px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
-                </>
-             )}
-          </div>
+          {engineType !== 'comparison' && (
+            <div style={{ width: '100%', height: '8px', backgroundColor: 'rgba(255,255,255,0.1)', marginTop: '12px', borderRadius: '4px', overflow: 'hidden', position: 'relative' }}>
+               {engineType === 'neural' ? (
+                  <>
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: `${attackerNeuralScore !== undefined ? Math.round((((attackerNeuralScore) + 1) / 2) * 100) : 0}%`, backgroundColor: '#ffcc00', transition: 'width 0.3s ease', opacity: 0.6 }} />
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: `${defenderNeuralScore !== undefined ? Math.round((((defenderNeuralScore) + 1) / 2) * 100) : 0}%`, backgroundColor: '#39ff14', transition: 'width 0.3s ease', opacity: 0.6 }} />
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: '2px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
+                  </>
+               ) : (
+                  <>
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: totalScore < 0 ? 'auto' : '50%', right: totalScore < 0 ? '50%' : 'auto', width: getBarWidth(totalScore), backgroundColor: barColor, transition: 'width 0.3s ease' }} />
+                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: '2px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
+                  </>
+               )}
+            </div>
+          )}
 
           {moveClassification && (
             <div style={{ marginTop: '12px', padding: '6px 12px', borderRadius: '6px', backgroundColor: 'rgba(0,0,0,0.4)', border: `1px solid ${moveClassification.color}`, display: 'inline-block', boxShadow: `0 0 10px ${moveClassification.color}40` }}>
@@ -442,29 +509,47 @@ export default function AnalysisPanel({
           </div>
         )}
 
-        {/* Toggles */}
-        <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-          <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-            <Activity size={10} /> VISIBILITY TOGGLES
+        {/* THREAT DELTA (MATH ONLY) */}
+        {engineType === 'math' && startOfTurnThreats && pieceThreats && phase === 'playing' && (
+          <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Activity size={10} /> THREAT DELTA (THIS TURN)
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.75rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Start of Turn Threat:</span>
+                <span>{totalStartThreat.toFixed(1)} pts</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <span style={{ color: 'var(--text-muted)' }}>Current Threat:</span>
+                <span>{totalCurrentThreat.toFixed(1)} pts</span>
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '4px', marginTop: '2px' }}>
+                <span style={{ color: 'var(--text-muted)' }}>
+                  {role === 'attacker' ? 'Threat Applied (Goal: Maximize):' : 'Threat Mitigated (Goal: Minimize):'}
+                </span>
+                <span style={{ color: role === 'attacker' ? (threatDelta > 0 ? '#39ff14' : (threatDelta < 0 ? '#ff003c' : 'var(--text-muted)')) : (threatDelta < 0 ? '#39ff14' : (threatDelta > 0 ? '#ff003c' : 'var(--text-muted)')), fontWeight: 'bold' }}>
+                  {threatDelta > 0 ? '+' : ''}{threatDelta.toFixed(1)} pts
+                </span>
+              </div>
+              {/* Visual Delta Bar */}
+              <div style={{ width: '100%', height: '4px', backgroundColor: 'rgba(255,255,255,0.1)', marginTop: '2px', borderRadius: '2px', overflow: 'hidden', position: 'relative' }}>
+                <div style={{ 
+                  position: 'absolute', top: 0, bottom: 0, 
+                  left: threatDelta < 0 ? 'auto' : '50%', 
+                  right: threatDelta < 0 ? '50%' : 'auto', 
+                  width: `${Math.min(Math.abs(threatDelta), 50)}%`, 
+                  backgroundColor: role === 'attacker' ? (threatDelta > 0 ? '#39ff14' : '#ff003c') : (threatDelta < 0 ? '#39ff14' : '#ff003c'), 
+                  transition: 'width 0.3s ease' 
+                }} />
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: '1px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
+              </div>
+            </div>
           </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.75rem' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-              <input type="checkbox" checked={showHeatmap} onChange={(e) => setShowHeatmap(e.target.checked)} />
-              <span style={{ color: showHeatmap ? '#fff' : 'var(--text-muted)' }}>Show Threat Heatmap (Board)</span>
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-              <input type="checkbox" checked={showGhostRays} onChange={(e) => setShowGhostRays(e.target.checked)} />
-              <span style={{ color: showGhostRays ? '#fff' : 'var(--text-muted)' }}>Show Possibility Web (Rays)</span>
-            </label>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-              <input type="checkbox" checked={showPieceThreats} onChange={(e) => setShowPieceThreats(e.target.checked)} />
-              <span style={{ color: showPieceThreats ? '#fff' : 'var(--text-muted)' }}>Show Piece Threat Levels</span>
-            </label>
-          </div>
-        </div>
+        )}
 
-        {/* SUPERPOSITIONAL THREAT BREAKDOWN (AI ONLY) */}
-        {engineType === 'neural' && getThreatBreakdown()}
+        {/* SUPERPOSITIONAL THREAT BREAKDOWN (MATH ONLY) */}
+        {engineType === 'math' && getThreatBreakdown()}
 
         {/* PIECE THREATS (MATH ONLY) */}
         {engineType === 'math' && showPieceThreats && pieceThreats && pieceThreats.length > 0 && (
@@ -572,7 +657,7 @@ export default function AnalysisPanel({
             </div>
             <button 
               onClick={async () => {
-                const { boardToTensorArray } = await import('../core/NeuralBot.js');
+                const { ExpectedDQN } = await import('../core/NeuralBot.js');
                 const { getBoardAnalysis } = await import('../core/BotStrategies.js');
                 const inputs = [];
                 const labels = [];
@@ -584,7 +669,7 @@ export default function AnalysisPanel({
                   if (!rolePlayed) continue;
                   
                   try {
-                    const tensor = boardToTensorArray(state.board, state, rolePlayed);
+                    const tensor = Array.from(ExpectedDQN.encodeState(state.board, state.actionPoints || 0, rolePlayed));
                     const analysis = getBoardAnalysis(state.board, rolePlayed, 'hard', state, state.turnPlayer);
                     let scaledScore = analysis.totalScore / 5000;
                     scaledScore = Math.max(-1, Math.min(1, scaledScore));

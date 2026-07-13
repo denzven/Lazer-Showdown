@@ -251,13 +251,18 @@ async function simulateGame(epsilon = 0.1) {
 }
 
 async function generateBatch(games, epsilon) {
-  const allExperiences = [];
+  const attackerExperiences = [];
+  const defenderExperiences = [];
+  
   for (let i = 0; i < games; i++) {
     const { experiences, scoreDelta, attackerWon, defenderWon, turns } = await simulateGame(epsilon);
-    allExperiences.push(...experiences);
+    for (const exp of experiences) {
+       if (exp.role === 'attacker') attackerExperiences.push(exp);
+       else if (exp.role === 'defender') defenderExperiences.push(exp);
+    }
     parentPort.postMessage({ type: 'progress', data: { scoreDelta, attackerWon, defenderWon, turns } });
   }
-  parentPort.postMessage({ type: 'result', data: { experiences: allExperiences } });
+  parentPort.postMessage({ type: 'result', data: { attackerExperiences, defenderExperiences } });
 }
 
 if (!isMainThread) {
@@ -280,56 +285,128 @@ async function trainModel() {
   let lastCheckpointGames = 0;
   
   const savePath = path.resolve('./public/models/ai-bot');
-  const modelPath = path.join(savePath, 'model.json');
-  const bufferPath = path.join(savePath, 'replay_buffer.json');
+  const attackerModelPath = path.join(savePath, 'attacker_model.json');
+  const defenderModelPath = path.join(savePath, 'defender_model.json');
+  const attackerBufferPath = path.join(savePath, 'attacker_replay_buffer.json');
+  const defenderBufferPath = path.join(savePath, 'defender_replay_buffer.json');
   
   if (!fs.existsSync(savePath)) fs.mkdirSync(savePath, { recursive: true });
 
-  let dqn = new ExpectedDQN();
+  let attackerDqn = new ExpectedDQN();
+  let defenderDqn = new ExpectedDQN();
 
-  if (fs.existsSync(bufferPath)) {
-    console.log(`\n🔄 Loading Experience Replay Buffer from disk...`);
-    try {
-      const bufferData = JSON.parse(fs.readFileSync(bufferPath, 'utf8'));
-      const rawExperiences = bufferData.experiences || [];
-      // Reconstruct the Float32Arrays to avoid JSON object parsing issues
-      dqn.replayBuffer = rawExperiences.map(exp => {
-          if (exp.stateArray && !Array.isArray(exp.stateArray) && !(exp.stateArray instanceof Float32Array)) {
-              exp.stateArray = new Float32Array(Object.values(exp.stateArray));
-          }
-          if (exp.nextStateArray && !Array.isArray(exp.nextStateArray) && !(exp.nextStateArray instanceof Float32Array)) {
-              exp.nextStateArray = new Float32Array(Object.values(exp.nextStateArray));
-          }
-          return exp;
-      });
-      console.log(`✅ Loaded ${dqn.replayBuffer.length} past states.`);
-    } catch(e) {
-      console.error(`❌ Failed to load replay buffer. Starting fresh. Error: ${e.message}`);
+  const loadBuffer = (dqn, bPath, name) => {
+    if (fs.existsSync(bPath)) {
+      console.log(`\n🔄 Loading ${name} Experience Replay Buffer from disk...`);
+      try {
+        const bufferData = JSON.parse(fs.readFileSync(bPath, 'utf8'));
+        const rawExperiences = bufferData.experiences || [];
+        dqn.replayBuffer = rawExperiences.map(exp => {
+            if (exp.stateArray && !Array.isArray(exp.stateArray) && !(exp.stateArray instanceof Float32Array)) {
+                exp.stateArray = new Float32Array(Object.values(exp.stateArray));
+            }
+            if (exp.nextStateArray && !Array.isArray(exp.nextStateArray) && !(exp.nextStateArray instanceof Float32Array)) {
+                exp.nextStateArray = new Float32Array(Object.values(exp.nextStateArray));
+            }
+            return exp;
+        });
+        console.log(`✅ Loaded ${dqn.replayBuffer.length} past states for ${name}.`);
+      } catch(e) {
+        console.error(`❌ Failed to load ${name} replay buffer. Starting fresh. Error: ${e.message}`);
+      }
     }
-  }
+  };
 
-  if (fs.existsSync(modelPath)) {
-    console.log(`\n🔄 Loading existing expected DQN neural network model...`);
-    try {
-      dqn.model = await tf.loadLayersModel(new NodeFileSystem(savePath));
+  loadBuffer(attackerDqn, attackerBufferPath, 'Attacker');
+  loadBuffer(defenderDqn, defenderBufferPath, 'Defender');
+
+  const loadModel = async (dqn, mPath, name, fsPathPrefix) => {
+    if (fs.existsSync(mPath)) {
+      console.log(`\n🔄 Loading existing ${name} expected DQN neural network model...`);
+      try {
+        // We must override the paths to point to specific files
+        class RoleFileSystem extends NodeFileSystem {
+            async save(modelArtifacts) {
+                const weightsData = Buffer.from(modelArtifacts.weightData);
+                const weightsFileName = `${name.toLowerCase()}_weights.bin`;
+                fs.writeFileSync(path.join(this.savePath, weightsFileName), weightsData);
+                modelArtifacts.weightData = null;
+                modelArtifacts.weightSpecs.forEach(s => s.paths = [weightsFileName]);
+                fs.writeFileSync(path.join(this.savePath, `${name.toLowerCase()}_model.json`), JSON.stringify(modelArtifacts));
+                return { modelArtifactsInfo: { dateSaved: new Date(), modelTopologyType: 'JSON' } };
+            }
+            async load() {
+                const modelJSON = JSON.parse(fs.readFileSync(path.join(this.savePath, `${name.toLowerCase()}_model.json`)));
+                const weightsFileName = modelJSON.weightSpecs[0].paths[0];
+                const weightData = fs.readFileSync(path.join(this.savePath, weightsFileName));
+                return {
+                  modelTopology: modelJSON.modelTopology,
+                  weightSpecs: modelJSON.weightSpecs,
+                  weightData: new Uint8Array(weightData).buffer
+                };
+            }
+        }
+        dqn.model = await tf.loadLayersModel(new RoleFileSystem(savePath));
+        dqn.model.compile({ optimizer: dqn.optimizer, loss: 'meanSquaredError' });
+        dqn.updateTargetModel();
+        console.log(`✅ ${name} Model loaded successfully.`);
+      } catch (e) {
+        console.error(`❌ Failed to load existing ${name} model. Creating a fresh one. Error: ${e.message}`);
+      }
+    } else {
+      console.log(`\n✨ Compiled fresh ${name} Expected DQN Neural Network...`);
       dqn.model.compile({ optimizer: dqn.optimizer, loss: 'meanSquaredError' });
-      dqn.updateTargetModel();
-      console.log(`✅ Model loaded successfully.`);
-    } catch (e) {
-      console.error(`❌ Failed to load existing model. Creating a fresh one. Error: ${e.message}`);
+      dqn.targetModel.compile({ optimizer: dqn.optimizer, loss: 'meanSquaredError' });
     }
-  } else {
-    console.log(`\n✨ Compiled fresh Expected DQN Neural Network...`);
-    dqn.model.compile({ optimizer: dqn.optimizer, loss: 'meanSquaredError' });
-    dqn.targetModel.compile({ optimizer: dqn.optimizer, loss: 'meanSquaredError' });
+  };
+
+  // Setup specific filesystems
+  class AttackerFS extends NodeFileSystem {
+      async save(modelArtifacts) {
+          const weightsData = Buffer.from(modelArtifacts.weightData);
+          const weightsFileName = `attacker_weights.bin`;
+          fs.writeFileSync(path.join(this.savePath, weightsFileName), weightsData);
+          modelArtifacts.weightData = null;
+          modelArtifacts.weightSpecs.forEach(s => s.paths = [weightsFileName]);
+          fs.writeFileSync(path.join(this.savePath, `attacker_model.json`), JSON.stringify(modelArtifacts));
+          return { modelArtifactsInfo: { dateSaved: new Date(), modelTopologyType: 'JSON' } };
+      }
+      async load() {
+          const modelJSON = JSON.parse(fs.readFileSync(path.join(this.savePath, `attacker_model.json`)));
+          const weightsFileName = modelJSON.weightSpecs[0].paths[0];
+          const weightData = fs.readFileSync(path.join(this.savePath, weightsFileName));
+          return { modelTopology: modelJSON.modelTopology, weightSpecs: modelJSON.weightSpecs, weightData: new Uint8Array(weightData).buffer };
+      }
   }
+
+  class DefenderFS extends NodeFileSystem {
+      async save(modelArtifacts) {
+          const weightsData = Buffer.from(modelArtifacts.weightData);
+          const weightsFileName = `defender_weights.bin`;
+          fs.writeFileSync(path.join(this.savePath, weightsFileName), weightsData);
+          modelArtifacts.weightData = null;
+          modelArtifacts.weightSpecs.forEach(s => s.paths = [weightsFileName]);
+          fs.writeFileSync(path.join(this.savePath, `defender_model.json`), JSON.stringify(modelArtifacts));
+          return { modelArtifactsInfo: { dateSaved: new Date(), modelTopologyType: 'JSON' } };
+      }
+      async load() {
+          const modelJSON = JSON.parse(fs.readFileSync(path.join(this.savePath, `defender_model.json`)));
+          const weightsFileName = modelJSON.weightSpecs[0].paths[0];
+          const weightData = fs.readFileSync(path.join(this.savePath, weightsFileName));
+          return { modelTopology: modelJSON.modelTopology, weightSpecs: modelJSON.weightSpecs, weightData: new Uint8Array(weightData).buffer };
+      }
+  }
+
+  await loadModel(attackerDqn, attackerModelPath, 'Attacker', 'attacker');
+  await loadModel(defenderDqn, defenderModelPath, 'Defender', 'defender');
 
   for (let iter = 1; iter <= ITERATIONS; iter++) {
     const currentEpsilon = Math.max(EPSILON_END, EPSILON_START - (totalGamesSimulated / EPSILON_DECAY_GAMES) * (EPSILON_START - EPSILON_END));
     const currentLR = Math.max(LR_END, LR_START - (totalGamesSimulated / LR_DECAY_GAMES) * (LR_START - LR_END));
     
     // Update optimizer learning rate
-    dqn.optimizer.learningRate = currentLR;
+    attackerDqn.optimizer.learningRate = currentLR;
+    defenderDqn.optimizer.learningRate = currentLR;
 
     console.log(`\n======================================================`);
     console.log(`🔥 ITERATION ${iter}/${ITERATIONS} | Epsilon: ${currentEpsilon.toFixed(3)} | LR: ${currentLR.toFixed(5)} | Total Games: ${totalGamesSimulated}`);
@@ -338,7 +415,8 @@ async function trainModel() {
     const gamesPerCore = Math.ceil(GAMES_TO_PLAY / numCores);
     const workers = [];
     
-    let newExperiences = [];
+    let newAttackerExperiences = [];
+    let newDefenderExperiences = [];
     
     const __filename = fileURLToPath(import.meta.url);
 
@@ -369,7 +447,8 @@ async function trainModel() {
             
             process.stdout.write(`\r🎮 Simulating: [${gamesCompleted}/${GAMES_TO_PLAY}] | Attacker Win: ${winRate}% | Avg Score Diff: ${avgDelta} | Avg Turns: ${avgTurns}    `);
           } else if (msg.type === 'result') {
-            newExperiences.push(...msg.data.experiences);
+            newAttackerExperiences.push(...msg.data.attackerExperiences);
+            newDefenderExperiences.push(...msg.data.defenderExperiences);
             resolve();
           }
         });
@@ -383,50 +462,69 @@ async function trainModel() {
     await Promise.all(workers);
     totalGamesSimulated += GAMES_TO_PLAY;
     
-    console.log(`\n✅ Generated ${newExperiences.length} new reinforcement learning states.`);
+    console.log(`\n✅ Generated ${newAttackerExperiences.length} new attacker and ${newDefenderExperiences.length} new defender states.`);
     
-    for (const exp of newExperiences) {
-       // Filter out empty actions
-       if (exp.action !== -1) {
-           dqn.remember(exp.stateArray, exp.action, exp.reward, exp.nextStateArray, exp.done, exp.nextBoardState, exp.role);
-       }
+    for (const exp of newAttackerExperiences) {
+       if (exp.action !== -1) attackerDqn.remember(exp.stateArray, exp.action, exp.reward, exp.nextStateArray, exp.done, exp.nextBoardState, exp.role);
+    }
+    for (const exp of newDefenderExperiences) {
+       if (exp.action !== -1) defenderDqn.remember(exp.stateArray, exp.action, exp.reward, exp.nextStateArray, exp.done, exp.nextBoardState, exp.role);
     }
     
-    console.log(`💾 Saving Replay Buffer to disk...`);
-    const serializedBuffer = dqn.replayBuffer.map(exp => ({
-        ...exp,
-        stateArray: Array.from(exp.stateArray),
-        nextStateArray: Array.from(exp.nextStateArray)
-    }));
-    fs.writeFileSync(bufferPath, JSON.stringify({ experiences: serializedBuffer }));
+    console.log(`💾 Saving Replay Buffers to disk...`);
+    const saveBuffer = (dqn, bPath) => {
+        const serializedBuffer = dqn.replayBuffer.map(exp => ({
+            ...exp,
+            stateArray: Array.from(exp.stateArray),
+            nextStateArray: Array.from(exp.nextStateArray)
+        }));
+        fs.writeFileSync(bPath, JSON.stringify({ experiences: serializedBuffer }));
+    };
+    saveBuffer(attackerDqn, attackerBufferPath);
+    saveBuffer(defenderDqn, defenderBufferPath);
 
-    console.log(`🧠 Training Expected DQN on ${dqn.replayBuffer.length} total states...`);
-    
-    const trainingSteps = Math.min(Math.floor(dqn.replayBuffer.length / dqn.batchSize), 100);
+    console.log(`🧠 Training Attacker DQN on ${attackerDqn.replayBuffer.length} total states...`);
+    const attSteps = Math.min(Math.floor(attackerDqn.replayBuffer.length / attackerDqn.batchSize), 100);
     const progressBarWidth = 30;
     
-    for(let t = 0; t < trainingSteps; t++) {
-        await dqn.trainStep();
-        if (t % Math.max(1, Math.floor(trainingSteps / 10)) === 0 || t === trainingSteps - 1) {
-             const progress = (t + 1) / trainingSteps;
+    for(let t = 0; t < attSteps; t++) {
+        await attackerDqn.trainStep();
+        if (t % Math.max(1, Math.floor(attSteps / 10)) === 0 || t === attSteps - 1) {
+             const progress = (t + 1) / attSteps;
              const bar = '█'.repeat(Math.ceil(progress * progressBarWidth)).padEnd(progressBarWidth, '░');
-             process.stdout.write(`\rTraining Mini-Batches: [${t + 1}/${trainingSteps}] |${bar}|`);
+             process.stdout.write(`\rAttacker Mini-Batches: [${t + 1}/${attSteps}] |${bar}|`);
         }
     }
+    console.log("");
     
-    dqn.updateTargetModel();
+    console.log(`🧠 Training Defender DQN on ${defenderDqn.replayBuffer.length} total states...`);
+    const defSteps = Math.min(Math.floor(defenderDqn.replayBuffer.length / defenderDqn.batchSize), 100);
+    for(let t = 0; t < defSteps; t++) {
+        await defenderDqn.trainStep();
+        if (t % Math.max(1, Math.floor(defSteps / 10)) === 0 || t === defSteps - 1) {
+             const progress = (t + 1) / defSteps;
+             const bar = '█'.repeat(Math.ceil(progress * progressBarWidth)).padEnd(progressBarWidth, '░');
+             process.stdout.write(`\rDefender Mini-Batches: [${t + 1}/${defSteps}] |${bar}|`);
+        }
+    }
+    console.log("");
+    
+    attackerDqn.updateTargetModel();
+    defenderDqn.updateTargetModel();
 
     // Checkpointing every 500 games
     if (totalGamesSimulated - lastCheckpointGames >= 500) {
         console.log(`\n💾 Reached 500+ games since last checkpoint. Saving model weights to ${savePath}...`);
-        await dqn.model.save(new NodeFileSystem(savePath));
+        await attackerDqn.model.save(new AttackerFS(savePath));
+        await defenderDqn.model.save(new DefenderFS(savePath));
         lastCheckpointGames = totalGamesSimulated;
     }
   }
   
   // Final save at the end of all iterations
-  await dqn.model.save(new NodeFileSystem(savePath));
-  console.log(`\n✅ Final Model saved to ${savePath}`);
+  await attackerDqn.model.save(new AttackerFS(savePath));
+  await defenderDqn.model.save(new DefenderFS(savePath));
+  console.log(`\n✅ Final Models saved to ${savePath}`);
   
   console.log(`\n🎉 Continuous Training Complete!`);
 }

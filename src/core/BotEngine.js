@@ -26,17 +26,31 @@ export async function getBotPlayAction(board, role, actionPoints, difficulty = '
 export async function getBoardAnalysisAsync(board, role, difficulty, gameState, botPlayer) {
   // If we just need the math score, we can call getBoardAnalysis which is sync,
   // but this function wraps it nicely and adds Neural capability.
+  const attackerMathAnalysis = getBoardAnalysis(board, 'attacker', difficulty === 'neural' ? 'hard' : difficulty, gameState, botPlayer);
+  const defenderMathAnalysis = getBoardAnalysis(board, 'defender', difficulty === 'neural' ? 'hard' : difficulty, gameState, botPlayer);
+  
   if (difficulty !== 'neural') {
-    const res = getBoardAnalysis(board, role, difficulty, gameState, botPlayer);
-    return { ...res, isNeural: false };
+    const res = role === 'attacker' ? attackerMathAnalysis : defenderMathAnalysis;
+    return { 
+      ...res, 
+      attackerMathScore: attackerMathAnalysis.totalScore,
+      defenderMathScore: defenderMathAnalysis.totalScore,
+      isNeural: false 
+    };
   }
 
   try {
-    const neuralScore = await NeuralStrategy.evaluateBoardAsync(board, role, gameState);
-    const mathAnalysis = getBoardAnalysis(board, role, 'hard', gameState, botPlayer);
+    const attackerNeuralScore = await NeuralStrategy.evaluateBoardAsync(board, 'attacker', gameState);
+    const defenderNeuralScore = await NeuralStrategy.evaluateBoardAsync(board, 'defender', gameState);
+    
+    const mathAnalysis = role === 'attacker' ? attackerMathAnalysis : defenderMathAnalysis;
     return { 
       totalScore: mathAnalysis.totalScore, // Classic math score
-      neuralScore: neuralScore,            // Raw neural tanh output [-1, 1]
+      attackerMathScore: attackerMathAnalysis.totalScore,
+      defenderMathScore: defenderMathAnalysis.totalScore,
+      neuralScore: role === 'attacker' ? attackerNeuralScore : defenderNeuralScore,
+      attackerNeuralScore,
+      defenderNeuralScore,
       cautiousness: mathAnalysis.cautiousness, 
       behaviorWarnings: mathAnalysis.behaviorWarnings,
       advancedMetrics: mathAnalysis.advancedMetrics,
@@ -46,8 +60,13 @@ export async function getBoardAnalysisAsync(board, role, difficulty, gameState, 
     };
   } catch (e) {
     console.error('Neural evaluation failed, falling back to Math engine', e);
-    const res = getBoardAnalysis(board, role, 'hard', gameState, botPlayer);
-    return { ...res, isNeural: false };
+    const res = role === 'attacker' ? attackerMathAnalysis : defenderMathAnalysis;
+    return { 
+      ...res, 
+      attackerMathScore: attackerMathAnalysis.totalScore,
+      defenderMathScore: defenderMathAnalysis.totalScore,
+      isNeural: false 
+    };
   }
 }
 

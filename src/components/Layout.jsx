@@ -505,9 +505,15 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
   const [selectedCell, setSelectedCell] = useState(null);
   const [selectedPaletteBlock, setSelectedPaletteBlock] = useState(null);
   const [showLaserBeam, setShowLaserBeam] = useState(false);
-  const [showHeatmap, setShowHeatmap] = useState(true);
-  const [showGhostRays, setShowGhostRays] = useState(true);
-  const [showPieceThreats, setShowPieceThreats] = useState(true);
+  
+  const [engineType, setEngineType] = useState('math'); // 'math', 'neural', or 'comparison'
+  
+  const showHeatmap = engineType === 'math' || engineType === 'comparison';
+  const showGhostRays = engineType === 'math';
+  const showPieceThreats = engineType === 'math';
+  const showQHeatmap = engineType === 'neural' || engineType === 'comparison';
+
+  const [qHeatmapData, setQHeatmapData] = useState(null);
   const [highlightedCell, setHighlightedCell] = useState(null);
 
   const challengeRecommendation = React.useMemo(() => {
@@ -517,11 +523,32 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
     return getChallengeRecommendation(game.capturedPieces || [], game.round, game.actionPoints, attackerScore, defenderScore, game.set);
   }, [game.capturedPieces, game.round, game.actionPoints, game.scores, game.roleRed, game.set, analysisMode]);
 
-  const [engineType, setEngineType] = useState('math'); // 'math' or 'neural'
   const [boardAnalysis, setBoardAnalysis] = useState(null);
   const [moveClassification, setMoveClassification] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [neuralThreatMap, setNeuralThreatMap] = useState(null);
+
+  useEffect(() => {
+    if (!showQHeatmap) {
+      setQHeatmapData(null);
+      return;
+    }
+    let isMounted = true;
+    const fetchQHeatmap = async () => {
+      const currentGameState = {
+        roleRed, roleBlue, turnPlayer,
+        scores: game.scores, actionPoints: game.actionPoints, round: game.round, set: game.set, capturedPieces: game.capturedPieces
+      };
+      
+      const { generateQValueHeatmapAsync } = await import('../core/NeuralBot.js');
+      const botRole = turnPlayer; // Evaluate from the perspective of the current turn player
+      const heatmap = await generateQValueHeatmapAsync(board, botRole, game.actionPoints, currentGameState);
+      
+      if (isMounted) setQHeatmapData(heatmap);
+    };
+    fetchQHeatmap();
+    return () => { isMounted = false; };
+  }, [board, showQHeatmap, turnPlayer, roleRed, roleBlue, game.scores, game.actionPoints, game.round, game.set, game.capturedPieces]);
 
   useEffect(() => {
     if (!analysisMode) {
@@ -1320,11 +1347,9 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
             engineLines={engineLines}
             pieceThreats={pieceThreats}
             showHeatmap={showHeatmap}
-            setShowHeatmap={setShowHeatmap}
             showGhostRays={showGhostRays}
-            setShowGhostRays={setShowGhostRays}
             showPieceThreats={showPieceThreats}
-            setShowPieceThreats={setShowPieceThreats}
+            showQHeatmap={showQHeatmap}
             startOfTurnThreats={startOfTurnThreats}
             onClose={() => setAnalysisMode(false)}
             reviewIndex={reviewIndex}
@@ -1332,6 +1357,7 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
             stepBackward={stepBackward}
             moveClassification={moveClassification}
             maxHistoryIndex={game.history.past.length - 1}
+            phase={reviewIndex !== null && game.history.past[reviewIndex] ? game.history.past[reviewIndex].phase : phase}
             onHighlightMove={(r, c) => {
               if (highlightedCell && highlightedCell.r === r && highlightedCell.c === c) {
                 setHighlightedCell(null); // toggle off
@@ -1499,6 +1525,8 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
           showLaserBeam={showLaserBeam}
           threatMap={showHeatmap ? activeThreatMap : null}
           possibilityWeb={showGhostRays ? game.possibilityWeb : null}
+          engineType={engineType}
+          qHeatmapData={showQHeatmap ? qHeatmapData : null}
           highlightedCell={highlightedCell}
           tutorialHighlight={tutorialStep?.highlight}
           tutorialHighlights={tutorialStep?.highlights}
