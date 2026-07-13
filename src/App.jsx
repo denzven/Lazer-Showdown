@@ -3,6 +3,7 @@ import { useNetwork } from './hooks/useNetwork';
 import { useGame } from './hooks/useGame';
 import ConnectionScreen from './components/Lobby/ConnectionScreen';
 import Layout from './components/Layout';
+import TutorialLayout from './components/TutorialLayout';
 import { Globe, Users, Cpu, ChevronDown, Share2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import './index.css';
@@ -135,7 +136,7 @@ function App() {
     sendPayload: () => {} // No-op locally
   };
 
-  const activeNetwork = mode === 'local' 
+  const activeNetwork = mode === 'local' || mode === 'tutorial'
     ? mockLocalNetwork 
     : mode === 'bot' 
       ? mockBotNetwork 
@@ -147,13 +148,17 @@ function App() {
 
   const game = useGame(activeNetwork, mode, difficulty, selectedBoardData);
 
-  // Show grid if connected in online, local, or bot mode
-  const showGameLayout = mode === 'local' || mode === 'bot' || (mode === 'online' && network.status === 'connected');
+  // Show grid if connected in online, local, bot, or tutorial mode
+  const showGameLayout = mode === 'local' || mode === 'bot' || mode === 'tutorial' || (mode === 'online' && network.status === 'connected');
 
   return (
     <>
       {showGameLayout ? (
-        <Layout network={activeNetwork} game={game} mode={mode} difficulty={difficulty} />
+        mode === 'tutorial' ? (
+          <TutorialLayout network={activeNetwork} originalGame={game} onExit={() => setMode('how-to-play')} />
+        ) : (
+          <Layout network={activeNetwork} game={game} mode={mode} difficulty={difficulty} />
+        )
       ) : mode === 'online' ? (
         <ConnectionScreen network={network} game={game} onBack={() => setMode('mode-select')} />
       ) : mode === 'setup-bot' ? (
@@ -218,7 +223,7 @@ function App() {
               <button className="cyber-button" onClick={() => setMode('rules')} style={{ padding: '16px', fontSize: '1rem', width: '100%' }}>
                 RULES OF ENGAGEMENT
               </button>
-              <button className="cyber-button" onClick={() => setMode('tutorial')} style={{ padding: '16px', fontSize: '1rem', width: '100%' }}>
+              <button className="cyber-button" onClick={() => { game.clearWorkspace(); setMode('tutorial'); }} style={{ padding: '16px', fontSize: '1rem', width: '100%' }}>
                 INTERACTIVE TUTORIAL
               </button>
               <button className="cyber-button" onClick={() => setMode('video-guide')} style={{ padding: '16px', fontSize: '1rem', width: '100%' }}>
@@ -248,20 +253,6 @@ function App() {
               >
                 {RULES_MARKDOWN}
               </ReactMarkdown>
-            </div>
-            <button className="cyber-button" onClick={() => setMode('how-to-play')} style={{ width: '100%', padding: '12px', flexShrink: 0 }}>
-              BACK
-            </button>
-          </div>
-        </div>
-      ) : mode === 'tutorial' ? (
-        <div className="lobby-container">
-          <div className="lobby-box glass-panel" style={{ maxWidth: '600px', padding: '40px 30px', textAlign: 'center', display: 'flex', flexDirection: 'column' }}>
-            <h1 className="lobby-title font-display" style={{ fontSize: '2rem', margin: '0 0 20px 0' }}>
-              INTERACTIVE TUTORIAL
-            </h1>
-            <div style={{ margin: '40px 0', color: 'var(--text-secondary)' }}>
-              <p>The interactive tutorial is currently under construction.</p>
             </div>
             <button className="cyber-button" onClick={() => setMode('how-to-play')} style={{ width: '100%', padding: '12px', flexShrink: 0 }}>
               BACK

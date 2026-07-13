@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import {
   getInitialState,
   applySandboxAction
@@ -6,8 +6,18 @@ import {
 import { getBotSetupAction, getBotPlayAction, generateThreatMap, getBoardAnalysis, generatePossibilityWeb } from '../core/BotEngine';
 
 export function useGame(network, mode, difficulty, customBoardData = null) {
-  const [gameState, setGameState] = useState(() => getInitialState(customBoardData));
+  const [gameState, setGameState] = useState(() => getInitialState(customBoardData, mode));
   const [history, setHistory] = useState({ past: [], future: [] });
+
+  // Reset when mode changes
+  useEffect(() => {
+    setGameState(getInitialState(customBoardData, mode));
+    setHistory({ past: [], future: [] });
+    botChallengeAttempted.current = false;
+  }, [mode, customBoardData]);
+
+  // Track whether the bot has already attempted a challenge this set (tutorial only)
+  const botChallengeAttempted = useRef(false);
 
   const [analysisMode, setAnalysisMode] = useState(false);
   const [analysisData, setAnalysisData] = useState(null);
@@ -112,7 +122,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
 
     setGameState((curr) => {
       // Determine the acting player based on the active phase
-      const actor = (mode === 'local' || mode === 'bot') 
+      const actor = (mode === 'local' || mode === 'bot' || mode === 'tutorial') 
         ? (action.player || (() => {
             if (curr.phase === 'toss') {
               const redNeedsToAct = curr.tossRolls.red === null || curr.tossRolls.red === 'rolling';
@@ -200,9 +210,8 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
     });
   }, [status, role, sendPayload, mode]);
 
-  // 3. Computer Opponent Bot turn loop (Official Ruleset Sequence)
   useEffect(() => {
-    if (mode !== 'bot' || gameState.winner) return;
+    if ((mode !== 'bot' && mode !== 'tutorial') || gameState.winner) return;
 
     const botPlayer = 'blue';
     const isBotAttacker = gameState.roleBlue === 'attacker';
@@ -213,7 +222,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
       const timer = setTimeout(() => {
         const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer, difficulty);
         if (action) executeAction({ ...action, player: botPlayer });
-      }, 1000);
+      }, 2500);
       return () => clearTimeout(timer);
     }
 
@@ -221,7 +230,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
       const timer = setTimeout(() => {
         const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer, difficulty);
         if (action) executeAction({ ...action, player: botPlayer });
-      }, 1000);
+      }, 2500);
       return () => clearTimeout(timer);
     }
 
@@ -229,7 +238,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
       const timer = setTimeout(() => {
         const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer, difficulty, gameState.challengedPiece);
         if (action) executeAction({ ...action, player: botPlayer });
-      }, 1000);
+      }, 2500);
       return () => clearTimeout(timer);
     }
 
@@ -249,7 +258,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
             const v2 = Math.floor(Math.random() * 6) + 1;
             executeAction({ type: 'end-roll', values: [v1, v2], player: botPlayer });
           }, 600);
-        }, 1000);
+        }, 2500);
         return () => clearTimeout(timer);
       }
 
@@ -264,7 +273,15 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
             // End turn if no useful moves are found or safe
             executeAction({ type: 'end-turn', player: botPlayer });
           }
-        }, 900); // Step delay
+        }, 3000); // Step delay increased to allow reading text
+        return () => clearTimeout(timer);
+      }
+
+      // Step 3: End turn if no AP left
+      if (gameState.hasRolledDice && gameState.actionPoints === 0 && !gameState.dice.isRolling) {
+        const timer = setTimeout(() => {
+          executeAction({ type: 'end-turn', player: botPlayer });
+        }, 3000);
         return () => clearTimeout(timer);
       }
     }
@@ -272,6 +289,20 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
     // C. Challenge Declaration
     if (gameState.phase === 'challenge-declaration' && isBotAttacker) {
       const timer = setTimeout(() => {
+        // In tutorial mode, bot only challenges once — if it lost the toss it just ends the set
+        if (mode === 'tutorial') {
+          if (!botChallengeAttempted.current) {
+            botChallengeAttempted.current = true;
+            const captured = gameState.capturedPieces || [];
+            const target = captured.includes('block-50') ? 'block-50' : captured.includes('block-30') ? 'block-30' : (captured[0] || 'block-50');
+            executeAction({ type: 'declare-challenge', declare: true, pieceType: target, player: botPlayer });
+          } else {
+            // Already tried once — end the set
+            executeAction({ type: 'declare-challenge', declare: false, player: botPlayer });
+          }
+          return;
+        }
+
         const roll = Math.random();
         let declare = true;
 
@@ -317,7 +348,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
         const timer = setTimeout(() => {
           executeAction({ type: 'challenge-start-roll', player: botPlayer });
           setTimeout(() => {
-            const blueVal = Math.floor(Math.random() * 6) + 1;
+            const blueVal = mode === 'tutorial' ? (Math.random() < 0.8 ? 1 : 2) : (Math.floor(Math.random() * 6) + 1);
             executeAction({ type: 'challenge-roll', value: blueVal, player: botPlayer });
           }, 600);
         }, 1000);
@@ -332,7 +363,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
         const timer = setTimeout(() => {
           executeAction({ type: 'toss-start-roll', player: botPlayer });
           setTimeout(() => {
-            const blueVal = Math.floor(Math.random() * 6) + 1;
+            const blueVal = mode === 'tutorial' ? (Math.random() < 0.8 ? 1 : 2) : (Math.floor(Math.random() * 6) + 1);
             executeAction({ type: 'toss-roll', value: blueVal, player: botPlayer });
           }, 600);
         }, 1000);
@@ -376,11 +407,12 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
     if (gameState.dice.isRolling) return;
     executeAction({ type: 'start-roll' });
     setTimeout(() => {
-      const v1 = Math.floor(Math.random() * 6) + 1;
-      const v2 = Math.floor(Math.random() * 6) + 1;
+      let v1 = Math.floor(Math.random() * 6) + 1;
+      let v2 = Math.floor(Math.random() * 6) + 1;
+      
       executeAction({ type: 'end-roll', values: [v1, v2] });
     }, 600);
-  }, [executeAction, gameState.dice.isRolling]);
+  }, [executeAction, gameState.dice.isRolling, mode]);
 
   // Backwards-compatible helper shortcuts for Layout.jsx and Grid.jsx
   const placeBlock = useCallback((type, r, c, rotation = 0) => {
@@ -395,9 +427,18 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
     executeAction({ type: 'rotate', r, c, dir });
   }, [executeAction]);
 
-  // NEW: handle automatic resolution of toss results
+  // NEW: handle automatic state transitions
   useEffect(() => {
     if (status === 'connected' && role !== 'red') return; // Only host or local drives state transitions
+
+    // Auto-end turn when AP reaches 0
+    if (gameState.phase === 'playing' && gameState.hasRolledDice && gameState.actionPoints === 0 && !gameState.dice.isRolling) {
+      // If it's the bot's turn, the bot loop handles it faster, but this acts as a fallback or for human players
+      const timer = setTimeout(() => {
+        executeAction({ type: 'end-turn' });
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
 
     if (gameState.phase === 'toss-result') {
       const timer = setTimeout(() => {
@@ -433,10 +474,13 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
   const rollToss = useCallback(() => {
     executeAction({ type: 'toss-start-roll' });
     setTimeout(() => {
-      const val = Math.floor(Math.random() * 6) + 1;
+      let val = Math.floor(Math.random() * 6) + 1;
+      if (mode === 'tutorial' && window.__TUTORIAL_TOSS__) {
+        val = window.__TUTORIAL_TOSS__[0];
+      }
       executeAction({ type: 'toss-roll', value: val });
     }, 600);
-  }, [executeAction]);
+  }, [executeAction, mode]);
 
   const selectRole = useCallback((selectedRole) => {
     executeAction({ type: 'toss-select-role', role: selectedRole });
@@ -445,10 +489,11 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
   const rollChallengeToss = useCallback(() => {
     executeAction({ type: 'challenge-start-roll' });
     setTimeout(() => {
-      const val = Math.floor(Math.random() * 6) + 1;
-      executeAction({ type: 'challenge-roll', value: val });
+      // In tutorial mode, bias the player toward winning the challenge toss
+      let v = mode === 'tutorial' ? (Math.random() < 0.8 ? 6 : 5) : (Math.floor(Math.random() * 6) + 1);
+      executeAction({ type: 'challenge-roll', value: v });
     }, 600);
-  }, [executeAction]);
+  }, [executeAction, mode]);
 
   const declareChallenge = useCallback((declare, pieceType) => {
     executeAction({ type: 'declare-challenge', declare, pieceType });

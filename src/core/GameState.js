@@ -111,12 +111,14 @@ export function applySandboxAction(board, action, player, context = {}) {
   let nextTurnPlayer = turnPlayer;
   let nextActionPoints = actionPoints;
   let nextHasRolledDice = hasRolledDice;
+  let lazerHitMessage = null;
   let nextScores = scores;
   let nextCapturedPieces = capturedPieces;
   let nextChallengeActive = challengeActive;
   let nextChallengedPiece = challengedPiece;
   let nextTossRolls = context.tossRolls ? { ...context.tossRolls } : { red: null, blue: null };
   let nextTossWinner = context.tossWinner || null;
+  let nextWinner = context.winner || null;
   let nextChallengeTossRolls = context.challengeTossRolls ? { ...context.challengeTossRolls } : { red: null, blue: null };
   let nextDice = context.dice ? { ...context.dice } : { values: [1, 1], isRolling: false, lastRoller: null };
   let nextTurnStats = context.turnStats ? JSON.parse(JSON.stringify(context.turnStats)) : { lazerMove: 0, lazerRotate: 0, lazerFire: 0, pieceMove: 0, pieceMoveBreakdown: { 'block-20': 0, 'block-30': 0, 'block-50': 0 }, wastedAP: 0 };
@@ -434,8 +436,38 @@ export function applySandboxAction(board, action, player, context = {}) {
 
       nextScores[attackerPlayer] += pts;
       logsList.push(`Laser captured ${capturedType.split('-')[1]} point piece at (${hit.r}, ${hit.c})! (+${pts} pts)`);
+      
+      const bounceCount = trace.path.filter(p => p.type === 'mirror-bounce').length;
+      const points = capturedType.split('-')[1];
+      
+      if (points === '50') {
+        if (bounceCount > 0) {
+          lazerHitMessage = `Incredible calculation! You bounced the beam off ${bounceCount} mirror(s) to vaporize their highest value **50-point piece**! The Treaty of 3042 would be proud.`;
+        } else {
+          lazerHitMessage = `Direct hit on their Commander! The **50-point piece** has been neutralized. A devastating tactical strike!`;
+        }
+      } else if (points === '30') {
+        if (bounceCount > 0) {
+          lazerHitMessage = `Geometry wins! The beam ricocheted off ${bounceCount} mirror(s) and destroyed the **30-point piece**!`;
+        } else {
+          lazerHitMessage = `A solid strike! The **30-point piece** was destroyed in a flash of light.`;
+        }
+      } else if (points === '20') {
+        if (bounceCount > 0) {
+          lazerHitMessage = `A tricky shot, bouncing off ${bounceCount} mirror(s) just to snipe the **20-point piece**! Excellent work.`;
+        } else {
+          lazerHitMessage = `You caught the **20-point piece**! A clean and simple execution.`;
+        }
+      } else {
+        if (bounceCount > 0) {
+          lazerHitMessage = `Brilliant shot! You bounced the beam off ${bounceCount} mirror(s) to hit the **${points}-point piece**!`;
+        } else {
+          lazerHitMessage = `Direct hit on the **${points}-point piece**! A straightforward and brutal tactical strike.`;
+        }
+      }
     } else {
       logsList.push('Laser fired but missed.');
+      lazerHitMessage = `Missed! The beam dissipated into the void of space. Recalculate your trajectory!`;
     }
 
     nextActionPoints -= 1;
@@ -592,6 +624,12 @@ export function applySandboxAction(board, action, player, context = {}) {
     return getInitialState(boardDataToUse);
   }
 
+  else if (type === 'tutorial-victory') {
+    nextPhase = 'game-over';
+    nextWinner = 'red';
+    logsList.push('Simulation complete! You successfully captured a point piece.');
+  }
+
   const sideEffects = evaluateBoardState(nextBoard, action, actor, context);
 
   return {
@@ -605,6 +643,7 @@ export function applySandboxAction(board, action, player, context = {}) {
     actionPoints: nextActionPoints,
     hasRolledDice: nextHasRolledDice,
     scores: nextScores,
+    winner: nextWinner,
     capturedPieces: nextCapturedPieces,
     challengeActive: nextChallengeActive,
     challengedPiece: nextChallengedPiece,
@@ -613,16 +652,21 @@ export function applySandboxAction(board, action, player, context = {}) {
     challengeTossRolls: nextChallengeTossRolls,
     dice: nextDice,
     turnStats: nextTurnStats,
-    customData: sideEffects.customData,
+    customData: {
+      ...sideEffects.customData,
+      lazerHitMessage: lazerHitMessage || (sideEffects.customData ? sideEffects.customData.lazerHitMessage : null)
+    },
     customBoardData: nextCustomBoardData,
     logs: logsList,
     error: null
   };
 }
 
-export function getInitialState(customBoardData = null) {
+export function getInitialState(customBoardData = null, mode = null) {
   const emptyBoard = getInitialBoard(customBoardData);
   const initialSideEffects = evaluateBoardState(emptyBoard, null, 'system');
+
+
 
   return {
     board: emptyBoard,

@@ -47,14 +47,18 @@ export default function Cell({
 
     let borderColor = block.player === 'red' ? '#ff2a85' : '#00f0ff';
     let borderGlow = block.player === 'red' ? 'rgba(255, 42, 133, 0.5)' : 'rgba(0, 240, 255, 0.5)';
-    let opacity = 1;
+    let opacity = block.isGhost ? 0.4 : 1;
     let badge = null;
+
+    if (block.isGhost) {
+      borderGlow = block.player === 'red' ? 'rgba(255, 42, 133, 1)' : 'rgba(0, 240, 255, 1)';
+    }
 
     return { coreColor, borderColor, borderGlow, text, opacity, badge };
   };
 
   const handleDragStart = (e) => {
-    if (!block || block.type === 'mirror') {
+    if (!block || block.type === 'mirror' || block.isGhost) {
       e.preventDefault();
       return;
     }
@@ -169,7 +173,7 @@ export default function Cell({
 
   return (
     <div
-      className={`board-cell ${isEven ? 'cell-even' : 'cell-odd'} ${isSelected ? 'selected' : ''} ${isDragOver ? 'drag-over' : ''}`}
+      className={`board-cell ${isEven ? 'cell-even' : 'cell-odd'} ${isSelected ? 'selected' : ''} ${isDragOver ? 'drag-over' : ''} ${isHighlighted ? 'highlighted' : ''}`}
       onClick={onClick}
       onDragOver={(e) => {
         e.preventDefault();
@@ -178,7 +182,7 @@ export default function Cell({
       onDragEnter={handleDragEnter}
       onDragLeave={handleDragLeave}
       onDrop={handleLocalDrop}
-      draggable={!!block && block.type !== 'mirror'}
+      draggable={!!block && block.type !== 'mirror' && !block.isGhost}
       onDragStart={handleDragStart}
     >
       {renderBlockSvg()}

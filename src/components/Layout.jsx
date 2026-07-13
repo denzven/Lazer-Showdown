@@ -6,7 +6,227 @@ import { BLOCK_TYPES, PLAYERS, getReachableCells } from '../core/Ruleset';
 import { getPieceThreatLevels, getBoardAnalysis, classifyMove, getChallengeRecommendation } from '../core/BotStrategies';
 import { getBoardAnalysisAsync, getBotEngineLinesAsync } from '../core/BotEngine';
 
-export default function Layout({ network, game, mode, difficulty }) {
+const GlitchTypewriter = ({ text, speed = 25 }) => {
+  const [revealedCount, setRevealedCount] = useState(0);
+
+  const tokens = React.useMemo(() => {
+    let totalLen = 0;
+    return text.split('**').map((part, index) => {
+      const start = totalLen;
+      totalLen += part.length;
+      
+      const gibberish = Array.from(part).map(char => {
+        if (char === ' ' || char === '\n') return char;
+        const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+        return chars[Math.floor(Math.random() * chars.length)];
+      }).join('');
+      
+      return { text: part, gibberish, highlight: index % 2 === 1, start, length: part.length };
+    });
+  }, [text]);
+
+  const totalChars = React.useMemo(() => tokens.reduce((acc, t) => acc + t.length, 0), [tokens]);
+
+  useEffect(() => {
+    setRevealedCount(0);
+    let current = 0;
+    const interval = setInterval(() => {
+      if (current < totalChars) {
+        const jump = Math.floor(Math.random() * 3) + 4; // 4, 5, or 6
+        current = Math.min(current + jump, totalChars);
+        setRevealedCount(current);
+      } else {
+        clearInterval(interval);
+      }
+    }, speed);
+    return () => clearInterval(interval);
+  }, [totalChars, speed]);
+
+  return (
+    <span style={{ fontFamily: 'monospace' }}>
+      {tokens.map((token, tokenIdx) => {
+        let content = [];
+        for (let i = 0; i < token.length; i++) {
+          const globalIdx = token.start + i;
+          if (globalIdx < revealedCount) {
+            content.push(token.text[i]);
+          } else if (globalIdx === revealedCount) {
+            content.push('_'); // cursor
+          } else {
+            content.push(token.gibberish[i]);
+          }
+        }
+        
+        if (content.length === 0) return null;
+        
+        const rendered = content.join('');
+        return (
+          <span 
+            key={tokenIdx} 
+            style={token.highlight ? { 
+              color: 'var(--neon-blue)', 
+              fontWeight: 'bold', 
+              textShadow: '0 0 8px rgba(0, 240, 255, 0.8)',
+              letterSpacing: '1px'
+            } : {
+              opacity: 0.9
+            }}
+          >
+            {rendered}
+          </span>
+        );
+      })}
+    </span>
+  );
+};
+
+// ── TutorialDrawer ────────────────────────────────────────────────────────────
+// Collapses to a slim tab so it never blocks gameplay. Auto-expands when
+// the message changes, then the player can collapse it manually.
+const TutorialDrawer = ({ tutorialStep, tutorialError, onTutorialNext }) => {
+  const [isOpen, setIsOpen] = useState(true);
+  const prevInstruction = React.useRef('');
+
+  // Auto-open whenever the instruction changes
+  useEffect(() => {
+    if (tutorialStep?.instruction && tutorialStep.instruction !== prevInstruction.current) {
+      prevInstruction.current = tutorialStep.instruction;
+      setIsOpen(true);
+    }
+  }, [tutorialStep?.instruction]);
+
+  if (!tutorialStep) return null;
+
+  return (
+    <div style={{
+      position: 'fixed',
+      bottom: 0,
+      left: 0,
+      right: 0,
+      zIndex: 1000,
+      pointerEvents: 'none', // let clicks pass through except on the drawer itself
+    }}>
+      <div
+        style={{
+          margin: '0 auto',
+          maxWidth: '600px',
+          pointerEvents: 'all',
+          background: 'rgba(4, 8, 18, 0.97)',
+          borderTop: '2px solid var(--neon-blue)',
+          borderLeft: '1px solid rgba(0,240,255,0.2)',
+          borderRight: '1px solid rgba(0,240,255,0.2)',
+          borderRadius: '12px 12px 0 0',
+          boxShadow: '0 -4px 24px rgba(0,240,255,0.15), 0 -2px 48px rgba(0,0,0,0.8)',
+          overflow: 'hidden',
+          transition: 'max-height 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
+          maxHeight: isOpen ? '320px' : '48px',
+        }}
+      >
+        {/* ── Tab Handle ── */}
+        <div
+          onClick={() => setIsOpen(o => !o)}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '0 16px',
+            height: '48px',
+            cursor: 'pointer',
+            userSelect: 'none',
+            background: isOpen ? 'rgba(0,240,255,0.06)' : 'transparent',
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            {/* Avatar dot */}
+            <div style={{
+              width: '28px', height: '28px', borderRadius: '50%',
+              background: 'linear-gradient(135deg, #0f2027, #2c5364)',
+              border: '1.5px solid var(--neon-blue)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: 'var(--neon-blue)', fontSize: '0.8rem', fontWeight: 'bold',
+              boxShadow: '0 0 6px var(--neon-blue)',
+              flexShrink: 0,
+            }}>Z</div>
+            <span style={{
+              color: 'var(--neon-blue)', fontWeight: 'bold',
+              fontSize: '0.7rem', letterSpacing: '1.5px', textTransform: 'uppercase'
+            }}>
+              CMDR ZLOROOKLP
+            </span>
+            {/* Pulsing dot when closed to signal new message */}
+            {!isOpen && (
+              <span style={{
+                width: '7px', height: '7px', borderRadius: '50%',
+                background: 'var(--neon-blue)',
+                display: 'inline-block',
+                animation: 'afkPulse 1s infinite',
+                boxShadow: '0 0 6px var(--neon-blue)',
+              }} />
+            )}
+          </div>
+          {/* Chevron */}
+          <span style={{
+            color: 'var(--neon-blue)', fontSize: '1rem',
+            transition: 'transform 0.3s',
+            transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)',
+            lineHeight: 1,
+          }}>▲</span>
+        </div>
+
+        {/* ── Expanded content ── */}
+        <div style={{
+          padding: '0 16px 16px',
+          opacity: isOpen ? 1 : 0,
+          transition: 'opacity 0.2s',
+          overflowY: 'auto',
+          maxHeight: '260px',
+        }}>
+          {/* Title */}
+          <div style={{
+            color: 'var(--neon-blue)', fontWeight: 'bold',
+            fontSize: '1rem', letterSpacing: '0.5px',
+            marginBottom: '8px',
+            textShadow: '0 0 8px rgba(0,240,255,0.5)',
+          }}>
+            {tutorialStep.title}
+          </div>
+
+          {/* Message with glitch decode */}
+          <div style={{
+            color: 'var(--text-primary)', fontSize: '0.88rem',
+            lineHeight: '1.5', fontFamily: 'monospace',
+          }}>
+            <GlitchTypewriter text={tutorialStep.instruction} speed={80} />
+          </div>
+
+          {/* Error */}
+          {tutorialError && (
+            <div style={{
+              color: 'var(--neon-red)', fontSize: '0.82rem',
+              fontWeight: 'bold', marginTop: '8px',
+              animation: 'pulse 1s infinite',
+            }}>
+              {tutorialError}
+            </div>
+          )}
+
+          {/* Proceed button */}
+          {tutorialStep?.expectedAction?.type === 'next' && (
+            <button
+              className="cyber-button"
+              onClick={onTutorialNext}
+              style={{ marginTop: '12px', padding: '8px 20px', fontSize: '0.85rem', animation: 'afkPulse 1s infinite', width: '100%' }}
+            >
+              PROCEED
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default function Layout({ network, game, mode, difficulty, tutorialStep, tutorialError, onExitTutorial, onTutorialNext }) {
   const { status, role, playerName, opponentName, disconnect } = network;
   const {
     board,
@@ -297,10 +517,10 @@ export default function Layout({ network, game, mode, difficulty }) {
       ? (roleRed === 'attacker' ? 'red' : 'blue')
       : (roleRed === turnPlayer ? 'red' : 'blue');
 
-  const isLocalTurn = (mode === 'local') 
-    ? true 
-    : (mode === 'bot' && activePlayerColor === 'red')
-      ? true
+  const isLocalTurn = mode === 'local'
+    ? true
+    : (mode === 'tutorial' || mode === 'bot')
+      ? activePlayerColor === 'red'  // player is always RED; bot is BLUE
       : (mode === 'online' && role === activePlayerColor);
 
   const renderSetupBanner = () => {
@@ -342,7 +562,7 @@ export default function Layout({ network, game, mode, difficulty }) {
           canRoll = tossRolls.red === null || (isRedRolled && tossRolls.blue === null);
           btnText = tossRolls.red === null ? 'RED: ROLL DICE' : 'BLUE: ROLL DICE';
           btnClass = tossRolls.red === null ? 'red' : 'blue';
-        } else if (mode === 'bot') {
+        } else if (mode === 'bot' || mode === 'tutorial') {
           canRoll = tossRolls.red === null;
           btnText = 'ROLL DICE';
           btnClass = 'red';
@@ -377,7 +597,15 @@ export default function Layout({ network, game, mode, difficulty }) {
             </div>
 
             {canRoll && (
-              <button className={`cyber-button ${btnClass}`} onClick={rollToss} style={{ width: '100%', marginBottom: (phase === 'toss' && tossRolls.red === null && tossRolls.blue === null) ? '10px' : '0' }}>
+              <button 
+                className={`cyber-button ${btnClass}`} 
+                onClick={rollToss} 
+                style={{ 
+                  width: '100%', 
+                  marginBottom: (phase === 'toss' && tossRolls.red === null && tossRolls.blue === null) ? '10px' : '0',
+                  animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'roll-toss' ? 'afkPulse 1s infinite' : 'none',
+                  boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'roll-toss' ? '0 0 15px var(--neon-blue)' : undefined
+                }}>
                 {btnText}
               </button>
             )}
@@ -386,7 +614,7 @@ export default function Layout({ network, game, mode, difficulty }) {
                 BACK
               </button>
             )}
-            {!canRoll && phase === 'toss' && mode !== 'local' && (
+            {!canRoll && phase === 'toss' && mode === 'online' && (
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                 Waiting for opponent to roll...
               </p>
@@ -410,7 +638,7 @@ export default function Layout({ network, game, mode, difficulty }) {
     if (phase === 'role-selection') {
       const isTossWinnerLocal = (mode === 'local')
         ? true
-        : (mode === 'bot' ? (tossWinner === 'red') : (tossWinner === role));
+        : ((mode === 'bot' || mode === 'tutorial') ? (tossWinner === 'red') : (tossWinner === role));
 
       return (
         <div className="modal-overlay">
@@ -422,10 +650,26 @@ export default function Layout({ network, game, mode, difficulty }) {
 
             {isTossWinnerLocal ? (
               <div style={{ display: 'flex', gap: '16px', marginTop: '20px', width: '100%' }}>
-                <button className="cyber-button red" onClick={() => selectRole('attacker')} style={{ flex: 1 }}>
+                <button 
+                  className="cyber-button red" 
+                  onClick={() => selectRole('attacker')} 
+                  style={{ 
+                    flex: 1,
+                    animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'select-role' ? 'afkPulse 1s infinite' : 'none',
+                    boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'select-role' ? '0 0 15px var(--neon-red)' : undefined
+                  }}
+                >
                   ATTACKER
                 </button>
-                <button className="cyber-button blue" onClick={() => selectRole('defender')} style={{ flex: 1 }}>
+                <button 
+                  className="cyber-button blue" 
+                  onClick={() => selectRole('defender')} 
+                  style={{ 
+                    flex: 1,
+                    animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'select-role' ? 'afkPulse 1s infinite' : 'none',
+                    boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'select-role' ? '0 0 15px var(--neon-blue)' : undefined
+                  }}
+                >
                   DEFENDER
                 </button>
               </div>
@@ -497,7 +741,7 @@ export default function Layout({ network, game, mode, difficulty }) {
           canRoll = challengeTossRolls.red === null || (isRedRolled && challengeTossRolls.blue === null);
           btnText = challengeTossRolls.red === null ? 'RED: ROLL DICE' : 'BLUE: ROLL DICE';
           btnClass = challengeTossRolls.red === null ? 'red' : 'blue';
-        } else if (mode === 'bot') {
+        } else if (mode === 'bot' || mode === 'tutorial') {
           canRoll = challengeTossRolls.red === null;
           btnText = 'ROLL DICE';
           btnClass = 'red';
@@ -536,7 +780,7 @@ export default function Layout({ network, game, mode, difficulty }) {
                 {btnText}
               </button>
             )}
-            {!canRoll && phase === 'challenge-toss' && mode !== 'local' && (
+            {!canRoll && phase === 'challenge-toss' && mode === 'online' && (
               <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
                 Waiting for opponent to roll...
               </p>
@@ -607,6 +851,18 @@ export default function Layout({ network, game, mode, difficulty }) {
               <button className="cyber-button" onClick={clearWorkspace} style={{ flex: 1, borderColor: 'var(--neon-blue)', color: 'var(--neon-blue)' }}>
                 PLAY AGAIN
               </button>
+              <button 
+                className="cyber-button" 
+                onClick={onExitTutorial || disconnect} 
+                style={{ 
+                  flex: 1,
+                  animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'leave-game' ? 'afkPulse 1.2s infinite' : 'none',
+                  border: mode === 'tutorial' && tutorialStep?.highlightButton === 'leave-game' ? '2px solid var(--neon-blue)' : undefined,
+                  boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'leave-game' ? '0 0 15px var(--neon-blue)' : undefined
+                }}
+              >
+                LEAVE
+              </button>
             </div>
           </div>
         </div>
@@ -657,7 +913,12 @@ export default function Layout({ network, game, mode, difficulty }) {
                 className="cyber-button"
                 onClick={rollDice}
                 disabled={isRolling}
-                style={{ width: '100%', fontSize: '0.8rem', fontWeight: 'bold', letterSpacing: '0.05em', animation: 'afkPulse 1.2s infinite' }}
+                style={{ 
+                  width: '100%', fontSize: '0.8rem', fontWeight: 'bold', letterSpacing: '0.05em', 
+                  animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'roll-dice' ? 'afkPulse 1.2s infinite' : 'none',
+                  border: mode === 'tutorial' && tutorialStep?.highlightButton === 'roll-dice' ? '2px solid var(--neon-blue)' : undefined,
+                  boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'roll-dice' ? '0 0 15px var(--neon-blue)' : undefined
+                }}
               >
                 ROLL AP DICE
               </button>
@@ -675,7 +936,12 @@ export default function Layout({ network, game, mode, difficulty }) {
                 <button
                   className="cyber-button blue"
                   onClick={() => executeAction({ type: 'confirm-setup' })}
-                  style={{ width: '100%', fontSize: '0.8rem', fontWeight: 'bold' }}
+                  style={{ 
+                    width: '100%', fontSize: '0.8rem', fontWeight: 'bold',
+                    animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'confirm-defender' ? 'afkPulse 1.2s infinite' : 'none',
+                    border: mode === 'tutorial' && tutorialStep?.highlightButton === 'confirm-defender' ? '2px solid var(--neon-blue)' : undefined,
+                    boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'confirm-defender' ? '0 0 15px var(--neon-blue)' : undefined
+                  }}
                 >
                   CONFIRM POINT PLACEMENTS
                 </button>
@@ -707,7 +973,12 @@ export default function Layout({ network, game, mode, difficulty }) {
             <button
               className="cyber-button red"
               onClick={() => executeAction({ type: 'confirm-setup' })}
-              style={{ width: '100%', fontSize: '0.8rem', fontWeight: 'bold' }}
+              style={{ 
+                width: '100%', fontSize: '0.8rem', fontWeight: 'bold',
+                animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'confirm-attacker' ? 'afkPulse 1.2s infinite' : 'none',
+                border: mode === 'tutorial' && tutorialStep?.highlightButton === 'confirm-attacker' ? '2px solid var(--neon-red)' : undefined,
+                boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'confirm-attacker' ? '0 0 15px var(--neon-red)' : undefined
+              }}
             >
               CONFIRM LAZER PLACEMENT
             </button>
@@ -723,7 +994,12 @@ export default function Layout({ network, game, mode, difficulty }) {
                   className="cyber-button red"
                   onClick={() => executeAction({ type: 'laser-press' })}
                   disabled={actionPoints <= 0}
-                  style={{ width: '100%', fontSize: '0.8rem', fontWeight: 'bold' }}
+                  style={{ 
+                    width: '100%', fontSize: '0.8rem', fontWeight: 'bold',
+                    animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'fire-lazer' ? 'afkPulse 1.2s infinite' : 'none',
+                    border: mode === 'tutorial' && tutorialStep?.highlightButton === 'fire-lazer' ? '2px solid var(--neon-red)' : undefined,
+                    boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'fire-lazer' ? '0 0 15px var(--neon-red)' : undefined
+                  }}
                 >
                   PRESS LAZER
                 </button>
@@ -770,7 +1046,12 @@ export default function Layout({ network, game, mode, difficulty }) {
             <button
               className="cyber-button"
               onClick={endTurn}
-              style={{ width: '100%', fontSize: '0.8rem', marginTop: '10px', borderColor: 'var(--text-secondary)', color: 'var(--text-secondary)' }}
+              style={{ 
+                width: '100%', fontSize: '0.8rem', marginTop: '10px', borderColor: 'var(--text-secondary)', color: 'var(--text-secondary)',
+                animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'end-turn' ? 'afkPulse 1.2s infinite' : 'none',
+                border: mode === 'tutorial' && tutorialStep?.highlightButton === 'end-turn' ? '2px solid var(--neon-blue)' : undefined,
+                boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'end-turn' ? '0 0 15px var(--neon-blue)' : undefined
+              }}
             >
               END TURN
             </button>
@@ -788,8 +1069,13 @@ export default function Layout({ network, game, mode, difficulty }) {
 
           <button
             className="cyber-button"
-            onClick={disconnect}
-            style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}
+            onClick={onExitTutorial || disconnect}
+            style={{ 
+              display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+              animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'leave-game' ? 'afkPulse 1.2s infinite' : 'none',
+              border: mode === 'tutorial' && tutorialStep?.highlightButton === 'leave-game' ? '2px solid var(--neon-blue)' : undefined,
+              boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'leave-game' ? '0 0 15px var(--neon-blue)' : undefined
+            }}
           >
             <LogOut size={14} /> LEAVE
           </button>
@@ -945,8 +1231,26 @@ export default function Layout({ network, game, mode, difficulty }) {
           </div>
         )}
 
-        {/* Setup Banner prompts */}
-        {renderSetupBanner()}
+        {/* Full screen blur for intro step */}
+        {mode === 'tutorial' && tutorialStep && tutorialStep.blurBackground && (
+          <div style={{
+            position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+            backdropFilter: 'blur(8px)', backgroundColor: 'rgba(5, 10, 20, 0.7)',
+            zIndex: 999, pointerEvents: 'none'
+          }} />
+        )}
+
+        {/* Tutorial Drawer — collapsible, mobile-friendly */}
+        {mode === 'tutorial' && tutorialStep && (
+          <TutorialDrawer
+            tutorialStep={tutorialStep}
+            tutorialError={tutorialError}
+            onTutorialNext={onTutorialNext}
+          />
+        )}
+
+        {/* Regular Setup Banner (if not tutorial) */}
+        {mode !== 'tutorial' && renderSetupBanner()}
 
         {/* Board Grid */}
         <Grid
@@ -972,6 +1276,8 @@ export default function Layout({ network, game, mode, difficulty }) {
           threatMap={showHeatmap ? activeThreatMap : null}
           possibilityWeb={showGhostRays ? game.possibilityWeb : null}
           highlightedCell={highlightedCell}
+          tutorialHighlight={tutorialStep?.highlight}
+          tutorialHighlights={tutorialStep?.highlights}
         />
 
         <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
@@ -999,11 +1305,22 @@ export default function Layout({ network, game, mode, difficulty }) {
               ? 'Lazer Block'
               : `${blockType.split('-')[1]} Block`;
 
-            const activeStyle = isSelected ? {
+            const isTutorialTarget = mode === 'tutorial' && tutorialStep && tutorialStep.highlightPalette === blockType;
+
+            let activeStyle = isSelected ? {
               borderColor: color,
               boxShadow: `0 0 12px ${color}66`,
               background: 'rgba(255, 255, 255, 0.05)'
             } : {};
+
+            if (isTutorialTarget && !isSelected) {
+              activeStyle = {
+                ...activeStyle,
+                border: `2px solid ${color}`,
+                boxShadow: `0 0 15px ${color}, inset 0 0 10px ${color}`,
+                animation: 'afkPulse 1.5s infinite'
+              };
+            }
 
             return (
               <div
@@ -1068,7 +1385,7 @@ export default function Layout({ network, game, mode, difficulty }) {
       )}
 
       {/* Overlays (Toss, Challenge, Game Over) */}
-      {renderOverlay()}
+      {(!tutorialStep || tutorialStep.expectedAction?.type !== 'next') && renderOverlay()}
 
       {/* Error alert banner */}
       {error && (

@@ -23,7 +23,9 @@ export default function Grid({
   showLaserBeam = false,
   threatMap = null,
   possibilityWeb = null,
-  highlightedCell = null
+  highlightedCell = null,
+  tutorialHighlight = null,
+  tutorialHighlights = null
 }) {
   const handleCellClick = (r, c) => {
     // Disable interaction if it's not the local player's turn
@@ -227,16 +229,20 @@ export default function Grid({
           row.map((block, c) => {
             const isSelected = selectedCell && selectedCell.r === r && selectedCell.c === c;
             const reachableInfo = reachableCells.find(cell => cell.r === r && cell.c === c);
-            const isHighlighted = highlightedCell && highlightedCell.r === r && highlightedCell.c === c;
+            const isHighlighted = (highlightedCell && highlightedCell.r === r && highlightedCell.c === c) || 
+                                  (tutorialHighlight && tutorialHighlight.r === r && tutorialHighlight.c === c) ||
+                                  (tutorialHighlights && tutorialHighlights.some(h => h.r === r && h.c === c));
 
             const threatObj = threatMap ? threatMap[r][c] : null;
+
+            const displayBlock = block;
 
             return (
               <Cell
                 key={`${r}-${c}`}
                 r={r}
                 c={c}
-                block={block}
+                block={displayBlock}
                 isSelected={isSelected}
                 isHighlighted={isHighlighted}
                 onClick={() => handleCellClick(r, c)}
