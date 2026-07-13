@@ -80,6 +80,230 @@ const GlitchTypewriter = ({ text, speed = 25 }) => {
   );
 };
 
+// ── GameOverScreen ─────────────────────────────────────────────────────────────
+const GameOverScreen = ({ outcome, redScore, blueScore, playerName, opponentName, mode, game, history, tutorialStep, onReview, onPlayAgain, onLeave }) => {
+  const canvasRef = React.useRef(null);
+  const animRef = React.useRef(null);
+
+  const isWin = outcome === 'win';
+  const isDraw = outcome === 'draw';
+  const isLoss = outcome === 'loss';
+
+  const accentColor = isWin ? '#39ff14' : isDraw ? '#00f0ff' : '#ff003c';
+  const accentGlow = isWin ? 'rgba(57,255,20,0.4)' : isDraw ? 'rgba(0,240,255,0.4)' : 'rgba(255,0,60,0.4)';
+
+  const headline = isWin ? 'VICTORY' : isDraw ? 'DRAW' : 'DEFEAT';
+  const subline = isWin
+    ? 'The enemy has been annihilated!'
+    : isDraw
+    ? 'An honourable stalemate!'
+    : 'The Lazer has claimed your forces.';
+
+  // ── Canvas particle burst
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    canvas.width = canvas.offsetWidth;
+    canvas.height = canvas.offsetHeight;
+
+    const W = canvas.width;
+    const H = canvas.height;
+
+    const winColors = ['#39ff14', '#00f0ff', '#ffffff', '#aaff80', '#80ffee'];
+    const lossColors = ['#ff003c', '#ff6060', '#cc0022', '#ff80a0', '#550011'];
+    const drawColors = ['#00f0ff', '#ffffff', '#7f80ff', '#ff80ff'];
+    const palette = isWin ? winColors : isDraw ? drawColors : lossColors;
+
+    const particles = Array.from({ length: isWin ? 120 : isDraw ? 60 : 50 }, () => ({
+      x: W / 2 + (Math.random() - 0.5) * W * 0.6,
+      y: H * 0.4,
+      vx: (Math.random() - 0.5) * (isWin ? 8 : 4),
+      vy: -(Math.random() * (isWin ? 12 : 7) + 2),
+      size: Math.random() * (isWin ? 8 : 5) + 2,
+      color: palette[Math.floor(Math.random() * palette.length)],
+      alpha: 1,
+      spin: (Math.random() - 0.5) * 0.3,
+      shape: isLoss ? 'circle' : Math.random() > 0.5 ? 'rect' : 'circle',
+      decay: 0.008 + Math.random() * 0.012,
+    }));
+
+    let frame = 0;
+    const draw = () => {
+      ctx.clearRect(0, 0, W, H);
+      particles.forEach(p => {
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vy += 0.25;
+        p.alpha -= p.decay;
+        p.spin += 0.05;
+        if (p.alpha <= 0) return;
+        ctx.save();
+        ctx.globalAlpha = Math.max(0, p.alpha);
+        ctx.fillStyle = p.color;
+        ctx.translate(p.x, p.y);
+        ctx.rotate(p.spin);
+        if (p.shape === 'rect') {
+          ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 0.5);
+        } else {
+          ctx.beginPath();
+          ctx.arc(0, 0, p.size / 2, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.restore();
+      });
+      frame++;
+      if (frame < 200) animRef.current = requestAnimationFrame(draw);
+    };
+    animRef.current = requestAnimationFrame(draw);
+    return () => cancelAnimationFrame(animRef.current);
+  }, [outcome]);
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 2000,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      background: 'rgba(0,0,0,0.88)',
+      backdropFilter: 'blur(6px)',
+    }}>
+      {/* Particle canvas */}
+      <canvas ref={canvasRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', pointerEvents: 'none' }} />
+
+      {/* Card */}
+      <div style={{
+        position: 'relative',
+        width: '92%', maxWidth: '480px',
+        background: 'linear-gradient(160deg, rgba(4,8,20,0.98) 0%, rgba(10,18,40,0.98) 100%)',
+        border: `2px solid ${accentColor}`,
+        borderRadius: '16px',
+        padding: '40px 32px 32px',
+        textAlign: 'center',
+        boxShadow: `0 0 60px ${accentGlow}, 0 0 120px ${accentGlow}, inset 0 0 40px rgba(0,0,0,0.6)`,
+        animation: 'gameOverEntrance 0.6s cubic-bezier(0.16,1,0.3,1) both',
+      }}>
+        {/* Corner accents */}
+        {['topLeft','topRight','bottomLeft','bottomRight'].map(pos => (
+          <div key={pos} style={{
+            position: 'absolute',
+            width: '20px', height: '20px',
+            ...(pos.includes('top') ? { top: '-2px' } : { bottom: '-2px' }),
+            ...(pos.includes('Left') ? { left: '-2px', borderLeft: `3px solid ${accentColor}`, borderTop: `3px solid ${accentColor}` } : { right: '-2px', borderRight: `3px solid ${accentColor}`, borderTop: pos.includes('top') ? `3px solid ${accentColor}` : undefined, borderBottom: pos.includes('bottom') ? `3px solid ${accentColor}` : undefined }),
+            borderRadius: pos.includes('top') && pos.includes('Left') ? '4px 0 0 0' : pos.includes('top') ? '0 4px 0 0' : pos.includes('Left') ? '0 0 0 4px' : '0 0 4px 0',
+          }} />
+        ))}
+
+        {/* Outcome icon */}
+        <div style={{
+          fontSize: isWin ? '4rem' : isDraw ? '3.5rem' : '3.5rem',
+          marginBottom: '8px',
+          filter: `drop-shadow(0 0 16px ${accentColor})`,
+          animation: 'outcomeIconPop 0.5s 0.3s cubic-bezier(0.34,1.56,0.64,1) both',
+        }}>
+          {isWin ? '🏆' : isDraw ? '⚖️' : '💀'}
+        </div>
+
+        {/* Headline */}
+        <div style={{
+          fontSize: '3rem', fontWeight: '900', letterSpacing: '6px',
+          color: accentColor,
+          textShadow: `0 0 20px ${accentColor}, 0 0 40px ${accentColor}, 0 0 80px ${accentGlow}`,
+          fontFamily: 'monospace',
+          animation: 'glowPulseText 2s ease-in-out infinite',
+          marginBottom: '4px',
+        }}>
+          {headline}
+        </div>
+
+        <div style={{
+          color: 'rgba(255,255,255,0.6)', fontSize: '0.9rem',
+          letterSpacing: '2px', marginBottom: '28px',
+          fontFamily: 'monospace',
+        }}>
+          {subline}
+        </div>
+
+        {/* Score bar */}
+        <div style={{
+          background: 'rgba(255,255,255,0.03)',
+          border: '1px solid rgba(255,255,255,0.08)',
+          borderRadius: '12px', padding: '16px 20px',
+          marginBottom: '20px',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <div style={{ textAlign: 'left' }}>
+              <div style={{ fontSize: '0.65rem', color: 'var(--neon-red)', letterSpacing: '2px', fontWeight: 'bold', marginBottom: '4px' }}>
+                {mode === 'online' ? (playerName || 'RED') : 'YOU'}
+              </div>
+              <div style={{ fontSize: '2rem', fontWeight: '900', color: 'var(--neon-red)', textShadow: '0 0 12px rgba(255,0,60,0.6)' }}>
+                {redScore}
+              </div>
+            </div>
+            <div style={{ fontSize: '1.2rem', color: 'rgba(255,255,255,0.2)', fontWeight: 'bold' }}>VS</div>
+            <div style={{ textAlign: 'right' }}>
+              <div style={{ fontSize: '0.65rem', color: 'var(--neon-blue)', letterSpacing: '2px', fontWeight: 'bold', marginBottom: '4px' }}>
+                {mode === 'bot' ? 'BOT' : mode === 'online' ? (opponentName || 'BLUE') : 'BLUE'}
+              </div>
+              <div style={{ fontSize: '2rem', fontWeight: '900', color: 'var(--neon-blue)', textShadow: '0 0 12px rgba(0,240,255,0.6)' }}>
+                {blueScore}
+              </div>
+            </div>
+          </div>
+          {/* Score bar */}
+          <div style={{ height: '6px', borderRadius: '99px', background: 'rgba(255,255,255,0.08)', overflow: 'hidden', position: 'relative' }}>
+            <div style={{
+              position: 'absolute', left: 0, top: 0, bottom: 0,
+              width: `${redScore + blueScore > 0 ? (redScore / (redScore + blueScore)) * 100 : 50}%`,
+              background: 'linear-gradient(90deg, var(--neon-red), #ff6680)',
+              borderRadius: '99px',
+              transition: 'width 1s ease',
+              boxShadow: '0 0 8px rgba(255,0,60,0.6)',
+            }} />
+          </div>
+        </div>
+
+        {/* ELO rating */}
+        {mode === 'bot' && game?.eloProcessed && (
+          <div style={{
+            marginBottom: '20px', padding: '10px 16px',
+            background: 'rgba(255,204,0,0.08)', border: '1px solid rgba(255,204,0,0.25)',
+            borderRadius: '8px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+          }}>
+            <span style={{ color: '#ffcc00', fontSize: '0.75rem', letterSpacing: '1px' }}>ELO RATING</span>
+            <span style={{ fontWeight: 'bold', color: '#ffcc00', fontSize: '1.1rem' }}>
+              {game.newElo}
+              <span style={{ fontSize: '0.85rem', marginLeft: '8px', color: game.eloDiff >= 0 ? '#39ff14' : '#ff003c' }}>
+                ({game.eloDiff >= 0 ? '+' : ''}{game.eloDiff})
+              </span>
+            </span>
+          </div>
+        )}
+
+        {/* Action buttons */}
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          {mode !== 'tutorial' && (
+            <button className="cyber-button blue" onClick={onReview} style={{ flex: 1, minWidth: '100px' }}>
+              📋 REVIEW
+            </button>
+          )}
+          <button className="cyber-button" onClick={onPlayAgain}
+            style={{ flex: 1, minWidth: '100px', borderColor: accentColor, color: accentColor, boxShadow: `0 0 10px ${accentGlow}` }}>
+            ↺ PLAY AGAIN
+          </button>
+          <button className="cyber-button" onClick={onLeave} style={{
+            flex: 1, minWidth: '100px',
+            animation: tutorialStep?.highlightButton === 'leave-game' ? 'afkPulse 1.2s infinite' : 'none',
+            border: tutorialStep?.highlightButton === 'leave-game' ? `2px solid var(--neon-blue)` : undefined,
+            boxShadow: tutorialStep?.highlightButton === 'leave-game' ? '0 0 15px var(--neon-blue)' : undefined,
+          }}>
+            ⬅ LEAVE
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
 // ── TutorialDrawer ────────────────────────────────────────────────────────────
 // Collapses to a slim tab so it never blocks gameplay. Auto-expands when
 // the message changes, then the player can collapse it manually.
