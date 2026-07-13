@@ -75,6 +75,7 @@ function App() {
   const [selectedBoardName, setSelectedBoardName] = useState('default');
   const [boardDropdownOpen, setBoardDropdownOpen] = useState(false);
   const [playerElo, setPlayerElo] = useState(() => parseInt(localStorage.getItem('playerElo')) || 1000);
+  const [rulesTab, setRulesTab] = useState('rules');
   const network = useNetwork();
 
   // Hardware Back Button Interception
@@ -209,6 +210,26 @@ function App() {
             </div>
           </div>
         </div>
+      ) : mode === 'how-to-play' ? (
+        <div className="lobby-container">
+          <div className="lobby-box glass-panel" style={{ maxWidth: '400px' }}>
+            <h1 className="lobby-title font-display">HOW TO PLAY</h1>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px', marginTop: '30px' }}>
+              <button className="cyber-button" onClick={() => setMode('rules')} style={{ padding: '16px', fontSize: '1rem', width: '100%' }}>
+                RULES OF ENGAGEMENT
+              </button>
+              <button className="cyber-button" onClick={() => setMode('tutorial')} style={{ padding: '16px', fontSize: '1rem', width: '100%' }}>
+                INTERACTIVE TUTORIAL
+              </button>
+              <button className="cyber-button" onClick={() => setMode('video-guide')} style={{ padding: '16px', fontSize: '1rem', width: '100%' }}>
+                VIDEO GUIDE
+              </button>
+              <button className="cyber-button" onClick={() => setMode('main-menu')} style={{ padding: '12px', fontSize: '0.9rem', width: '100%', marginTop: '16px', borderColor: 'var(--text-secondary)' }}>
+                BACK TO MAIN MENU
+              </button>
+            </div>
+          </div>
+        </div>
       ) : mode === 'rules' ? (
         <div className="lobby-container">
           <div className="lobby-box glass-panel" style={{ maxWidth: '750px', padding: '40px 30px', textAlign: 'left', display: 'flex', flexDirection: 'column', height: '85vh' }}>
@@ -228,8 +249,46 @@ function App() {
                 {RULES_MARKDOWN}
               </ReactMarkdown>
             </div>
-            <button className="cyber-button" onClick={() => setMode('main-menu')} style={{ width: '100%', padding: '12px', flexShrink: 0 }}>
-              BACK TO MAIN MENU
+            <button className="cyber-button" onClick={() => setMode('how-to-play')} style={{ width: '100%', padding: '12px', flexShrink: 0 }}>
+              BACK
+            </button>
+          </div>
+        </div>
+      ) : mode === 'tutorial' ? (
+        <div className="lobby-container">
+          <div className="lobby-box glass-panel" style={{ maxWidth: '600px', padding: '40px 30px', textAlign: 'center', display: 'flex', flexDirection: 'column' }}>
+            <h1 className="lobby-title font-display" style={{ fontSize: '2rem', margin: '0 0 20px 0' }}>
+              INTERACTIVE TUTORIAL
+            </h1>
+            <div style={{ margin: '40px 0', color: 'var(--text-secondary)' }}>
+              <p>The interactive tutorial is currently under construction.</p>
+            </div>
+            <button className="cyber-button" onClick={() => setMode('how-to-play')} style={{ width: '100%', padding: '12px', flexShrink: 0 }}>
+              BACK
+            </button>
+          </div>
+        </div>
+      ) : mode === 'video-guide' ? (
+        <div className="lobby-container">
+          <div className="lobby-box glass-panel" style={{ maxWidth: '600px', padding: '40px 30px', textAlign: 'center', display: 'flex', flexDirection: 'column' }}>
+            <h1 className="lobby-title font-display" style={{ fontSize: '2rem', margin: '0 0 20px 0' }}>
+              VIDEO GUIDE
+            </h1>
+            <div style={{ margin: '20px 0', color: 'var(--text-secondary)' }}>
+              <div style={{ position: 'relative', paddingBottom: '56.25%', height: 0, overflow: 'hidden', maxWidth: '100%', marginBottom: '20px', borderRadius: '8px', border: '1px solid var(--neon-blue)' }}>
+                <iframe 
+                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%' }}
+                  src="https://www.youtube.com/embed/dQw4w9WgXcQ" 
+                  title="YouTube video player" 
+                  frameBorder="0" 
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" 
+                  allowFullScreen>
+                </iframe>
+              </div>
+              <p style={{ color: 'var(--neon-blue)', fontStyle: 'italic' }}>Sorry for rickrolling you, tutorial video soon!</p>
+            </div>
+            <button className="cyber-button" onClick={() => setMode('how-to-play')} style={{ width: '100%', padding: '12px', flexShrink: 0 }}>
+              BACK
             </button>
           </div>
         </div>
@@ -514,10 +573,10 @@ function App() {
               </button>
               <button 
                 className="cyber-button" 
-                onClick={() => setMode('rules')} 
+                onClick={() => setMode('how-to-play')} 
                 style={{ padding: '14px', letterSpacing: '0.1em' }}
               >
-                RULES
+                HOW TO PLAY
               </button>
               <button 
                 className="cyber-button" 

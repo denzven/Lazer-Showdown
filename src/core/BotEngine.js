@@ -32,10 +32,11 @@ export async function getBoardAnalysisAsync(board, role, difficulty, gameState, 
   }
 
   try {
-    const score = await NeuralStrategy.evaluateBoardAsync(board, role, gameState);
+    const neuralScore = await NeuralStrategy.evaluateBoardAsync(board, role, gameState);
     const mathAnalysis = getBoardAnalysis(board, role, 'hard', gameState, botPlayer);
     return { 
-      totalScore: score, 
+      totalScore: mathAnalysis.totalScore, // Classic math score
+      neuralScore: neuralScore,            // Raw neural tanh output [-1, 1]
       cautiousness: mathAnalysis.cautiousness, 
       behaviorWarnings: mathAnalysis.behaviorWarnings,
       advancedMetrics: mathAnalysis.advancedMetrics,

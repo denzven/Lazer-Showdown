@@ -157,7 +157,7 @@ async function simulateGame() {
       
       if (action) {
         // Collect State before action
-        const tensorArray = boardToTensorArray(state.board, state);
+        const tensorArray = boardToTensorArray(state.board, state, activeRole);
         
         // Evaluate mathematical score for blending based on the actual bot personality
         const { evaluateBoardAttacker, evaluateBoardDefender } = await import('../src/core/BotStrategies.js');
@@ -212,9 +212,18 @@ async function simulateGame() {
   for (const step of gameData) {
     inputs.push(step.tensorArray);
     
-    // Label blending: 50% Mathematics, 50% End-of-Game outcome
-    // (scoreDelta ranges from roughly -100 to +100).
-    const blendedScore = (step.mathScore * 0.5) + (scoreDelta * 0.5);
+    // Label blending: Scale down mathScore to prevent gradient explosion (MSE on 100k -> NaN)
+    // scoreDelta is around -100 to 100. mathScore can be up to 100,000.
+    // We scale everything to roughly a [-1, 1] range for stable training with MSE.
+    const scaledMathScore = step.mathScore / 100000;
+    const scaledDelta = scoreDelta / 100;
+    
+    let blendedScore = (scaledMathScore * 0.5) + (scaledDelta * 0.5);
+    
+    // Clamp to [-1, 1] for tanh activation
+    if (blendedScore > 1) blendedScore = 1;
+    if (blendedScore < -1) blendedScore = -1;
+    
     labels.push([blendedScore]);
   }
   
@@ -281,12 +290,12 @@ async function trainModel() {
   }
 
   if (!model) {
-    console.log(`\n✨ Creating a fresh 78-feature Neural Network...`);
+    console.log(`\n✨ Creating a fresh 79-feature Neural Network...`);
     model = tf.sequential();
-    model.add(tf.layers.dense({ inputShape: [78], units: 128, activation: 'relu' }));
+    model.add(tf.layers.dense({ inputShape: [79], units: 128, activation: 'relu' }));
     model.add(tf.layers.dense({ units: 64, activation: 'relu' }));
     model.add(tf.layers.dense({ units: 32, activation: 'relu' }));
-    model.add(tf.layers.dense({ units: 1 }));
+    model.add(tf.layers.dense({ units: 1, activation: 'tanh' })); // Tanh bounds to [-1, 1]
     model.compile({ optimizer: tf.train.adam(0.001), loss: 'meanSquaredError' });
   }
 
@@ -350,6 +359,24 @@ async function trainModel() {
     globalInputs.push(...newInputs);
     globalLabels.push(...newLabels);
     
+    // OFFLINE DOJO MERGING: Bake human strategies directly into the brain
+    const dojoPath = path.join(savePath, 'dojo_buffer.json');
+    if (fs.existsSync(dojoPath)) {
+      try {
+        const dojoData = JSON.parse(fs.readFileSync(dojoPath, 'utf8'));
+        if (dojoData.inputs && dojoData.labels) {
+          console.log(`\n🥋 Found Offline Dojo Data! Merging ${dojoData.inputs.length} human-played states into training...`);
+          // Prepend so they aren't pushed out by FIFO as quickly
+          globalInputs.unshift(...dojoData.inputs);
+          globalLabels.unshift(...dojoData.labels);
+          // Delete it so it doesn't get merged repeatedly every iteration unless a new one is provided
+          fs.unlinkSync(dojoPath);
+        }
+      } catch (e) {
+        console.error("⚠️ Failed to load dojo_buffer.json", e);
+      }
+    }
+    
     if (globalInputs.length > MAX_REPLAY_SIZE) {
       console.log(`⚠️ Replay buffer exceeded max size (${MAX_REPLAY_SIZE}). Discarding oldest states.`);
       const excess = globalInputs.length - MAX_REPLAY_SIZE;
@@ -361,7 +388,7 @@ async function trainModel() {
     fs.writeFileSync(bufferPath, JSON.stringify({ inputs: globalInputs, labels: globalLabels }));
 
     console.log(`🧠 Training Neural Network on ${globalInputs.length} total states...`);
-    const xs = tf.tensor2d(globalInputs, [globalInputs.length, 78]);
+    const xs = tf.tensor2d(globalInputs, [globalInputs.length, 79]);
     const ys = tf.tensor2d(globalLabels, [globalLabels.length, 1]);
 
     const history = await model.fit(xs, ys, {

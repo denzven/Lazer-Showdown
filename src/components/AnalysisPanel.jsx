@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Activity, Dices, Clock, Minus, Maximize2, Target } from 'lucide-react';
+import { formatActionText } from '../core/BotStrategies';
 
 export default function AnalysisPanel({ 
   data, history, dice, threatMap, lazerPos, engineLines, pieceThreats, 
@@ -37,7 +38,7 @@ export default function AnalysisPanel({
 
   if (!data) return null;
 
-  const { totalScore, cautiousness, difficulty, role, advancedMetrics } = data;
+  const { totalScore, neuralScore, cautiousness, difficulty, role, advancedMetrics } = data;
   const { values = [1, 1], lastRoller } = dice || {};
 
   const getStyleForScore = (score) => {
@@ -98,7 +99,9 @@ export default function AnalysisPanel({
 
     if (grandTotal === 0) return null;
 
-    const sources = !lazerPos ? [
+    const sources = engineType === 'neural' ? [
+      { id: 'AI', label: 'Neural Occlusion Sensitivity', color: 'var(--neon-blue)' }
+    ] : !lazerPos ? [
       { id: 'TL', label: 'Top-Left Corner', color: '#00ffff' },
       { id: 'TR', label: 'Top-Right Corner', color: '#ff00ff' },
       { id: 'BL', label: 'Bottom-Left Corner', color: '#ffff00' },
@@ -264,16 +267,28 @@ export default function AnalysisPanel({
             </div>
           )}
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
-            Evaluation (Bot Perspective)
+            {engineType === 'neural' ? 'AI Win Probability' : 'Evaluation (Math Engine)'}
           </div>
-          <div className={getStyleForScore(totalScore)} style={{ fontSize: '2.5rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
-            {totalScore > 0 ? '+' : ''}{Math.round(totalScore)}
-          </div>
+          {engineType === 'neural' ? (
+             <div style={{ color: 'var(--neon-blue)', fontSize: '2.5rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
+               {Math.round((((neuralScore || 0) + 1) / 2) * 100)}%
+             </div>
+          ) : (
+             <div className={getStyleForScore(totalScore)} style={{ fontSize: '2.5rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
+               {totalScore > 0 ? '+' : ''}{Math.round(totalScore)}
+             </div>
+          )}
           
           {/* Visual Bar */}
           <div style={{ width: '100%', height: '8px', backgroundColor: 'rgba(255,255,255,0.1)', marginTop: '12px', borderRadius: '4px', overflow: 'hidden', position: 'relative' }}>
-            <div style={{ position: 'absolute', top: 0, bottom: 0, left: totalScore < 0 ? 'auto' : '50%', right: totalScore < 0 ? '50%' : 'auto', width: getBarWidth(totalScore), backgroundColor: barColor, transition: 'width 0.3s ease' }} />
-            <div style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: '2px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
+             {engineType === 'neural' ? (
+                <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: `${Math.round((((neuralScore || 0) + 1) / 2) * 100)}%`, backgroundColor: 'var(--neon-blue)', transition: 'width 0.3s ease' }} />
+             ) : (
+                <>
+                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: totalScore < 0 ? 'auto' : '50%', right: totalScore < 0 ? '50%' : 'auto', width: getBarWidth(totalScore), backgroundColor: barColor, transition: 'width 0.3s ease' }} />
+                  <div style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: '2px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
+                </>
+             )}
           </div>
 
           {moveClassification && (
@@ -329,8 +344,8 @@ export default function AnalysisPanel({
           </div>
         </div>
 
-        {/* ADVANCED METRICS */}
-        {advancedMetrics && (
+        {/* ADVANCED METRICS (MATH ONLY) */}
+        {engineType === 'math' && advancedMetrics && (
           <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <Activity size={10} /> ADVANCED POSITION METRICS
@@ -360,8 +375,32 @@ export default function AnalysisPanel({
           </div>
         )}
 
-        {/* AP UTILIZATION */}
-        {advancedMetrics?.turnStats && phase === 'playing' && (
+        {/* TOP CANDIDATE LINES (AI ONLY) */}
+        {engineType === 'neural' && engineLines && engineLines.length > 0 && (
+          <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
+            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <Target size={10} /> TOP CANDIDATE LINES
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {engineLines.map((line, i) => (
+                <div key={i} style={{ backgroundColor: 'rgba(255,255,255,0.05)', padding: '6px 8px', borderRadius: '4px', borderLeft: i === 0 ? '2px solid var(--neon-blue)' : '2px solid rgba(255,255,255,0.2)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: i === 0 ? 'var(--neon-blue)' : '#fff' }}>{i + 1}. {line.name || 'Unknown Strategy'}</span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{line.winProbability}% Win Prob</span>
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
+                    {line.formattedSteps.map((step, j) => (
+                      <span key={j} style={{ backgroundColor: 'rgba(0,0,0,0.5)', padding: '2px 4px', borderRadius: '2px' }}>{step}</span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* AP UTILIZATION (MATH ONLY) */}
+        {engineType === 'math' && advancedMetrics?.turnStats && phase === 'playing' && (
           <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <Activity size={10} /> AP UTILIZATION (THIS TURN)
@@ -424,8 +463,11 @@ export default function AnalysisPanel({
           </div>
         </div>
 
-        {/* Piece Threats */}
-        {showPieceThreats && pieceThreats && pieceThreats.length > 0 && (
+        {/* SUPERPOSITIONAL THREAT BREAKDOWN (AI ONLY) */}
+        {engineType === 'neural' && getThreatBreakdown()}
+
+        {/* PIECE THREATS (MATH ONLY) */}
+        {engineType === 'math' && showPieceThreats && pieceThreats && pieceThreats.length > 0 && (
           <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <Activity size={10} /> PIECE THREAT LEVELS
@@ -486,39 +528,91 @@ export default function AnalysisPanel({
           </div>
         )}
 
-        {/* Engine Lines */}
-        {engineLines && engineLines.length > 0 && (
+        {/* Engine Lines (MATH ONLY) */}
+        {engineType === 'math' && engineLines && engineLines.length > 0 && (
           <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Activity size={10} /> TOP STRATEGIC PLAYS (PROJECTED)
+              <Activity size={10} /> TOP STRATEGIC PLAYS (MATH)
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {engineLines.map((line, i) => {
-                return (
-                  <div key={i} style={{ display: 'flex', flexDirection: 'column', fontSize: '0.75rem', backgroundColor: 'rgba(255,255,255,0.02)', padding: '6px', borderRadius: '4px' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                      <span style={{ fontWeight: 'bold', color: engineType === 'neural' ? 'var(--neon-blue)' : '#ffcc00' }}>
-                        {i + 1}. {line.name || 'Unknown Strategy'}
-                      </span>
-                      <span style={{ fontWeight: 'bold', fontFamily: 'monospace', color: line.score > 0 ? '#39ff14' : 'var(--text-secondary)' }}>
-                        {line.score > 0 ? '+' : ''}{line.score}
-                      </span>
-                    </div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
-                      {line.formattedSteps && line.formattedSteps.map((step, idx) => (
-                        <React.Fragment key={idx}>
-                          <span>{step}</span>
-                          {idx < line.formattedSteps.length - 1 && <span style={{ color: 'rgba(255,255,255,0.3)' }}>➔</span>}
-                        </React.Fragment>
-                      ))}
-                      {!line.formattedSteps && <span>{line.text}</span>}
-                    </div>
+              {engineLines.map((line, i) => (
+                <div key={i} style={{ display: 'flex', flexDirection: 'column', fontSize: '0.75rem', backgroundColor: 'rgba(255,255,255,0.02)', padding: '6px', borderRadius: '4px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                    <span style={{ fontWeight: 'bold', color: '#ffcc00' }}>
+                      {i + 1}. {line.name || 'Unknown Strategy'}
+                    </span>
+                    <span style={{ fontWeight: 'bold', fontFamily: 'monospace', color: line.score > 0 ? '#39ff14' : 'var(--text-secondary)' }}>
+                      {line.score > 0 ? '+' : ''}{line.score}
+                    </span>
                   </div>
-                );
-              })}
+                  <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
+                    {line.sequence && line.sequence.map((act, idx) => {
+                       return (
+                         <React.Fragment key={idx}>
+                           <span>{formatActionText(act)}</span>
+                           {idx < line.sequence.length - 1 && <span style={{ color: 'rgba(255,255,255,0.3)' }}>➔</span>}
+                         </React.Fragment>
+                       );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
+
+        {/* DOJO MODE (DEV ONLY) */}
+        {(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168.')) && (
+          <div style={{ backgroundColor: 'rgba(255, 0, 255, 0.1)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255, 0, 255, 0.3)' }}>
+            <div style={{ fontSize: '0.65rem', color: '#ff00ff', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 'bold' }}>
+              <Activity size={10} /> OFFLINE DOJO EXPORT
+            </div>
+            <div style={{ fontSize: '0.75rem', color: '#fff', marginBottom: '8px' }}>
+              Export {history?.past?.length || 0} moves from this match as human training data.
+            </div>
+            <button 
+              onClick={async () => {
+                const { boardToTensorArray } = await import('../core/NeuralBot.js');
+                const { getBoardAnalysis } = await import('../core/BotStrategies.js');
+                const inputs = [];
+                const labels = [];
+                
+                // Process the entire history
+                for (let i = 0; i < history.past.length; i++) {
+                  const state = history.past[i];
+                  const rolePlayed = state.turnPlayer === 'red' ? state.roleRed : state.roleBlue;
+                  if (!rolePlayed) continue;
+                  
+                  try {
+                    const tensor = boardToTensorArray(state.board, state, rolePlayed);
+                    const analysis = getBoardAnalysis(state.board, rolePlayed, 'hard', state, state.turnPlayer);
+                    let scaledScore = analysis.totalScore / 5000;
+                    scaledScore = Math.max(-1, Math.min(1, scaledScore));
+                    inputs.push(tensor);
+                    labels.push(scaledScore);
+                  } catch(e) { console.error("Skip state", e) }
+                }
+                
+                const response = await fetch('/api/dojo-export', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ inputs, labels })
+                });
+                
+                if (response.ok) {
+                  const data = await response.json();
+                  alert(`✅ Successfully pushed ${inputs.length} human-played states into the Dojo!\nTotal Pooled States: ${data.totalStates}\n\nYou can now run train.js to bake these strategies into the AI.`);
+                } else {
+                  alert(`❌ Failed to push to Dojo. Is the dev server running?`);
+                }
+              }}
+              style={{ width: '100%', padding: '8px', backgroundColor: '#ff00ff', color: '#000', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}
+            >
+              DOWNLOAD DOJO DATA
+            </button>
+          </div>
+        )}
+
 
         {/* Challenge Recommendation */}
         {phase === 'challenge-declaration' && challengeRecommendation && (

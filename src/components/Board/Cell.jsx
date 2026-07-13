@@ -224,7 +224,8 @@ export default function Cell({
           '0': '0, 255, 255',     // Cyan
           '90': '255, 0, 255',    // Magenta
           '180': '255, 255, 0',   // Yellow
-          '270': '0, 255, 0'      // Green
+          '270': '0, 255, 0',     // Green
+          'AI': '0, 240, 255'     // Neon Blue
         };
 
         return (

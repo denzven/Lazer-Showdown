@@ -805,29 +805,29 @@ export function classifyPlay(sequence, engineType) {
   const hasRotate = sequence.some(a => a.type === 'rotate');
   
   if (engineType === 'neural') {
-    if (hasFire && hasMove) return "Neural Strike Matrix";
-    if (hasFire && hasRotate) return "Vector Re-alignment";
-    if (hasFire) return "High-Probability Endstate";
-    if (hasMove && hasRotate) return "State Minimization Delta";
-    if (hasMove) return "Deep Value Extraction";
-    if (hasRotate) return "Pattern Match Pivot";
-    return "Neural Heuristic";
-  } else {
-    if (hasFire && hasMove) return "Flank & Fire";
+    if (hasFire && hasMove) return "Move & Fire";
     if (hasFire && hasRotate) return "Aim & Fire";
-    if (hasFire) return "Direct Strike";
-    if (hasMove && hasRotate) return "Tactical Repositioning";
-    if (hasMove) return "Positional Setup";
-    if (hasRotate) return "Lazer Re-orientation";
-    return "Strategic Maneuver";
+    if (hasFire) return "Direct Attack";
+    if (hasMove && hasRotate) return "Complex Maneuver";
+    if (hasMove) return "Tactical Reposition";
+    if (hasRotate) return "Re-aiming";
+    return "Strategic Pass";
+  } else {
+    if (hasFire && hasMove) return "Move & Fire";
+    if (hasFire && hasRotate) return "Aim & Fire";
+    if (hasFire) return "Direct Attack";
+    if (hasMove && hasRotate) return "Complex Maneuver";
+    if (hasMove) return "Tactical Reposition";
+    if (hasRotate) return "Re-aiming";
+    return "Strategic Pass";
   }
 }
 
 export function formatActionText(action) {
-  if (action.type === 'place') return `Place ${action.pieceType.replace('block-', '')}pt at (${action.r}, ${action.c})`;
+  if (action.type === 'place') return `Place ${action.pieceType.replace('block-', '')}pt piece at (${action.r}, ${action.c})`;
   if (action.type === 'laser-press') return 'Fire Lazer!';
-  if (action.type === 'move') return `Move to (${action.toR}, ${action.toC})`;
-  if (action.type === 'rotate') return `Rotate ${action.dir === 'cw' ? 'CW' : 'CCW'}`;
+  if (action.type === 'move') return `Move piece at (${action.fromR}, ${action.fromC}) to (${action.toR}, ${action.toC})`;
+  if (action.type === 'rotate') return `Rotate piece at (${action.r}, ${action.c}) ${action.dir === 'cw' ? 'Right' : 'Left'}`;
   return 'Unknown Move';
 }
 

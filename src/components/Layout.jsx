@@ -77,6 +77,7 @@ export default function Layout({ network, game, mode, difficulty }) {
   const [boardAnalysis, setBoardAnalysis] = useState(null);
   const [moveClassification, setMoveClassification] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [neuralThreatMap, setNeuralThreatMap] = useState(null);
 
   useEffect(() => {
     if (!analysisMode) {
@@ -89,10 +90,22 @@ export default function Layout({ network, game, mode, difficulty }) {
       const difficultyToUse = engineType === 'neural' ? 'neural' : (difficulty || 'hard');
       const res = await getBoardAnalysisAsync(board, role, difficultyToUse, { turnPlayer, roleRed, roleBlue }, activeRole);
       if (isMounted) setBoardAnalysis(res);
+
+      if (engineType === 'neural') {
+        const { generateNeuralThreatMapAsync } = await import('../core/NeuralBot.js');
+        const currentGameState = {
+          roleRed, roleBlue, turnPlayer,
+          scores: game.scores, actionPoints: game.actionPoints, round: game.round, set: game.set, capturedPieces: game.capturedPieces
+        };
+        const neuralMap = await generateNeuralThreatMapAsync(board, currentGameState);
+        if (isMounted) setNeuralThreatMap(neuralMap);
+      }
     };
     analyze();
     return () => { isMounted = false; };
-  }, [board, role, difficulty, analysisMode, turnPlayer, roleRed, roleBlue, engineType]);
+  }, [board, role, difficulty, analysisMode, turnPlayer, roleRed, roleBlue, engineType, game.scores, game.actionPoints, game.round, game.set, game.capturedPieces]);
+
+  const activeThreatMap = engineType === 'neural' ? neuralThreatMap : threatMap;
 
   useEffect(() => {
     if (!analysisMode) {
@@ -792,7 +805,7 @@ export default function Layout({ network, game, mode, difficulty }) {
             data={boardAnalysis} 
             history={game.history}
             dice={game.dice}
-            threatMap={threatMap}
+            threatMap={activeThreatMap}
             lazerPos={lazerPos}
             engineLines={engineLines}
             pieceThreats={pieceThreats}
@@ -956,7 +969,7 @@ export default function Layout({ network, game, mode, difficulty }) {
           activePlayerColor={activePlayerColor}
           reachableCells={selectedCell ? getReachableCells(board, selectedCell.r, selectedCell.c, actionPoints, turnPlayer) : []}
           showLaserBeam={showLaserBeam}
-          threatMap={showHeatmap ? threatMap : null}
+          threatMap={showHeatmap ? activeThreatMap : null}
           possibilityWeb={showGhostRays ? game.possibilityWeb : null}
           highlightedCell={highlightedCell}
         />

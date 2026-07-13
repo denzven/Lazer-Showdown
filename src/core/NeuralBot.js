@@ -2,9 +2,9 @@ import * as tf from '@tensorflow/tfjs';
 import { BLOCK_TYPES, validateMovement, traceLaserBeam } from './Ruleset.js';
 import { getBoardState, classifyPlay, formatActionText, calculateMobility, calculateCenterControl, calculateMirrorUtilization } from './BotStrategies.js';
 
-// Helper to convert board state and game context into a flat 78-element numeric tensor array
-export function boardToTensorArray(board, gameState = null) {
-  const arr = new Array(78).fill(0);
+// Helper to convert board state and game context into a flat 79-element numeric tensor array
+export function boardToTensorArray(board, gameState = null, activeRole = null) {
+  const arr = new Array(79).fill(0);
   for (let r = 0; r < 8; r++) {
     for (let c = 0; c < 8; c++) {
       const idx = r * 8 + c;
@@ -48,6 +48,7 @@ export function boardToTensorArray(board, gameState = null) {
   arr[75] = calculateMirrorUtilization(board, 'attacker');
   arr[76] = calculateMirrorUtilization(board, 'defender');
   arr[77] = gameState?.actionPoints || 0; // Or whatever represents total AP context
+  arr[78] = activeRole === 'attacker' ? 1 : (activeRole === 'defender' ? -1 : 0); // Inject whose turn it is
   
   return arr;
 }
@@ -125,6 +126,63 @@ export async function loadNeuralModel() {
   return modelPromise;
 }
 
+export async function generateNeuralThreatMapAsync(board, gameState) {
+  const model = await loadNeuralModel();
+  const map = Array(8).fill(null).map(() => Array(8).fill(null).map(() => ({ total: 0, sources: {} })));
+  
+  if (!model) return map;
+  
+  const baseTensor = boardToTensorArray(board, gameState);
+  const tensors = [];
+  const coords = [];
+  
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const occludedBoard = board.map(row => [...row]);
+      if (occludedBoard[r][c]) {
+        occludedBoard[r][c] = null;
+      } else {
+        occludedBoard[r][c] = { type: BLOCK_TYPES.BLOCK_20 };
+      }
+      tensors.push(boardToTensorArray(occludedBoard, gameState));
+      coords.push({r, c});
+    }
+  }
+  
+  const inputTensor = tf.tensor2d(tensors, [64, 79]);
+  const predictions = model.predict(inputTensor);
+  const scores = await predictions.data();
+  
+  inputTensor.dispose();
+  predictions.dispose();
+
+  const baseScoreTensor = tf.tensor2d([baseTensor], [1, 79]);
+  const basePred = model.predict(baseScoreTensor);
+  const baseScores = await basePred.data();
+  const baseScore = baseScores[0];
+  
+  baseScoreTensor.dispose();
+  basePred.dispose();
+  
+  let maxDiff = 0.0001;
+  const diffs = [];
+  
+  for (let i = 0; i < 64; i++) {
+    const diff = Math.abs(scores[i] - baseScore);
+    diffs.push(diff);
+    if (diff > maxDiff) maxDiff = diff;
+  }
+  
+  for (let i = 0; i < 64; i++) {
+    const {r, c} = coords[i];
+    const normalizedHeat = diffs[i] / maxDiff;
+    map[r][c].total = normalizedHeat;
+    map[r][c].sources = { 'AI': normalizedHeat };
+  }
+  
+  return map;
+}
+
 // Neural Network Strategy Module
 export const NeuralStrategy = {
   getSetupAction: (board, phase, playerColor, challengedPiece) => {
@@ -179,10 +237,10 @@ export const NeuralStrategy = {
     generateStates(board, depth, null);
 
     // Convert all possible future states into a batch tensor
-    const tensors = statesToEvaluate.map(s => boardToTensorArray(s.board, gameState));
+    const tensors = statesToEvaluate.map(s => boardToTensorArray(s.board, gameState, role));
 
     // Run inference in a single batch for speed
-    const inputTensor = tf.tensor2d(tensors, [tensors.length, 78]);
+    const inputTensor = tf.tensor2d(tensors, [tensors.length, 79]);
     const predictions = model.predict(inputTensor);
     const scores = await predictions.data();
 
@@ -217,7 +275,7 @@ export const NeuralStrategy = {
     const model = await loadNeuralModel();
     if (!model) return 0;
     
-    const tensor = tf.tensor2d([boardToTensorArray(board, gameState)], [1, 78]);
+    const tensor = tf.tensor2d([boardToTensorArray(board, gameState, role)], [1, 79]);
     const pred = model.predict(tensor);
     const scoreArray = await pred.data();
     tensor.dispose();
@@ -274,8 +332,8 @@ export const NeuralStrategy = {
     const maxStates = 20000;
     const evaluatedStates = statesToEvaluate.slice(0, maxStates);
 
-    const tensors = evaluatedStates.map(s => boardToTensorArray(s.board, gameState));
-    const inputTensor = tf.tensor2d(tensors, [tensors.length, 78]);
+    const tensors = evaluatedStates.map(s => boardToTensorArray(s.board, gameState, role));
+    const inputTensor = tf.tensor2d(tensors, [tensors.length, 79]);
     const predictions = model.predict(inputTensor);
     const scores = await predictions.data();
 
@@ -308,8 +366,8 @@ export const NeuralStrategy = {
       name: p.name,
       sequence: p.sequence,
       formattedSteps: p.sequence.map(formatActionText),
-      // Scale up score visually for UI consistency if needed
-      score: Math.round(p.score * 1000) 
+      // p.score is between -1 and 1. Map to 0-100% win probability.
+      winProbability: Math.round(((p.score + 1) / 2) * 100)
     }));
   }
 };
