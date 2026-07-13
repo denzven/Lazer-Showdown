@@ -199,94 +199,77 @@ export const NeuralStrategy = {
       return actions[Math.floor(Math.random() * actions.length)];
     }
 
-    let bestAction = null;
-    let bestScore = role === 'attacker' ? -Infinity : Infinity;
+    const roll = actionPoints || 0; // Use current available movement points or dice roll
     
-    // Dynamically calculate max safe depth to prevent browser memory crashes (cap at ~20k states)
-    let depth = 1;
-    if (actions.length > 0) {
-      if (actions.length ** 2 <= 20000 && actionPoints >= 2) depth = 2;
-      if (actions.length ** 3 <= 20000 && actionPoints >= 3) depth = 3;
+    // Check if we should use epsilon from train.js (passed through gameState)
+    const epsilon = gameState?.epsilon || 0.0;
+    
+    const validActionsMask = ExpectedDQN.generateValidMask(board, role);
+    
+    // We can simulate an ExpectedDQN class method getAction
+    let bestActionIndex = -1;
+    
+    if (Math.random() < epsilon) {
+        const validIndices = validActionsMask
+            .map((val, idx) => val ? idx : -1)
+            .filter(idx => idx !== -1);
+        if (validIndices.length > 0) {
+            bestActionIndex = validIndices[Math.floor(Math.random() * validIndices.length)];
+        }
+    } else {
+        const stateArray = ExpectedDQN.encodeState(board, roll, role);
+        const stateTensor = tf.tensor4d(stateArray, [1, 8, 8, 4]);
+        
+        // Predict the 67 Q-values
+        const qValues = model.predict(stateTensor).dataSync();
+        stateTensor.dispose();
+        
+        let maxQ = -Infinity;
+        for (let i = 0; i < 67; i++) {
+            if (!validActionsMask[i]) continue;
+            // Epsilon greedy logic: if Defender, do we pick the min Q-value?
+            // The DQN was trained using reward += 1 for defender survival, and reward -= 0.05 for attacker.
+            // Wait, the target targets reward + gamma * expectedFutureReward. 
+            // Since it's self-play, BOTH bots want to maximize THEIR own Q-value if we trained a single value?
+            // Actually, the DQN targets `targets[i] = reward + ...` where `reward` is computed based on `role`.
+            // So BOTH the attacker and defender want to maximize the Q-value output! The network predicts the expected reward for the CURRENT acting role.
+            // Therefore, we just take the max Q for both roles!
+            
+            if (qValues[i] > maxQ) {
+                maxQ = qValues[i];
+                bestActionIndex = i;
+            }
+        }
     }
 
-    const statesToEvaluate = []; // store { action1, board }
-
-    function generateStates(currentBoard, currentDepth, firstAction) {
-      if (currentDepth === 0) {
-        statesToEvaluate.push({ action1: firstAction, board: currentBoard });
-        return;
-      }
-      
-      const possibleActions = getPossibleActions(currentBoard, role);
-      if (possibleActions.length === 0) {
-        statesToEvaluate.push({ action1: firstAction, board: currentBoard });
-        return;
-      }
-
-      for (const act of possibleActions) {
-        let nextBoard = act.type === 'laser-press' ? currentBoard : applyLightweightAction(currentBoard, act);
-        // If we fired the laser, consider it the end of the action chain for evaluation
-        if (act.type === 'laser-press') {
-          statesToEvaluate.push({ action1: firstAction || act, board: nextBoard });
-        } else {
-          generateStates(nextBoard, currentDepth - 1, firstAction || act);
-        }
-      }
+    if (bestActionIndex !== -1) {
+        return ExpectedDQN.actionIndexToObj(bestActionIndex, board, role);
     }
-
-    generateStates(board, depth, null);
-
-    // Convert all possible future states into a batch tensor
-    const tensors = statesToEvaluate.map(s => boardToTensorArray(s.board, gameState, role));
-
-    // Run inference in a single batch for speed
-    const inputTensor = tf.tensor2d(tensors, [tensors.length, 79]);
-    const predictions = model.predict(inputTensor);
-    const scores = await predictions.data();
-
-    // Find the best move
-    for (let i = 0; i < statesToEvaluate.length; i++) {
-      let score = scores[i];
-      // Add a tiny bit of random noise to prevent infinite loops if scores are identical
-      score += (Math.random() * 0.0001);
-
-      if (role === 'attacker') {
-        if (score > bestScore) {
-          bestScore = score;
-          bestAction = statesToEvaluate[i].action1;
-        }
-      } else {
-        // Defender wants to MINIMIZE the attacker's predicted score
-        if (score < bestScore) {
-          bestScore = score;
-          bestAction = statesToEvaluate[i].action1;
-        }
-      }
-    }
-
-    // Cleanup TF memory
-    inputTensor.dispose();
-    predictions.dispose();
-
-    return bestAction || actions[0];
+    return actions[0];
   },
 
   evaluateBoardAsync: async (board, role, gameState) => {
+    // This evaluates a state. In ExpectedDQN, we don't evaluate states, we evaluate actions.
+    // We will just evaluate a pass/noop action by passing 0 actionPoints.
     const model = await loadNeuralModel();
     if (!model) return 0;
     
-    const tensor = tf.tensor2d([boardToTensorArray(board, gameState, role)], [1, 79]);
+    const tensorArray = ExpectedDQN.encodeState(board, gameState?.actionPoints || 0, role);
+    const tensor = tf.tensor4d(tensorArray, [1, 8, 8, 4]);
     const pred = model.predict(tensor);
     const scoreArray = await pred.data();
     tensor.dispose();
     pred.dispose();
     
-    // The model always predicts the ATTACKER's advantage (high = good for attacker).
-    // If we want a universal evaluation where high = good for the current role:
-    if (role === 'defender') {
-       return -scoreArray[0]; // Invert score for defender's perspective
+    // Just return the max valid Q value for this state
+    const validMask = ExpectedDQN.generateValidMask(board, role);
+    let maxQ = -Infinity;
+    for (let i = 0; i < 67; i++) {
+        if (validMask[i] && scoreArray[i] > maxQ) {
+            maxQ = scoreArray[i];
+        }
     }
-    return scoreArray[0];
+    return maxQ === -Infinity ? 0 : maxQ;
   },
 
   getRankedPlaysAsync: async (board, role, actionPoints, gameState) => {
@@ -298,59 +281,28 @@ export const NeuralStrategy = {
       return []; // fallback handled upstream if necessary
     }
 
-    // Limit depth to 2 to prevent browser freezing with massive batch predictions
-    const depth = Math.min(actionPoints || 2, 2); 
-    const statesToEvaluate = []; // { sequence, board }
+    const stateArray = ExpectedDQN.encodeState(board, actionPoints || 0, role);
+    const stateTensor = tf.tensor4d(stateArray, [1, 8, 8, 4]);
+    const qValues = model.predict(stateTensor).dataSync();
+    stateTensor.dispose();
 
-    function generateStates(currentBoard, currentDepth, currentSequence) {
-      if (currentDepth === 0) {
-        statesToEvaluate.push({ sequence: currentSequence, board: currentBoard });
-        return;
-      }
-      
-      const possibleActions = getPossibleActions(currentBoard, role);
-      if (possibleActions.length === 0) {
-        statesToEvaluate.push({ sequence: currentSequence, board: currentBoard });
-        return;
-      }
+    const validActionsMask = ExpectedDQN.generateValidMask(board, role);
+    const evaluatedStates = [];
 
-      for (const act of possibleActions) {
-        let nextBoard = act.type === 'laser-press' ? currentBoard : applyLightweightAction(currentBoard, act);
-        const nextSeq = [...currentSequence, act];
-        
-        if (act.type === 'laser-press') {
-          statesToEvaluate.push({ sequence: nextSeq, board: nextBoard });
-        } else {
-          generateStates(nextBoard, currentDepth - 1, nextSeq);
+    for (let i = 0; i < 67; i++) {
+        if (!validActionsMask[i]) continue;
+        const act = ExpectedDQN.actionIndexToObj(i, board, role);
+        if (act) {
+            evaluatedStates.push({
+                sequence: [act],
+                score: qValues[i],
+                name: classifyPlay([act], 'neural')
+            });
         }
-      }
     }
-
-    generateStates(board, depth, []);
-
-    // If there are too many states, truncate to save memory (keep first 20k)
-    const maxStates = 20000;
-    const evaluatedStates = statesToEvaluate.slice(0, maxStates);
-
-    const tensors = evaluatedStates.map(s => boardToTensorArray(s.board, gameState, role));
-    const inputTensor = tf.tensor2d(tensors, [tensors.length, 79]);
-    const predictions = model.predict(inputTensor);
-    const scores = await predictions.data();
-
-    // Attach scores and classify
-    for (let i = 0; i < evaluatedStates.length; i++) {
-      let rawScore = scores[i];
-      // Model returns score from Attacker perspective
-      evaluatedStates[i].score = role === 'attacker' ? rawScore : -rawScore;
-      evaluatedStates[i].name = classifyPlay(evaluatedStates[i].sequence, 'neural');
-    }
-
-    inputTensor.dispose();
-    predictions.dispose();
 
     evaluatedStates.sort((a, b) => b.score - a.score);
 
-    // Return formatted unique top 3 plays
     const uniquePlays = [];
     const seenNames = new Set();
     for (const p of evaluatedStates) {
@@ -366,8 +318,283 @@ export const NeuralStrategy = {
       name: p.name,
       sequence: p.sequence,
       formattedSteps: p.sequence.map(formatActionText),
-      // p.score is between -1 and 1. Map to 0-100% win probability.
-      winProbability: Math.round(((p.score + 1) / 2) * 100)
+      // p.score is raw Q-value. We can map it heuristically to a "win probability"
+      // Assuming Q values generally fall between -1 and 5.
+      winProbability: Math.min(100, Math.max(0, Math.round((p.score + 1) * 20)))
     }));
   }
 };
+
+const DICE_PROBS = {
+    2: 1/36, 3: 2/36, 4: 3/36, 5: 4/36, 6: 5/36, 7: 6/36,
+    8: 5/36, 9: 4/36, 10: 3/36, 11: 2/36, 12: 1/36
+};
+
+export class ExpectedDQN {
+    constructor(actionSize = 67, learningRate = 0.001) {
+        this.actionSize = actionSize;
+        this.gamma = 0.95;
+        this.model = this.buildModel();
+        this.targetModel = this.buildModel();
+        this.updateTargetModel();
+        this.optimizer = tf.train.adam(learningRate);
+        
+        this.replayBuffer = [];
+        this.maxBufferSize = 10000;
+        this.batchSize = 64;
+    }
+
+    buildModel() {
+        const model = tf.sequential();
+        
+        // Input: [8, 8, 4] -> Channel 3 is now the Dice Roll scalar smeared across the grid
+        model.add(tf.layers.conv2d({
+            inputShape: [8, 8, 4],
+            filters: 32,
+            kernelSize: 3,
+            activation: 'relu',
+            padding: 'same'
+        }));
+        
+        model.add(tf.layers.conv2d({
+            filters: 64,
+            kernelSize: 3,
+            activation: 'relu',
+            padding: 'same'
+        }));
+        
+        model.add(tf.layers.flatten());
+        
+        model.add(tf.layers.dense({
+            units: 128,
+            activation: 'relu'
+        }));
+        
+        model.add(tf.layers.dense({
+            units: this.actionSize,
+            activation: 'linear' 
+        }));
+        
+        return model;
+    }
+
+    updateTargetModel() {
+        tf.tidy(() => {
+            this.targetModel.setWeights(this.model.getWeights());
+        });
+    }
+
+    static encodeState(board, currentRoll, role) {
+        const tensorArray = new Float32Array(8 * 8 * 4);
+        const normalizedRoll = currentRoll / 12.0;
+
+        for (let r = 0; r < 8; r++) {
+            for (let c = 0; c < 8; c++) {
+                const i = (r * 8 + c) * 4;
+                const cell = board[r][c];
+                
+                // Set the baseline defaults
+                tensorArray[i] = 0;     // Mirrors
+                tensorArray[i+1] = 0;   // Attacker
+                tensorArray[i+2] = 0;   // Defenders
+                tensorArray[i+3] = normalizedRoll; // Context (Smeared Dice Roll)
+                
+                if (cell) {
+                    if (cell.type === 'mirror') {
+                        tensorArray[i] = cell.orientation === '/' ? 1 : -1;
+                    } else if (cell.type === BLOCK_TYPES.BLOCK_LAZER) {
+                        tensorArray[i+1] = 1;
+                    } else if ([BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(cell.type)) {
+                        tensorArray[i+2] = 1;
+                    }
+                }
+            }
+        }
+        return tensorArray;
+    }
+
+    static generateValidMask(boardState, role) {
+        const mask = new Array(67).fill(false);
+        const actions = getPossibleActions(boardState, role);
+        for (const act of actions) {
+            if (act.type === 'move') {
+                mask[act.toR * 8 + act.toC] = true;
+            } else if (act.type === 'rotate') {
+                if (act.dir === 'cw') mask[64] = true;
+                if (act.dir === 'ccw') mask[65] = true;
+            } else if (act.type === 'laser-press') {
+                mask[66] = true;
+            }
+        }
+        return mask;
+    }
+
+    static actionIndexToObj(index, boardState, role) {
+        const { lazerPos, pointPieces } = getBoardState(boardState);
+        // Find moving piece
+        const pieces = role === 'attacker' ? (lazerPos ? [lazerPos] : []) : pointPieces;
+        
+        if (index >= 0 && index <= 63) {
+            const toR = Math.floor(index / 8);
+            const toC = index % 8;
+            for (const p of pieces) {
+                 if (validateMovement(boardState, p.r, p.c, toR, toC, role).valid) {
+                     return { type: 'move', fromR: p.r, fromC: p.c, toR, toC };
+                 }
+            }
+            return null; // Should be masked out anyway
+        } else if (index === 64) {
+            return { type: 'rotate', dir: 'cw', r: lazerPos?.r, c: lazerPos?.c };
+        } else if (index === 65) {
+            return { type: 'rotate', dir: 'ccw', r: lazerPos?.r, c: lazerPos?.c };
+        } else if (index === 66) {
+            return { type: 'laser-press' };
+        }
+        return null;
+    }
+
+    static objToActionIndex(act) {
+        if (!act) return -1;
+        if (act.type === 'move') return act.toR * 8 + act.toC;
+        if (act.type === 'rotate' && act.dir === 'cw') return 64;
+        if (act.type === 'rotate' && act.dir === 'ccw') return 65;
+        if (act.type === 'laser-press') return 66;
+        return -1;
+    }
+
+    getAction(stateArray, validActionsMask, epsilon = 0.1) {
+        return tf.tidy(() => {
+            if (Math.random() < epsilon) {
+                const validIndices = validActionsMask
+                    .map((val, idx) => val ? idx : -1)
+                    .filter(idx => idx !== -1);
+                if (validIndices.length === 0) return -1;
+                return validIndices[Math.floor(Math.random() * validIndices.length)];
+            }
+
+            const stateTensor = tf.tensor4d(stateArray, [1, 8, 8, 4]);
+            const qValues = this.model.predict(stateTensor).dataSync();
+            
+            let maxQ = -Infinity;
+            let bestAction = -1;
+            for (let i = 0; i < this.actionSize; i++) {
+                if (!validActionsMask[i]) continue;
+                if (qValues[i] > maxQ) {
+                    maxQ = qValues[i];
+                    bestAction = i;
+                }
+            }
+            return bestAction !== -1 ? bestAction : validActionsMask.findIndex(m => m);
+        });
+    }
+
+    remember(stateArray, action, reward, nextStateArray, done, nextBoardState, role) {
+        this.replayBuffer.push({ stateArray, action, reward, nextStateArray, done, nextBoardState, role });
+        if (this.replayBuffer.length > this.maxBufferSize) {
+            this.replayBuffer.shift();
+        }
+    }
+
+    async trainStep() {
+        if (this.replayBuffer.length < this.batchSize) return;
+
+        const batch = [];
+        for (let i = 0; i < this.batchSize; i++) {
+            const idx = Math.floor(Math.random() * this.replayBuffer.length);
+            batch.push(this.replayBuffer[idx]);
+        }
+
+        const targets = new Float32Array(this.batchSize);
+
+        const simulatedStateArrays = [];
+        const simulatedMasks = [];
+
+        for (let i = 0; i < this.batchSize; i++) {
+            const { nextStateArray, done, nextBoardState, role } = batch[i];
+            
+            if (done) {
+                for (let roll = 2; roll <= 12; roll++) {
+                    simulatedStateArrays.push(new Float32Array(8 * 8 * 4));
+                    simulatedMasks.push(new Array(this.actionSize).fill(false));
+                }
+            } else {
+                for (let roll = 2; roll <= 12; roll++) {
+                    const stateWithRoll = new Float32Array(nextStateArray);
+                    const normalizedRoll = roll / 12.0;
+                    for (let j = 3; j < stateWithRoll.length; j += 4) {
+                        stateWithRoll[j] = normalizedRoll;
+                    }
+                    simulatedStateArrays.push(stateWithRoll); 
+                    simulatedMasks.push(ExpectedDQN.generateValidMask(nextBoardState, role));
+                }
+            }
+        }
+
+        const totalSimulations = this.batchSize * 11;
+        
+        await tf.tidy(() => {
+            console.log("Building batched state tensor...");
+            const batchedStateTensor = tf.tensor4d(
+                simulatedStateArrays.flatMap(arr => Array.from(arr)), 
+                [totalSimulations, 8, 8, 4]
+            );
+            
+            console.log("Predicting target Q values...");
+            const futureQValuesBatch = this.targetModel.predict(batchedStateTensor, { batchSize: totalSimulations }).dataSync();
+            console.log("Predicted target Q values.");
+
+            for (let i = 0; i < this.batchSize; i++) {
+                const { reward, done } = batch[i];
+                
+                if (done) {
+                    targets[i] = reward;
+                    continue;
+                }
+
+                let expectedFutureReward = 0;
+                for (let r = 0; r < 11; r++) {
+                    const simIndex = i * 11 + r;
+                    const roll = r + 2;
+                    const prob = DICE_PROBS[roll];
+                    const mask = simulatedMasks[simIndex];
+                    
+                    let maxQ = -Infinity;
+                    for (let a = 0; a < this.actionSize; a++) {
+                        if (mask[a]) {
+                            const qValue = futureQValuesBatch[simIndex * this.actionSize + a];
+                            if (qValue > maxQ) maxQ = qValue;
+                        }
+                    }
+                    
+                    if (maxQ === -Infinity) maxQ = 0; 
+                    expectedFutureReward += prob * maxQ;
+                }
+                
+                targets[i] = reward + this.gamma * expectedFutureReward;
+            }
+        });
+
+        await tf.tidy(() => {
+            console.log("Building current state tensor...");
+            const currentStateTensor = tf.tensor4d(
+                batch.flatMap(exp => Array.from(exp.stateArray)), 
+                [this.batchSize, 8, 8, 4]
+            );
+            
+            console.log("Bypassing tf.gatherND...");
+            // Bypass tf.gatherND backprop bug by constructing the full [batchSize, actionSize] target tensor
+            const currentQValuesData = this.model.predict(currentStateTensor, { batchSize: this.batchSize }).arraySync();
+            for (let i = 0; i < this.batchSize; i++) {
+                currentQValuesData[i][batch[i].action] = targets[i];
+            }
+            const fullTargetTensor = tf.tensor2d(currentQValuesData, [this.batchSize, this.actionSize]);
+            
+            console.log("Starting optimization...");
+            this.optimizer.minimize(() => {
+                const currentQValues = this.model.predict(currentStateTensor, { batchSize: this.batchSize });
+                return tf.losses.meanSquaredError(fullTargetTensor, currentQValues);
+            });
+            console.log("Optimization complete.");
+        });
+    }
+}

@@ -10,7 +10,7 @@ global.window = {};
 
 import { BLOCK_TYPES } from '../src/core/Ruleset.js';
 import { getBoardState } from '../src/core/BotStrategies.js';
-import { boardToTensorArray, getPossibleActions, applyLightweightAction } from '../src/core/NeuralBot.js';
+import { ExpectedDQN, getPossibleActions, applyLightweightAction } from '../src/core/NeuralBot.js';
 import { getInitialState, applySandboxAction } from '../src/core/GameState.js';
 import { getBotSetupAction, getBotPlayAction } from '../src/core/BotEngine.js';
 import { getChallengeRecommendation } from '../src/core/BotStrategies.js';
@@ -84,13 +84,14 @@ class NodeFileSystem {
   }
 }
 
-async function simulateGame() {
+async function simulateGame(epsilon = 0.1) {
   const randomBoard = customBoards[Math.floor(Math.random() * customBoards.length)];
   let state = getInitialState(randomBoard);
+  state.epsilon = epsilon; // Pass epsilon to the neural strategy via state
   const gameData = []; // Store state + actor for end-of-game labeling
   
-  // Mixed Difficulties
-  const diffs = ['hard', 'medium', 'easy'];
+  // Mixed Difficulties (Self-play with Neural network)
+  const diffs = ['neural', 'neural', 'hard', 'medium'];
   const botRed = diffs[Math.floor(Math.random() * diffs.length)];
   const botBlue = diffs[Math.floor(Math.random() * diffs.length)];
 
@@ -156,23 +157,42 @@ async function simulateGame() {
       let action = await getBotPlayAction(state.board, activeRole, state.actionPoints, activeBot, state, activeColor);
       
       if (action) {
-        // Collect State before action
-        const tensorArray = boardToTensorArray(state.board, state, activeRole);
+        const actionIndex = ExpectedDQN.objToActionIndex(action);
+        const roll = state.actionPoints || 0;
+        const stateArray = ExpectedDQN.encodeState(state.board, roll, activeRole);
         
-        // Evaluate mathematical score for blending based on the actual bot personality
-        const { evaluateBoardAttacker, evaluateBoardDefender } = await import('../src/core/BotStrategies.js');
-        const cautiousness = activeBot === 'easy' ? 0.5 : activeBot === 'hard' ? 1.5 : 1.0;
-        
-        let mathScore = 0;
-        if (activeRole === 'attacker') {
-           mathScore = evaluateBoardAttacker(state.board, cautiousness);
-        } else {
-           mathScore = -evaluateBoardDefender(state.board, cautiousness);
-        }
-        
-        gameData.push({ tensorArray, mathScore, actorRole: activeRole, roleRed: state.roleRed });
+        const prevDefenders = state.board.flat().filter(c => c && ['defender_20', 'defender_30', 'defender_50'].includes(c.type)).length;
+        const prevRound = state.round || 1;
         
         state = applySandboxAction(state.board, action, activeColor.toLowerCase(), state);
+
+        let stepReward = 0;
+        const currentDefenders = state.board.flat().filter(c => c && ['defender_20', 'defender_30', 'defender_50'].includes(c.type)).length;
+        
+        if (activeRole === 'attacker') {
+            stepReward -= 0.05;
+            if (currentDefenders < prevDefenders) {
+                stepReward += 1.0 * (prevDefenders - currentDefenders);
+            }
+        } else {
+            if (state.round > prevRound) {
+                stepReward += 1.0;
+            }
+        }
+
+        const nextStateArray = ExpectedDQN.encodeState(state.board, state.actionPoints || 0, activeRole);
+        
+        gameData.push({
+            stateArray,
+            roll,
+            action: actionIndex,
+            reward: stepReward,
+            nextStateArray,
+            nextBoardState: JSON.parse(JSON.stringify(state.board)),
+            role: activeRole,
+            done: false
+        });
+        
       } else {
         state = applySandboxAction(state.board, { type: 'end-turn' }, activeColor.toLowerCase(), state);
       }
@@ -197,62 +217,67 @@ async function simulateGame() {
     if (turns > MAX_TURNS - 5) break;
   }
   
-  // End of match. Compute final points.
-  // The goal of Attacker is to maximize (attackerScore - defenderScore).
-  // The goal of Defender is to minimize it.
+  // End of match. Compute final points and terminal bonuses.
   const finalAttackerScore = state.roleRed === 'attacker' ? (state.scores?.red || 0) : (state.scores?.blue || 0);
   const finalDefenderScore = state.roleRed === 'attacker' ? (state.scores?.blue || 0) : (state.scores?.red || 0);
-  
-  // If game ended prematurely, guess the score
   const scoreDelta = finalAttackerScore - finalDefenderScore;
   
-  const inputs = [];
-  const labels = [];
+  const finalDefenders = state.board.flat().filter(c => c && ['defender_20', 'defender_30', 'defender_50'].includes(c.type)).length;
+  
+  if (gameData.length > 0) {
+      for (let i = gameData.length - 1; i >= 0; i--) {
+          if (gameData[i].role === 'attacker') {
+              if (finalDefenders === 0 && state.round <= 3) gameData[i].reward += 5.0;
+              break;
+          }
+      }
+      for (let i = gameData.length - 1; i >= 0; i--) {
+          if (gameData[i].role === 'defender') {
+              if (finalDefenders > 0 && state.round >= 3) gameData[i].reward += 5.0;
+              break;
+          }
+      }
+  }
 
-  for (const step of gameData) {
-    inputs.push(step.tensorArray);
-    
-    // Label blending: Scale down mathScore to prevent gradient explosion (MSE on 100k -> NaN)
-    // scoreDelta is around -100 to 100. mathScore can be up to 100,000.
-    // We scale everything to roughly a [-1, 1] range for stable training with MSE.
-    const scaledMathScore = step.mathScore / 100000;
-    const scaledDelta = scoreDelta / 100;
-    
-    let blendedScore = (scaledMathScore * 0.5) + (scaledDelta * 0.5);
-    
-    // Clamp to [-1, 1] for tanh activation
-    if (blendedScore > 1) blendedScore = 1;
-    if (blendedScore < -1) blendedScore = -1;
-    
-    labels.push([blendedScore]);
+  for (let step of gameData) {
+      if (state.winner) step.done = true;
   }
   
   const winner = state.winner === 'tie' ? 'tie' : (state.roleRed === state.winner ? 'red' : 'blue');
   const attackerWon = winner !== 'tie' && ((winner === 'red' && state.roleRed === 'attacker') || (winner === 'blue' && state.roleRed !== 'attacker'));
   const defenderWon = winner !== 'tie' && !attackerWon;
 
-  return { inputs, labels, scoreDelta, attackerWon, defenderWon, turns };
+  return { experiences: gameData, scoreDelta, attackerWon, defenderWon, turns };
 }
 
-async function generateBatch(games) {
-  const allInputs = [];
-  const allLabels = [];
+async function generateBatch(games, epsilon) {
+  const allExperiences = [];
   for (let i = 0; i < games; i++) {
-    const { inputs, labels, scoreDelta, attackerWon, defenderWon, turns } = await simulateGame();
-    allInputs.push(...inputs);
-    allLabels.push(...labels);
+    const { experiences, scoreDelta, attackerWon, defenderWon, turns } = await simulateGame(epsilon);
+    allExperiences.push(...experiences);
     parentPort.postMessage({ type: 'progress', data: { scoreDelta, attackerWon, defenderWon, turns } });
   }
-  parentPort.postMessage({ type: 'result', data: { inputs: allInputs, labels: allLabels } });
+  parentPort.postMessage({ type: 'result', data: { experiences: allExperiences } });
 }
 
 if (!isMainThread) {
-  generateBatch(workerData.gamesToPlay);
+  generateBatch(workerData.gamesToPlay, workerData.epsilon);
 } else {
 
 async function trainModel() {
   const numCores = os.cpus().length;
   console.log(`\n🚀 Started Continuous RL Training: ${ITERATIONS} iterations, ${GAMES_TO_PLAY} games per iteration on ${numCores} CPU Cores.`);
+  
+  let totalGamesSimulated = 0;
+  const EPSILON_START = 1.0;
+  const EPSILON_END = 0.05;
+  const EPSILON_DECAY_GAMES = 5000;
+  
+  const LR_START = 0.001;
+  const LR_END = 0.0001;
+  const LR_DECAY_GAMES = 10000;
+  
+  let lastCheckpointGames = 0;
   
   const savePath = path.resolve('./public/models/ai-bot');
   const modelPath = path.join(savePath, 'model.json');
@@ -260,55 +285,60 @@ async function trainModel() {
   
   if (!fs.existsSync(savePath)) fs.mkdirSync(savePath, { recursive: true });
 
-  let globalInputs = [];
-  let globalLabels = [];
+  let dqn = new ExpectedDQN();
 
-  // Load existing replay buffer if it exists
   if (fs.existsSync(bufferPath)) {
     console.log(`\n🔄 Loading Experience Replay Buffer from disk...`);
     try {
       const bufferData = JSON.parse(fs.readFileSync(bufferPath, 'utf8'));
-      globalInputs = bufferData.inputs || [];
-      globalLabels = bufferData.labels || [];
-      console.log(`✅ Loaded ${globalInputs.length} past states.`);
+      const rawExperiences = bufferData.experiences || [];
+      // Reconstruct the Float32Arrays to avoid JSON object parsing issues
+      dqn.replayBuffer = rawExperiences.map(exp => {
+          if (exp.stateArray && !Array.isArray(exp.stateArray) && !(exp.stateArray instanceof Float32Array)) {
+              exp.stateArray = new Float32Array(Object.values(exp.stateArray));
+          }
+          if (exp.nextStateArray && !Array.isArray(exp.nextStateArray) && !(exp.nextStateArray instanceof Float32Array)) {
+              exp.nextStateArray = new Float32Array(Object.values(exp.nextStateArray));
+          }
+          return exp;
+      });
+      console.log(`✅ Loaded ${dqn.replayBuffer.length} past states.`);
     } catch(e) {
       console.error(`❌ Failed to load replay buffer. Starting fresh. Error: ${e.message}`);
     }
   }
 
-  let model;
   if (fs.existsSync(modelPath)) {
-    console.log(`\n🔄 Loading existing neural network model...`);
+    console.log(`\n🔄 Loading existing expected DQN neural network model...`);
     try {
-      model = await tf.loadLayersModel(new NodeFileSystem(savePath));
-      model.compile({ optimizer: tf.train.adam(0.001), loss: 'meanSquaredError' });
+      dqn.model = await tf.loadLayersModel(new NodeFileSystem(savePath));
+      dqn.model.compile({ optimizer: dqn.optimizer, loss: 'meanSquaredError' });
+      dqn.updateTargetModel();
       console.log(`✅ Model loaded successfully.`);
     } catch (e) {
       console.error(`❌ Failed to load existing model. Creating a fresh one. Error: ${e.message}`);
-      model = null;
     }
-  }
-
-  if (!model) {
-    console.log(`\n✨ Creating a fresh 79-feature Neural Network...`);
-    model = tf.sequential();
-    model.add(tf.layers.dense({ inputShape: [79], units: 128, activation: 'relu' }));
-    model.add(tf.layers.dense({ units: 64, activation: 'relu' }));
-    model.add(tf.layers.dense({ units: 32, activation: 'relu' }));
-    model.add(tf.layers.dense({ units: 1, activation: 'tanh' })); // Tanh bounds to [-1, 1]
-    model.compile({ optimizer: tf.train.adam(0.001), loss: 'meanSquaredError' });
+  } else {
+    console.log(`\n✨ Compiled fresh Expected DQN Neural Network...`);
+    dqn.model.compile({ optimizer: dqn.optimizer, loss: 'meanSquaredError' });
+    dqn.targetModel.compile({ optimizer: dqn.optimizer, loss: 'meanSquaredError' });
   }
 
   for (let iter = 1; iter <= ITERATIONS; iter++) {
+    const currentEpsilon = Math.max(EPSILON_END, EPSILON_START - (totalGamesSimulated / EPSILON_DECAY_GAMES) * (EPSILON_START - EPSILON_END));
+    const currentLR = Math.max(LR_END, LR_START - (totalGamesSimulated / LR_DECAY_GAMES) * (LR_START - LR_END));
+    
+    // Update optimizer learning rate
+    dqn.optimizer.learningRate = currentLR;
+
     console.log(`\n======================================================`);
-    console.log(`🔥 ITERATION ${iter}/${ITERATIONS}`);
+    console.log(`🔥 ITERATION ${iter}/${ITERATIONS} | Epsilon: ${currentEpsilon.toFixed(3)} | LR: ${currentLR.toFixed(5)} | Total Games: ${totalGamesSimulated}`);
     console.log(`======================================================`);
     
     const gamesPerCore = Math.ceil(GAMES_TO_PLAY / numCores);
     const workers = [];
     
-    let newInputs = [];
-    let newLabels = [];
+    let newExperiences = [];
     
     const __filename = fileURLToPath(import.meta.url);
 
@@ -322,7 +352,7 @@ async function trainModel() {
       workers.push(new Promise((resolve, reject) => {
         const worker = new Worker(__filename, {
           execArgv: ['--import', 'tsx'],
-          workerData: { gamesToPlay: gamesPerCore },
+          workerData: { gamesToPlay: gamesPerCore, epsilon: currentEpsilon },
           env: { ...process.env, TF_CPP_MIN_LOG_LEVEL: '3' }
         });
         worker.on('message', (msg) => {
@@ -339,8 +369,7 @@ async function trainModel() {
             
             process.stdout.write(`\r🎮 Simulating: [${gamesCompleted}/${GAMES_TO_PLAY}] | Attacker Win: ${winRate}% | Avg Score Diff: ${avgDelta} | Avg Turns: ${avgTurns}    `);
           } else if (msg.type === 'result') {
-            newInputs.push(...msg.data.inputs);
-            newLabels.push(...msg.data.labels);
+            newExperiences.push(...msg.data.experiences);
             resolve();
           }
         });
@@ -352,83 +381,52 @@ async function trainModel() {
     }
 
     await Promise.all(workers);
+    totalGamesSimulated += GAMES_TO_PLAY;
     
-    console.log(`\n✅ Generated ${newInputs.length} new reinforcement learning states.`);
+    console.log(`\n✅ Generated ${newExperiences.length} new reinforcement learning states.`);
     
-    // Append to global buffer and truncate if necessary (FIFO)
-    globalInputs.push(...newInputs);
-    globalLabels.push(...newLabels);
-    
-    // OFFLINE DOJO MERGING: Bake human strategies directly into the brain
-    const dojoPath = path.join(savePath, 'dojo_buffer.json');
-    if (fs.existsSync(dojoPath)) {
-      try {
-        const dojoData = JSON.parse(fs.readFileSync(dojoPath, 'utf8'));
-        if (dojoData.inputs && dojoData.labels) {
-          console.log(`\n🥋 Found Offline Dojo Data! Merging ${dojoData.inputs.length} human-played states into training...`);
-          // Prepend so they aren't pushed out by FIFO as quickly
-          globalInputs.unshift(...dojoData.inputs);
-          globalLabels.unshift(...dojoData.labels);
-          // Delete it so it doesn't get merged repeatedly every iteration unless a new one is provided
-          fs.unlinkSync(dojoPath);
-        }
-      } catch (e) {
-        console.error("⚠️ Failed to load dojo_buffer.json", e);
-      }
-    }
-    
-    if (globalInputs.length > MAX_REPLAY_SIZE) {
-      console.log(`⚠️ Replay buffer exceeded max size (${MAX_REPLAY_SIZE}). Discarding oldest states.`);
-      const excess = globalInputs.length - MAX_REPLAY_SIZE;
-      globalInputs.splice(0, excess);
-      globalLabels.splice(0, excess);
+    for (const exp of newExperiences) {
+       // Filter out empty actions
+       if (exp.action !== -1) {
+           dqn.remember(exp.stateArray, exp.action, exp.reward, exp.nextStateArray, exp.done, exp.nextBoardState, exp.role);
+       }
     }
     
     console.log(`💾 Saving Replay Buffer to disk...`);
-    fs.writeFileSync(bufferPath, JSON.stringify({ inputs: globalInputs, labels: globalLabels }));
+    const serializedBuffer = dqn.replayBuffer.map(exp => ({
+        ...exp,
+        stateArray: Array.from(exp.stateArray),
+        nextStateArray: Array.from(exp.nextStateArray)
+    }));
+    fs.writeFileSync(bufferPath, JSON.stringify({ experiences: serializedBuffer }));
 
-    console.log(`🧠 Training Neural Network on ${globalInputs.length} total states...`);
-    const xs = tf.tensor2d(globalInputs, [globalInputs.length, 79]);
-    const ys = tf.tensor2d(globalLabels, [globalLabels.length, 1]);
-
-    const history = await model.fit(xs, ys, {
-      epochs: 20,
-      batchSize: 128,
-      shuffle: true,
-      callbacks: {
-        onEpochEnd: (epoch, logs) => {
-          const bar = '█'.repeat(Math.ceil((epoch + 1) / 20 * 30)).padEnd(30, '░');
-          console.log(`Epoch ${epoch + 1}/20 |${bar}| Loss: ${logs.loss.toFixed(4)}`);
+    console.log(`🧠 Training Expected DQN on ${dqn.replayBuffer.length} total states...`);
+    
+    const trainingSteps = Math.min(Math.floor(dqn.replayBuffer.length / dqn.batchSize), 100);
+    const progressBarWidth = 30;
+    
+    for(let t = 0; t < trainingSteps; t++) {
+        await dqn.trainStep();
+        if (t % Math.max(1, Math.floor(trainingSteps / 10)) === 0 || t === trainingSteps - 1) {
+             const progress = (t + 1) / trainingSteps;
+             const bar = '█'.repeat(Math.ceil(progress * progressBarWidth)).padEnd(progressBarWidth, '░');
+             process.stdout.write(`\rTraining Mini-Batches: [${t + 1}/${trainingSteps}] |${bar}|`);
         }
-      }
-    });
-
-    const finalLoss = history.history.loss[history.history.loss.length - 1];
-    const marginOfError = Math.sqrt(finalLoss).toFixed(0);
-    console.log(`\n🎯 Iteration ${iter} Final Margin of Error: ±${marginOfError} points`);
-
-    const metricsPath = path.join(savePath, 'metrics_history.json');
-    let metricsHistory = [];
-    if (fs.existsSync(metricsPath)) {
-      try {
-        metricsHistory = JSON.parse(fs.readFileSync(metricsPath, 'utf8'));
-      } catch (e) {}
     }
-    metricsHistory.push({
-      iteration: iter,
-      timestamp: new Date().toISOString(),
-      loss: finalLoss,
-      marginOfError: parseInt(marginOfError),
-      statesTrainedOn: globalInputs.length
-    });
-    fs.writeFileSync(metricsPath, JSON.stringify(metricsHistory, null, 2));
+    
+    dqn.updateTargetModel();
 
-    xs.dispose();
-    ys.dispose();
-
-    await model.save(new NodeFileSystem(savePath));
-    console.log(`✅ Model saved to ${savePath}`);
+    // Checkpointing every 500 games
+    if (totalGamesSimulated - lastCheckpointGames >= 500) {
+        console.log(`\n💾 Reached 500+ games since last checkpoint. Saving model weights to ${savePath}...`);
+        await dqn.model.save(new NodeFileSystem(savePath));
+        lastCheckpointGames = totalGamesSimulated;
+    }
   }
+  
+  // Final save at the end of all iterations
+  await dqn.model.save(new NodeFileSystem(savePath));
+  console.log(`\n✅ Final Model saved to ${savePath}`);
   
   console.log(`\n🎉 Continuous Training Complete!`);
 }
