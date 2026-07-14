@@ -98,6 +98,13 @@ async function simulateGame(epsilon = 0.1) {
   // Helper to roll dice
   const rollDie = () => Math.floor(Math.random() * 6) + 1;
 
+  const getDefenderPoints = (b) => b.flat().reduce((sum, c) => {
+      if (c && c.type === 'defender_20') return sum + 20;
+      if (c && c.type === 'defender_30') return sum + 30;
+      if (c && c.type === 'defender_50') return sum + 50;
+      return sum;
+  }, 0);
+
   let turns = 0;
   while (!state.winner && turns < MAX_TURNS) {
     turns++;
@@ -162,21 +169,26 @@ async function simulateGame(epsilon = 0.1) {
         const stateArray = ExpectedDQN.encodeState(state.board, roll, activeRole);
         
         const prevDefenders = state.board.flat().filter(c => c && ['defender_20', 'defender_30', 'defender_50'].includes(c.type)).length;
+        const prevDefenderPoints = getDefenderPoints(state.board);
         const prevRound = state.round || 1;
         
         state = applySandboxAction(state.board, action, activeColor.toLowerCase(), state);
 
         let stepReward = 0;
         const currentDefenders = state.board.flat().filter(c => c && ['defender_20', 'defender_30', 'defender_50'].includes(c.type)).length;
+        const currentDefenderPoints = getDefenderPoints(state.board);
         
         if (activeRole === 'attacker') {
-            stepReward -= 0.05;
-            if (currentDefenders < prevDefenders) {
-                stepReward += 1.0 * (prevDefenders - currentDefenders);
+            stepReward -= 0.1; // Base turn penalty (hurry up)
+            if (currentDefenderPoints < prevDefenderPoints) {
+                stepReward += (prevDefenderPoints - currentDefenderPoints); // Capture reward matches piece value
             }
         } else {
+            if (currentDefenderPoints < prevDefenderPoints) {
+                stepReward -= (prevDefenderPoints - currentDefenderPoints); // Defender penalty for losing pieces
+            }
             if (state.round > prevRound) {
-                stepReward += 1.0;
+                stepReward += 2.0;
             }
         }
 
@@ -227,13 +239,20 @@ async function simulateGame(epsilon = 0.1) {
   if (gameData.length > 0) {
       for (let i = gameData.length - 1; i >= 0; i--) {
           if (gameData[i].role === 'attacker') {
-              if (finalDefenders === 0 && state.round <= 3) gameData[i].reward += 5.0;
+              if (finalDefenders === 0) {
+                  if (state.round === 1) gameData[i].reward += 150.0;
+                  else if (state.round === 2) gameData[i].reward += 75.0;
+                  else if (state.round === 3) gameData[i].reward += 30.0;
+                  // Round 4+ gets 0 wipeout reward (too slow)
+              }
               break;
           }
       }
       for (let i = gameData.length - 1; i >= 0; i--) {
           if (gameData[i].role === 'defender') {
-              if (finalDefenders > 0 && state.round >= 3) gameData[i].reward += 5.0;
+              if (finalDefenders > 0) {
+                  gameData[i].reward += 50.0; // Terminal reward for surviving
+              }
               break;
           }
       }
