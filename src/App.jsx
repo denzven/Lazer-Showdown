@@ -7,6 +7,7 @@ import TutorialLayout from './components/TutorialLayout';
 import { Globe, Users, Cpu, ChevronDown, Share2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import './index.css';
+import InstallPWA from './components/InstallPWA';
 
 const loreModules = import.meta.glob(['./lore/*.md', './lore/*.txt'], { query: '?raw', import: 'default', eager: true });
 const loreFiles = Object.keys(loreModules).sort().map(key => loreModules[key]);
@@ -153,6 +154,7 @@ function App() {
 
   return (
     <>
+      <InstallPWA show={mode === 'main-menu'} />
       {showGameLayout ? (
         mode === 'tutorial' ? (
           <TutorialLayout network={activeNetwork} originalGame={game} onExit={() => setMode('how-to-play')} />

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Download } from 'lucide-react';
 
-export default function InstallPWA() {
+export default function InstallPWA({ show = true }) {
   const [supportsPWA, setSupportsPWA] = useState(false);
   const [promptInstall, setPromptInstall] = useState(null);
   const [isIOS, setIsIOS] = useState(false);
@@ -50,6 +50,8 @@ export default function InstallPWA() {
   if (isStandalone) return null;
 
   if (!supportsPWA && !isIOS) return null;
+
+  if (!show) return null;
 
   return (
     <div style={{

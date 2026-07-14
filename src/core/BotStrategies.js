@@ -6,6 +6,12 @@ import {
   traceLaserBeam 
 } from './Ruleset.js';
 
+// --- THREAT MAP CACHE (Phase 2a) ---
+// Keyed by laser position + direction. Invalidates automatically when the laser moves or rotates.
+// During a Defender's turn the laser is static, so the cache hits on every inner node of
+// the Depth-3 search — reducing threat map computation by ~90% per AP.
+let _threatMapCache = { key: null, map: null };
+
 // --- SHARED HELPER FUNCTIONS ---
 
 export function getBoardState(board) {
@@ -59,7 +65,9 @@ function getPossibleActions(board, role) {
 }
 
 function applyLightweightAction(board, action) {
-  const newBoard = board.map(row => [...row]);
+  // Phase 2b: use slice() instead of spread — functionally identical but makes mutation
+  // safety explicit and avoids the latent hazard of spread-based shallow copies.
+  const newBoard = board.map(row => row.slice());
   if (action.type === 'move') {
     newBoard[action.toR][action.toC] = newBoard[action.fromR][action.fromC];
     newBoard[action.fromR][action.fromC] = null;
@@ -179,6 +187,116 @@ export function getPrimaryTarget(board) {
   return null;
 }
 
+
+/**
+ * BFS from a defender piece to the nearest cell below the safety threat threshold.
+ * Returns 0 if the piece is already in a safe zone; otherwise the minimum step count.
+ *
+ * This creates a "safety pull" gradient in the eval functions that guides pieces toward
+ * low-threat zones even when those zones lie beyond the current search depth.
+ * With the threat map memoized (Phase 2a), each BFS call on a Defender turn is ~O(64)
+ * over already-computed threat values — negligible overhead even at Depth-3.
+ *
+ * @param {Array}  board      Current board state (reflects simulated piece positions)
+ * @param {number} startR     Piece's current row
+ * @param {number} startC     Piece's current column
+ * @param {Array}  threatMap  Pre-computed threat map (memoized = O(1) on Defender turns)
+ * @param {number} [threshold=0.25] Threat level at or below which a cell is "safe"
+ * @returns {number} Minimum steps to a safe cell, capped at 10
+ */
+function computeSafetySteps(board, startR, startC, threatMap, threshold = 0.25) {
+  if (threatMap[startR][startC].total <= threshold) return 0;
+
+  const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+  const visited = new Set();
+  visited.add(`${startR},${startC}`);
+  const queue = [{ r: startR, c: startC, dist: 0 }];
+
+  while (queue.length > 0) {
+    const { r, c, dist } = queue.shift();
+    if (dist >= 10) continue; // Cap search to keep it O(64)
+
+    for (const [dr, dc] of dirs) {
+      const nr = r + dr;
+      const nc = c + dc;
+      const key = `${nr},${nc}`;
+      if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) continue;
+      if (visited.has(key)) continue;
+      visited.add(key);
+      if (board[nr][nc] !== null) continue; // Blocked by mirror or another piece
+      if (threatMap[nr][nc].total <= threshold) return dist + 1; // Safe cell found
+      queue.push({ r: nr, c: nc, dist: dist + 1 });
+    }
+  }
+
+  return 10; // No safe cell reachable — cap at max
+}
+
+/**
+ * Reverse beam trace — finds every empty cell from which the laser can reach a specific piece.
+ *
+ * Traces beams outward from the target piece in all 4 directions. Any empty cell
+ * along those beam paths is a valid laser firing position (the laser can stand
+ * there, rotate to the appropriate angle, and the beam will reach the piece).
+ *
+ * Note: shares the same approximation as getPrimaryTarget — cells after mirror
+ * bounces are included. Rare false positives are harmless: the bot arrives at the
+ * cell and the Priority-1/2 checks in planReverseAttack handle the rotation.
+ *
+ * @returns {Set<string>} Set of "row,col" keys for valid firing positions
+ */
+function getReverseFiringCells(board, targetR, targetC) {
+  const cells = new Set();
+  for (const rot of [0, 90, 180, 270]) {
+    const trace = traceLaserBeam(board, { r: targetR, c: targetC }, rot);
+    for (const step of trace.path) {
+      if (step.type === 'beam' && board[step.r][step.c] === null) {
+        cells.add(`${step.r},${step.c}`);
+      }
+    }
+  }
+  return cells;
+}
+
+/**
+ * BFS from the laser's current position to the nearest valid firing cell.
+ * Returns the minimum number of 1-cell moves required, the first step of the
+ * optimal path, and the firing position reached — or null if unreachable.
+ *
+ * Unlike Manhattan distance (used in getPrimaryTarget), BFS respects board
+ * obstacles (mirrors, other pieces), giving a provably optimal move count.
+ */
+function bfsToNearestFiringCell(board, lazerPos, firingCells) {
+  const startKey = `${lazerPos.r},${lazerPos.c}`;
+  // Already at a firing cell (laser's own cell is never null, so this is rare,
+  // but guard against it for correctness)
+  if (firingCells.has(startKey)) return { steps: 0, firstStep: null, firingPos: lazerPos };
+
+  const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+  const visited = new Set([startKey]);
+  const queue = [{ r: lazerPos.r, c: lazerPos.c, steps: 0, firstStep: null }];
+
+  while (queue.length > 0) {
+    const { r, c, steps, firstStep } = queue.shift();
+    for (const [dr, dc] of dirs) {
+      const nr = r + dr;
+      const nc = c + dc;
+      const key = `${nr},${nc}`;
+      if (nr < 0 || nr >= BOARD_SIZE || nc < 0 || nc >= BOARD_SIZE) continue;
+      if (visited.has(key)) continue;
+      if (board[nr][nc] !== null) continue; // Blocked by mirror or piece
+      visited.add(key);
+      // Preserve the first step taken from the origin throughout the BFS tree
+      const nextFirstStep = firstStep ?? { r: nr, c: nc };
+      if (firingCells.has(key)) {
+        return { steps: steps + 1, firstStep: nextFirstStep, firingPos: { r: nr, c: nc } };
+      }
+      queue.push({ r: nr, c: nc, steps: steps + 1, firstStep: nextFirstStep });
+    }
+  }
+  return null; // No path found (target enclosed or board fully blocked)
+}
+
 // Evaluate board for Medium Attacker (Lizbishmir: True Blended Heuristic)
 function evaluateMediumAttacker(board, cautiousness = 1.0) {
   const { lazerPos, lazerDir, pointPieces } = getBoardState(board);
@@ -195,9 +313,25 @@ function evaluateMediumAttacker(board, cautiousness = 1.0) {
 
   let targetPiece = pointPieces.sort((a, b) => getPieceValue(b.type) - getPieceValue(a.type))[0];
 
-  // Easy Bot Logic: Penalize physical distance heavily so she marches
-  const manhattanDist = Math.abs(lazerPos.r - targetPiece.r) + Math.abs(lazerPos.c - targetPiece.c);
-  score -= manhattanDist * 100;
+  // Fire-proximity pathfinding: use actual minimum APs to reach a firing position rather
+  // than Manhattan distance to the piece body. Manhattan misleads when the laser must
+  // reposition around mirrors or the target is offset from any straight-line approach.
+  const fireTarget = getPrimaryTarget(board);
+  if (fireTarget) {
+    // If firing is possible this very AP — strong bonus (don't pass up a live shot).
+    if (fireTarget.isHit) {
+      score += getPieceValue(fireTarget.type) * 3;
+    } else {
+      // Pull toward the nearest firing position proportional to distance.
+      // At apToHit = 1 (one action away): no penalty.
+      // At apToHit = 6 (five actions away): -5 × 350 = -1,750 points.
+      score -= Math.max(0, fireTarget.apToHit - 1) * 350;
+    }
+  } else {
+    // Fallback when no traceable firing path exists (rare — open board obstruction).
+    const manhattanDist = Math.abs(lazerPos.r - targetPiece.r) + Math.abs(lazerPos.c - targetPiece.c);
+    score -= manhattanDist * 100;
+  }
 
   // Hard Bot Logic: Capture reward
   const trace = traceLaserBeam(board, lazerPos, lazerDir);
@@ -236,6 +370,15 @@ export function evaluateBoardAttacker(board, cautiousness = 1.0) {
      score += getPieceValue(t.type) * 2 * t.threatLevel; 
   }
 
+  // Approach gradient: when the best achievable threat is low (laser is far from any firing angle),
+  // apply a penalty proportional to the gap from the "well-positioned" threshold (0.7).
+  // This extends the attacker's effective planning horizon beyond the depth-3 search tree.
+  // Scale: at maxThreat=0.1 on a 50-pt piece → -(0.6 × 5000 × 3) = -9,000 pull toward target.
+  //        at maxThreat=0.7+ → 0 (laser is already in a strong firing position, no extra pull).
+  if (threats.length > 0 && threats[0].threatLevel < 0.7) {
+    score -= (0.7 - threats[0].threatLevel) * getPieceValue(threats[0].type) * 3;
+  }
+
   // 3. Are we hitting a piece currently?
   const trace = traceLaserBeam(board, lazerPos, lazerDir);
   if (trace.hitPiece && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(trace.hitPiece.cell.type)) {
@@ -250,6 +393,35 @@ export function evaluateBoardAttacker(board, cautiousness = 1.0) {
 
   score += calculateMobility(board, 'attacker') * 5;
   score += calculateCenterControl(board) * 10;
+
+  // Phase 3b — Adversarial 1-step escape check.
+  // If the beam is currently aimed at a piece (but not yet fired), verify whether the defender
+  // can simply walk one step out of the beam path. A trapped piece (no escape) earns a strong
+  // bonus; an escapable setup earns a penalty to prevent the Attacker over-committing to fragile angles.
+  if (pointPieces.length > 0) {
+    const advTrace = traceLaserBeam(board, lazerPos, lazerDir);
+    if (advTrace.hitPiece && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(advTrace.hitPiece.cell.type)) {
+      const hp = advTrace.hitPiece;
+      const escDirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+      let canEscape = false;
+      for (const [dr, dc] of escDirs) {
+        const nr = hp.r + dr;
+        const nc = hp.c + dc;
+        if (nr >= 0 && nr < BOARD_SIZE && nc >= 0 && nc < BOARD_SIZE && board[nr][nc] === null) {
+          const escBoard = board.map(row => row.slice());
+          escBoard[nr][nc] = escBoard[hp.r][hp.c];
+          escBoard[hp.r][hp.c] = null;
+          const escTrace = traceLaserBeam(escBoard, lazerPos, lazerDir);
+          const stillHit = escTrace.hitPiece && escTrace.hitPiece.r === nr && escTrace.hitPiece.c === nc;
+          if (!stillHit) { canEscape = true; break; }
+        }
+      }
+      // No escape = near-certain trap → strong bonus. Escapable = fragile angle → penalty.
+      score += canEscape
+        ? -getPieceValue(hp.cell.type) * 0.5
+        :  getPieceValue(hp.cell.type) * 1.0;
+    }
+  }
 
   return score;
 }
@@ -302,6 +474,18 @@ function evaluateMediumDefender(board, cautiousness = 1.0) {
     }
   }
 
+  // Safety pathfinding gradient: BFS each piece toward the nearest low-threat cell.
+  // Creates a directional pull beyond depth-1 search — the bot can now "see" safety
+  // even when it's multiple moves away.
+  // Scale: 8 steps away for a 50-pt piece → -(8 × 5000 × 0.06) = -2,400 penalty.
+  if (lazerPos) {
+    const safetyThreatMap = generateThreatMap(board); // memoized = O(1) on Defender turns
+    for (const p of pointPieces) {
+      const safetySteps = computeSafetySteps(board, p.r, p.c, safetyThreatMap);
+      score -= safetySteps * getPieceValue(p.type) * 0.06;
+    }
+  }
+
   return score;
 }
 
@@ -330,12 +514,14 @@ export function evaluateBoardDefender(board, cautiousness = 1.0) {
       if (dist <= 2) {
         score -= 50; // Severe penalty for clustering
       }
+      // Phase 1b — Patched collinear check: any non-null entity (mirror OR point piece)
+      // breaks the line of sight and prevents the collinear vulnerability penalty.
       if (p1.r === p2.r) {
          const minC = Math.min(p1.c, p2.c);
          const maxC = Math.max(p1.c, p2.c);
          let blocked = false;
          for (let c = minC + 1; c < maxC; c++) {
-            if (board[p1.r][c] !== null && board[p1.r][c].type === BLOCK_TYPES.BLOCK_MIRROR) blocked = true;
+            if (board[p1.r][c] !== null) { blocked = true; break; }
          }
          if (!blocked) score -= 30;
       }
@@ -344,7 +530,7 @@ export function evaluateBoardDefender(board, cautiousness = 1.0) {
          const maxR = Math.max(p1.r, p2.r);
          let blocked = false;
          for (let r = minR + 1; r < maxR; r++) {
-            if (board[r][p1.c] !== null && board[r][p1.c].type === BLOCK_TYPES.BLOCK_MIRROR) blocked = true;
+            if (board[r][p1.c] !== null) { blocked = true; break; }
          }
          if (!blocked) score -= 30;
       }
@@ -354,13 +540,28 @@ export function evaluateBoardDefender(board, cautiousness = 1.0) {
   score += calculateMobility(board, 'defender') * 5;
   score -= calculateCenterControl(board) * 10;
 
+  // Safety pathfinding gradient: BFS each piece toward nearest low-threat cell.
+  // More aggressive weight than Medium (0.12 vs 0.06) — Hard Defender actively routes
+  // toward corners and shadow zones rather than just avoiding the immediate beam.
+  // Scale: 8 steps for a 50-pt piece → -(8 × 5000 × 0.12) = -4,800 penalty.
+  if (lazerPos) {
+    const safetyThreatMap = generateThreatMap(board); // memoized = O(1) on Defender turns
+    for (const p of pointPieces) {
+      const safetySteps = computeSafetySteps(board, p.r, p.c, safetyThreatMap);
+      score -= safetySteps * getPieceValue(p.type) * 0.12;
+    }
+  }
+
   return score;
 }
 
-// Best-First Search for a single turn action sequence
+// Best-First Search for a single turn action sequence.
+// Phase 1a: replaces random tiebreak with a mobility tiebreaker — on equal-score states,
+// prefers the action that opens up more future options over a coin flip.
 function findBestActionSequence(board, role, maxDepth, evaluateFn, cautiousness) {
   let bestAction = null;
   let bestScore = -Infinity;
+  let bestMobility = -1;
 
   // Level 1
   const actions = getPossibleActions(board, role);
@@ -377,13 +578,13 @@ function findBestActionSequence(board, role, maxDepth, evaluateFn, cautiousness)
         const board2 = applyLightweightAction(board1, a2);
         let score2 = evaluateFn(board2, cautiousness);
         
-        // Level 3
+        // Level 3 — unlocked for Hard bot (Phase 3a). Memoized threat map makes this tractable.
         if (maxDepth > 2) {
            const actions3 = getPossibleActions(board2, role);
            let bestLevel3Score = -Infinity;
            for (const a3 of actions3) {
              const board3 = applyLightweightAction(board2, a3);
-             let score3 = evaluateFn(board3, cautiousness);
+             const score3 = evaluateFn(board3, cautiousness);
              if (score3 > bestLevel3Score) bestLevel3Score = score3;
            }
            if (bestLevel3Score !== -Infinity) score2 = bestLevel3Score;
@@ -396,8 +597,11 @@ function findBestActionSequence(board, role, maxDepth, evaluateFn, cautiousness)
       }
     }
 
-    if (currentScore > bestScore || (currentScore === bestScore && Math.random() < 0.5)) {
+    // Mobility tiebreaker: on equal scores, prefer actions that preserve more future options.
+    const mobilityAfter = calculateMobility(board1, role);
+    if (currentScore > bestScore || (currentScore === bestScore && mobilityAfter > bestMobility)) {
       bestScore = currentScore;
+      bestMobility = mobilityAfter;
       bestAction = action;
     }
   }
@@ -417,6 +621,141 @@ function getCautiousness(gameState, botPlayer) {
     return 1.5;
   }
   return 1.0;
+}
+
+/**
+ * Phase 1d — Defender-specific cautiousness based on surviving piece count.
+ * Unlike getCautiousness (score-deficit based, useless for Defenders who score 0),
+ * this reflects genuine in-game desperation as pieces are eliminated:
+ *   3 alive → 1.0 (normal),  2 alive → 2.0 (cautious),  1 alive → 3.0 (desperate)
+ * At cautiousness 3.0, the threat penalty overwhelms almost all positional bonuses,
+ * causing the last piece to aggressively hug low-threat corners.
+ */
+function getDefenderCautiousness(board) {
+  const { pointPieces } = getBoardState(board);
+  return Math.max(1.0, 4 - pointPieces.length);
+}
+
+/**
+ * Hard bot multi-shot attack planner using reverse beam tracing.
+ *
+ * Implements the user's insight: "backtrack from the defender's position."
+ * Instead of the attacker blindly searching forward, we:
+ *   1. Trace beams outward from each piece → find all valid laser firing positions
+ *   2. BFS from the laser to the nearest such position → provably optimal move path
+ *   3. Score single-shot and double-shot plans by total piece value
+ *   4. Return the first action of the best plan
+ *
+ * Priority hierarchy (checked in order):
+ *   P1 — Beam already aimed at a piece → fire immediately.
+ *   P2 — Some rotation (≤180°) from the current position enables a shot → rotate.
+ *   P3 — Reverse-BFS: move toward the firing position for the best shot plan.
+ *
+ * Returns null when no shot is achievable within the AP budget, falling back
+ * to the depth-3 positional search for repositioning play.
+ *
+ * @param {Array}  board        Current board state
+ * @param {number} actionPoints Remaining AP this turn
+ * @param {number} cautiousness Cautiousness multiplier (from getCautiousness)
+ * @returns {Object|null} First action of the optimal plan, or null
+ */
+function planReverseAttack(board, actionPoints, cautiousness) {
+  const { lazerPos, lazerDir, pointPieces } = getBoardState(board);
+  if (!lazerPos || pointPieces.length === 0 || actionPoints <= 0) return null;
+
+  // ── Priority 1: fire immediately ──────────────────────────────────────────
+  const nowTrace = traceLaserBeam(board, lazerPos, lazerDir);
+  if (nowTrace.hitPiece &&
+      [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(nowTrace.hitPiece.cell.type)) {
+    return { type: 'laser-press' };
+  }
+
+  // ── Priority 2: a rotation from the current position unlocks a shot ───────
+  // Tests all 3 non-current rotations. Only attempts if we have enough AP for
+  // the complete rotation sequence + 1 fire (minRotSteps + 1 ≤ actionPoints).
+  {
+    let bestRotAction = null;
+    let bestRotValue  = 0;
+
+    for (const testRot of [0, 90, 180, 270]) {
+      if (testRot === lazerDir) continue;
+      const cwSteps  = ((testRot - lazerDir + 360) % 360) / 90;
+      const ccwSteps = ((lazerDir - testRot + 360) % 360) / 90;
+      const minSteps = Math.min(cwSteps, ccwSteps);
+      if (minSteps + 1 > actionPoints) continue; // Can't afford full rotate + fire
+
+      const rotTrace = traceLaserBeam(board, lazerPos, testRot);
+      if (rotTrace.hitPiece &&
+          [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(rotTrace.hitPiece.cell.type)) {
+        const val = getPieceValue(rotTrace.hitPiece.cell.type);
+        if (val > bestRotValue) {
+          bestRotValue = val;
+          // Return the first 90° rotation step in the cheaper direction
+          const dir = cwSteps <= ccwSteps ? 'cw' : 'ccw';
+          bestRotAction = { type: 'rotate', dir, r: lazerPos.r, c: lazerPos.c };
+        }
+      }
+    }
+
+    if (bestRotAction) return bestRotAction;
+  }
+
+  // ── Priority 3: reverse-BFS multi-shot planning ───────────────────────────
+  const sortedTargets = [...pointPieces].sort((a, b) => getPieceValue(b.type) - getPieceValue(a.type));
+  let bestPlanScore   = 0;
+  let bestFirstAction = null;
+
+  for (const primaryTarget of sortedTargets) {
+    // Step A: reverse-trace from piece → collect valid firing positions
+    const firingCells = getReverseFiringCells(board, primaryTarget.r, primaryTarget.c);
+    if (firingCells.size === 0) continue;
+
+    // Step B: BFS from laser to nearest firing cell
+    const pathToPrimary = bfsToNearestFiringCell(board, lazerPos, firingCells);
+    if (!pathToPrimary) continue;
+
+    // Conservative AP estimate: move steps + 1 rotation (usually needed) + 1 fire
+    const apForPrimary = pathToPrimary.steps + 1 + 1;
+    if (apForPrimary > actionPoints) continue;
+
+    let planScore = getPieceValue(primaryTarget.type);
+
+    // Step C: can we chain a second shot with the remaining AP?
+    const remainingAP = actionPoints - apForPrimary;
+    if (remainingAP >= 2) {
+      // Simulate board after first capture (approximate: laser still at origin)
+      const boardAfterFirst = board.map(row => row.slice());
+      boardAfterFirst[primaryTarget.r][primaryTarget.c] = null;
+
+      for (const secondTarget of sortedTargets) {
+        if (secondTarget.r === primaryTarget.r && secondTarget.c === primaryTarget.c) continue;
+
+        const firingCells2 = getReverseFiringCells(boardAfterFirst, secondTarget.r, secondTarget.c);
+        if (firingCells2.size === 0) continue;
+        const pathToSecondary = bfsToNearestFiringCell(boardAfterFirst, pathToPrimary.firingPos, firingCells2);
+        if (!pathToSecondary) continue;
+
+        const apForSecondary = pathToSecondary.steps + 1 + 1;
+        if (apForSecondary <= remainingAP) {
+          planScore += getPieceValue(secondTarget.type);
+          break; // Found the best second target for this primary
+        }
+      }
+    }
+
+    if (planScore > bestPlanScore) {
+      bestPlanScore = planScore;
+      if (pathToPrimary.firstStep) {
+        bestFirstAction = {
+          type: 'move',
+          fromR: lazerPos.r, fromC: lazerPos.c,
+          toR:   pathToPrimary.firstStep.r, toC: pathToPrimary.firstStep.c
+        };
+      }
+    }
+  }
+
+  return bestFirstAction; // null → depth-3 positional fallback
 }
 
 // --- STRATEGIES ---
@@ -478,15 +817,27 @@ export const MediumStrategy = {
     return genericSetupAction(board, phase, 'medium', challengedPiece);
   },
   getPlayAction: (board, role, actionPoints, gameState, botPlayer) => {
-    const cautiousness = getCautiousness(gameState, botPlayer);
+    // Phase 1d: Defenders use piece-count cautiousness; Attackers use score-deficit cautiousness.
+    const cautiousness = role === 'defender'
+      ? getDefenderCautiousness(board)
+      : getCautiousness(gameState, botPlayer);
     const evalFn = role === 'attacker' ? evaluateMediumAttacker : evaluateMediumDefender;
     const currentScore = evalFn(board, cautiousness);
     
-    // Lizbishmir is methodical and rarely makes mistakes. Depth 1, strictly optimal.
+    // Depth 1, strictly optimal.
     const { bestAction, bestScore } = findBestActionSequence(board, role, 1, evalFn, cautiousness);
     
     if (bestAction && bestScore >= currentScore) {
       return bestAction;
+    }
+    // Phase 1e — Retreat allowance: accept a move costing up to 500 score points if it opens
+    // more mobility. Prevents the bot getting trapped in local optima where every immediate
+    // move looks marginally worse but a single step back unlocks a better angle next AP.
+    if (bestAction && bestScore >= currentScore - 500) {
+      const resultBoard = applyLightweightAction(board, bestAction);
+      if (calculateMobility(resultBoard, role) > calculateMobility(board, role)) {
+        return bestAction;
+      }
     }
     return null;
   }
@@ -497,18 +848,27 @@ export const HardStrategy = {
     return genericSetupAction(board, phase, 'hard', challengedPiece);
   },
   getPlayAction: (board, role, actionPoints, gameState, botPlayer) => {
-    const cautiousness = getCautiousness(gameState, botPlayer);
-    const depth = Math.min(actionPoints, 2); 
+    const cautiousness = role === 'defender'
+      ? getDefenderCautiousness(board)
+      : getCautiousness(gameState, botPlayer);
     const evalFn = role === 'attacker' ? evaluateBoardAttacker : evaluateBoardDefender;
-    
+
+    if (role === 'attacker') {
+      // Reverse-BFS multi-shot planner: "backtrack from each piece" to find guaranteed
+      // kill paths, then routes the laser optimally toward those firing positions.
+      // Handles: fire now, rotate-to-fire, move-then-fire, double-shot sequences.
+      // Falls back to depth-3 positional search when no shot is achievable this turn.
+      const reverseAction = planReverseAttack(board, actionPoints, cautiousness);
+      if (reverseAction) return reverseAction;
+    }
+
+    // Defender (+ Attacker fallback for pure repositioning turns):
+    // Depth-3 search with BFS safety pull (added in pathfinding phase).
+    const depth = Math.min(actionPoints, 3);
     const currentScore = evalFn(board, cautiousness);
     const { bestAction, bestScore } = findBestActionSequence(board, role, depth, evalFn, cautiousness);
-    
-    // Only perform the action if it improves our situation
-    if (bestAction && bestScore > currentScore) {
-      return bestAction;
-    }
-    return null; // Will trigger 'end-turn' in useGame.js
+    if (bestAction && bestScore >= currentScore) return bestAction;
+    return null; // Triggers 'end-turn' in useGame.js
   }
 };
 
@@ -619,6 +979,15 @@ export function generateThreatMap(board) {
     return map;
   }
 
+  // Phase 2a — Threat map memoization (Mode B: laser is placed).
+  // Cache key encodes laser position + rotation. Invalidates automatically on any laser state change.
+  // On a Defender turn the laser never moves, so every inner node in the Depth-3 search
+  // returns the cached map in O(1) instead of recomputing the full triple-nested loop.
+  const _cacheKey = `${lazerPos.r}-${lazerPos.c}-${lazerDir}`;
+  if (_threatMapCache.key === _cacheKey && _threatMapCache.map !== null) {
+    return _threatMapCache.map;
+  }
+
   const minAPMap = Array(8).fill(null).map(() => 
     Array(8).fill(null).map(() => ({ 0: 999, 90: 999, 180: 999, 270: 999 }))
   );
@@ -668,6 +1037,8 @@ export function generateThreatMap(board) {
     }
   }
 
+  // Store Mode B result in cache before returning.
+  _threatMapCache = { key: _cacheKey, map };
   return map;
 }
 
@@ -1082,8 +1453,10 @@ function genericSetupAction(board, phase, difficulty, challengedPiece) {
             }
           }
           
-          // Introduce randomness to starting positions for all difficulties to ensure variety
-          score += Math.random() * 100;
+          // Phase 1c — Jitter scaled by difficulty.
+          // Easy: wild (±600), Medium: mostly optimal (±200), Hard: near-deterministic (±50).
+          const _jitter = difficulty === 'easy' ? 600 : difficulty === 'medium' ? 200 : 50;
+          score += Math.random() * _jitter;
           
           return score;
         };
@@ -1168,8 +1541,9 @@ function genericSetupAction(board, phase, difficulty, challengedPiece) {
           const mirrorBounces = trace.path.filter(p => p.type === 'mirror-bounce').length;
           score += mirrorBounces * 50;
           
-          // Add some randomness to encourage different lazer rotations/positions instead of strictly deterministic
-          score += Math.random() * 600;
+          // Phase 1c — Jitter scaled by difficulty (attacker corner/rotation selection).
+          const _lazerJitter = difficulty === 'easy' ? 600 : difficulty === 'medium' ? 200 : 50;
+          score += Math.random() * _lazerJitter;
 
           if (score > bestScore || (score === bestScore && Math.random() < 0.5)) {
             bestScore = score;

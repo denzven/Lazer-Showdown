@@ -16,12 +16,11 @@ window.addEventListener('touchmove', function(e) {
   }
 }, { passive: false });
 
-import InstallPWA from './components/InstallPWA.jsx'
+
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
     <App />
-    <InstallPWA />
   </StrictMode>,
 );
 
