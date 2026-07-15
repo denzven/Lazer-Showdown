@@ -1,5 +1,7 @@
 import fs from 'fs';
 import path from 'path';
+import { Worker, isMainThread, parentPort } from 'worker_threads';
+import os from 'os';
 
 // Emulate minimal browser environment for React imports to not crash
 global.window = {};
@@ -134,7 +136,6 @@ function simulateGaGame(boardData, oppType, gaWeights) {
       }
       if (state.error) {
         console.error(`Simulation Error for ${activeColor}:`, state.error, 'Action:', action);
-        // Force an early break so we don't hang in a 1000 loop of death doing nothing
         break;
       }
       continue;
@@ -168,8 +169,8 @@ function simulateGaGame(boardData, oppType, gaWeights) {
 }
 
 // Generate random DNA based on defaults
-function createRandomDNA() {
-  const dna = { ...DEFAULT_WEIGHTS };
+function createRandomDNA(baseWeights = DEFAULT_WEIGHTS) {
+  const dna = { ...baseWeights };
   for (const key of Object.keys(dna)) {
     // Randomize initial weight between 0.5x and 1.5x
     dna[key] = dna[key] * (0.5 + Math.random());
@@ -193,14 +194,106 @@ function crossoverAndMutate(parentA, parentB) {
   return child;
 }
 
+// Parallel Task Runner using Worker Threads
+function runTasksInParallel(tasks, numWorkers) {
+  const fileUrl = new URL(import.meta.url);
+  const activeWorkerTasks = new Map();
+  let taskIndex = 0;
+  let completedCount = 0;
+  const results = [];
+  const workers = [];
+
+  return new Promise((resolve, reject) => {
+    let resolved = false;
+
+    const handleWorkerDone = (worker, result) => {
+      completedCount++;
+      // Print dot progress indicators representing evaluation progress
+      if (completedCount % Math.max(1, Math.floor(tasks.length / 50)) === 0) {
+        process.stdout.write(`.`);
+      }
+      results.push(result);
+
+      if (taskIndex < tasks.length) {
+        const nextTask = tasks[taskIndex++];
+        activeWorkerTasks.set(worker, nextTask);
+        worker.postMessage(nextTask);
+      } else {
+        if (completedCount === tasks.length) {
+          resolved = true;
+          for (const w of workers) {
+            w.terminate();
+          }
+          resolve(results);
+        }
+      }
+    };
+
+    for (let w = 0; w < numWorkers; w++) {
+      const worker = new Worker(fileUrl);
+      workers.push(worker);
+
+      worker.on('message', (msg) => {
+        const task = activeWorkerTasks.get(worker);
+        handleWorkerDone(worker, { ...msg, index: task.index, opp: task.oppType });
+      });
+      worker.on('error', (err) => {
+        if (!resolved) {
+          console.error("\n❌ Worker Error:", err);
+          reject(err);
+        }
+      });
+      worker.on('exit', (code) => {
+        if (code !== 0 && !resolved) {
+          reject(new Error(`Worker stopped with exit code ${code}`));
+        }
+      });
+
+      if (taskIndex < tasks.length) {
+        const task = tasks[taskIndex++];
+        activeWorkerTasks.set(worker, task);
+        worker.postMessage(task);
+      }
+    }
+
+    if (tasks.length === 0) resolve([]);
+  });
+}
+
 // Run the Tournament
 async function runGA() {
   const testMode = process.argv.includes('--test');
+  const useSeed = process.argv.includes('--seed');
   const maxGens = testMode ? 2 : GENERATIONS;
   const popSize = testMode ? 10 : POPULATION_SIZE;
 
+  // Handle threads count configuration
+  const threadArgIndex = process.argv.indexOf('--threads');
+  let numWorkers = os.cpus().length || 4;
+  if (threadArgIndex !== -1 && threadArgIndex + 1 < process.argv.length) {
+    const parsedThreads = parseInt(process.argv[threadArgIndex + 1]);
+    if (!isNaN(parsedThreads)) numWorkers = parsedThreads;
+  }
+
+  let baseWeights = DEFAULT_WEIGHTS;
+  if (useSeed) {
+    const weightsPath = path.resolve('./src/core/ga_weights.json');
+    if (fs.existsSync(weightsPath)) {
+      try {
+        baseWeights = JSON.parse(fs.readFileSync(weightsPath, 'utf8'));
+        console.log(`🌱 Seeding initial population with current weights from ${weightsPath}`);
+      } catch (e) {
+        console.log(`\n⚠️ Failed to load ${weightsPath}, using DEFAULT_WEIGHTS.`);
+      }
+    } else {
+      console.log(`\n⚠️ ga_weights.json not found, using DEFAULT_WEIGHTS.`);
+    }
+  }
+
   console.log(`🚀 Starting GA Training - ${maxGens} Generations, ${popSize} Bots`);
-  let population = Array(popSize).fill(0).map(() => createRandomDNA());
+  console.log(`💻 Utilizing ${numWorkers} parallel CPU worker threads...`);
+
+  let population = Array(popSize).fill(0).map(() => createRandomDNA(baseWeights));
 
   const activeBoards = testMode ? [null] : customBoards;
   const activeOpps = testMode ? ['easy'] : BASELINE_OPPONENTS;
@@ -208,39 +301,52 @@ async function runGA() {
   for (let gen = 1; gen <= maxGens; gen++) {
     console.log(`\n[Generation ${gen}] Simulating ${popSize * activeBoards.length * activeOpps.length} games...`);
     const startTime = Date.now();
-    const scores = [];
-
-    process.stdout.write(`Evaluating Population: [`);
+    
+    // Prepare independent simulation tasks
+    const tasks = [];
     for (let i = 0; i < popSize; i++) {
       const dna = population[i];
-      let totalWins = 0;
-      let totalPoints = 0;
-      let totalTurns = 0;
-      let winBreakdown = { easy: 0, medium: 0, hard: 0 };
-
       for (const boardData of activeBoards) {
         for (const opp of activeOpps) {
-          const result = simulateGaGame(boardData, opp, dna);
-          if (result.gaWon) {
-            totalWins++;
-            winBreakdown[opp]++;
-          }
-          totalPoints += result.gaScore;
-          totalTurns += result.turns;
+          tasks.push({ dna, boardData, oppType: opp, index: i });
         }
       }
-
-      // Fitness formula: (Total Wins * 1000) + (Total Points Scored) - (Average Turns to Win * 10)
-      const avgTurns = totalTurns / (activeBoards.length * activeOpps.length);
-      const fitness = (totalWins * 1000) + totalPoints - (avgTurns * 10);
-      scores.push({ dna, fitness, wins: totalWins, winBreakdown, avgTurns });
-      
-      // Progress indicator (dot per 2 individuals)
-      if (i % Math.max(1, Math.floor(popSize / 50)) === 0) {
-        process.stdout.write(`.`);
-      }
     }
+
+    process.stdout.write(`Evaluating Population: [`);
+    const results = await runTasksInParallel(tasks, numWorkers);
     process.stdout.write(`] Done!\n`);
+
+    // Aggregate bot stats
+    const botStats = Array(popSize).fill(0).map((_, i) => ({
+      dna: population[i],
+      totalWins: 0,
+      totalPoints: 0,
+      totalTurns: 0,
+      winBreakdown: { easy: 0, medium: 0, hard: 0 }
+    }));
+
+    for (const res of results) {
+      const stat = botStats[res.index];
+      if (res.gaWon) {
+        stat.totalWins++;
+        stat.winBreakdown[res.opp]++;
+      }
+      stat.totalPoints += res.gaScore;
+      stat.totalTurns += res.turns;
+    }
+
+    const scores = botStats.map(stat => {
+      const avgTurns = stat.totalTurns / (activeBoards.length * activeOpps.length);
+      const fitness = (stat.totalWins * 1000) + stat.totalPoints - (avgTurns * 10);
+      return {
+        dna: stat.dna,
+        fitness,
+        wins: stat.totalWins,
+        winBreakdown: stat.winBreakdown,
+        avgTurns
+      };
+    });
 
     // Sort by fitness descending
     scores.sort((a, b) => b.fitness - a.fitness);
@@ -287,4 +393,19 @@ async function runGA() {
   }
 }
 
-runGA().catch(console.error);
+// Master execution block
+if (isMainThread) {
+  runGA().catch(console.error);
+} else {
+  // Worker process message handler
+  parentPort.on('message', (task) => {
+    try {
+      const { boardData, oppType, dna } = task;
+      const result = simulateGaGame(boardData, oppType, dna);
+      parentPort.postMessage(result);
+    } catch (err) {
+      console.error("\n❌ Worker Exception:", err.message, err.stack);
+      process.exit(1);
+    }
+  });
+}
