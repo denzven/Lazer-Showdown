@@ -5,11 +5,11 @@ import { formatActionText } from '../core/BotStrategies';
 export default function AnalysisPanel({ 
   data, history, dice, threatMap, lazerPos, engineLines, pieceThreats, 
   showHeatmap, showGhostRays, 
-  showPieceThreats, showQHeatmap, 
+  showPieceThreats, 
   startOfTurnThreats, onClose, reviewIndex, stepForward, stepBackward, 
   moveClassification, maxHistoryIndex,
   onHighlightMove, phase, challengeRecommendation,
-  engineType = 'math', setEngineType = () => {}, isAnalyzing = false
+  isAnalyzing = false
 }) {
   const [isMinimized, setIsMinimized] = useState(false);
   const [position, setPosition] = useState({ x: 20, y: typeof window !== 'undefined' ? window.innerHeight - 450 : 20 });
@@ -39,7 +39,7 @@ export default function AnalysisPanel({
 
   if (!data) return null;
 
-  const { totalScore, attackerMathScore, defenderMathScore, neuralScore, attackerNeuralScore, defenderNeuralScore, cautiousness, difficulty, role, advancedMetrics } = data;
+  const { totalScore, attackerMathScore, defenderMathScore, cautiousness, difficulty, role, advancedMetrics } = data;
   const { values = [1, 1], lastRoller } = dice || {};
 
   let totalStartThreat = 0;
@@ -226,21 +226,7 @@ export default function AnalysisPanel({
         </div>
         
         <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-          {/* Engine Toggle */}
-          <div style={{ display: 'flex', border: '1px solid rgba(255,255,255,0.2)', borderRadius: '4px', overflow: 'hidden' }}>
-            <button 
-              onClick={() => setEngineType('math')}
-              style={{ padding: '2px 8px', fontSize: '0.65rem', background: engineType === 'math' ? 'rgba(255,255,255,0.15)' : 'transparent', color: engineType === 'math' ? '#fff' : 'rgba(255,255,255,0.5)', border: 'none', cursor: 'pointer' }}
-            >MATH</button>
-            <button 
-              onClick={() => setEngineType('neural')}
-              style={{ padding: '2px 8px', fontSize: '0.65rem', background: engineType === 'neural' ? 'var(--neon-blue)' : 'transparent', color: engineType === 'neural' ? '#000' : 'rgba(255,255,255,0.5)', border: 'none', cursor: 'pointer', fontWeight: engineType === 'neural' ? 'bold' : 'normal' }}
-            >AI</button>
-            <button 
-              onClick={() => setEngineType('comparison')}
-              style={{ padding: '2px 8px', fontSize: '0.65rem', background: engineType === 'comparison' ? '#b15cff' : 'transparent', color: engineType === 'comparison' ? '#000' : 'rgba(255,255,255,0.5)', border: 'none', cursor: 'pointer', fontWeight: engineType === 'comparison' ? 'bold' : 'normal' }}
-            >CMP</button>
-          </div>
+
 
           <button onClick={() => setIsMinimized(true)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0 }}>
             <Minus size={18} />
@@ -280,83 +266,33 @@ export default function AnalysisPanel({
             </div>
           )}
           <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
-            {engineType === 'neural' ? 'AI Win Probability (Dual-Brain)' : engineType === 'comparison' ? 'Engine Delta Analysis' : 'Evaluation (Dual-Brain Math)'}
+            Evaluation (GA Minimax Heuristics)
           </div>
-          {engineType === 'neural' ? (
-             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(0, 240, 255, 0.2)' }}>
-               {/* Attacker Brain */}
-               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                 <span style={{ fontSize: '0.65rem', color: '#ffcc00', textTransform: 'uppercase' }}>Attacker Brain</span>
-                 <div style={{ color: 'var(--neon-blue)', fontSize: '2rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
-                   {attackerNeuralScore !== undefined ? Math.round((((attackerNeuralScore) + 1) / 2) * 100) : 0}%
-                 </div>
-               </div>
-               
-               <div style={{ width: '1px', height: '40px', backgroundColor: 'rgba(255,255,255,0.2)' }} />
-               
-               {/* Defender Brain */}
-               <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                 <span style={{ fontSize: '0.65rem', color: '#39ff14', textTransform: 'uppercase' }}>Defender Brain</span>
-                 <div style={{ color: 'var(--neon-blue)', fontSize: '2rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
-                   {defenderNeuralScore !== undefined ? Math.round((((defenderNeuralScore) + 1) / 2) * 100) : 0}%
-                 </div>
-               </div>
-             </div>
-          ) : engineType === 'comparison' ? (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid #b15cff' }}>
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', width: '100%' }}>
-                  <span style={{ fontSize: '0.65rem', color: '#b15cff', textTransform: 'uppercase', fontWeight: 'bold' }}>Color Guide (Delta)</span>
-                  <div style={{ display: 'flex', gap: '15px', marginTop: '6px', fontSize: '0.75rem' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <div style={{ width: '10px', height: '10px', backgroundColor: '#00f0ff', borderRadius: '2px', boxShadow: '0 0 4px #00f0ff' }}></div>
-                      <span>Neural prefers</span>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <div style={{ width: '10px', height: '10px', backgroundColor: '#ff5555', borderRadius: '2px', boxShadow: '0 0 4px #ff5555' }}></div>
-                      <span>Math prefers</span>
-                    </div>
-                  </div>
-                </div>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+            {/* Attacker Eval */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.65rem', color: '#ffcc00', textTransform: 'uppercase' }}>Attacker Eval</span>
+              <div style={{ color: 'var(--neon-blue)', fontSize: '2rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
+                {formatHeuristicScore(attackerMathScore)}
               </div>
-           ) : (
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
-                {/* Attacker Eval */}
-                  <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.65rem', color: '#ffcc00', textTransform: 'uppercase' }}>Attacker Eval</span>
-                  <div style={{ color: 'var(--neon-blue)', fontSize: '2rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
-                    {formatHeuristicScore(attackerMathScore)}
-                  </div>
-                </div>
-                
-                <div style={{ width: '1px', height: '40px', backgroundColor: 'rgba(255,255,255,0.2)' }} />
-                
-                {/* Defender Eval */}
-                <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                  <span style={{ fontSize: '0.65rem', color: '#39ff14', textTransform: 'uppercase' }}>Defender Eval</span>
-                  <div style={{ color: 'var(--neon-blue)', fontSize: '2rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
-                    {formatHeuristicScore(defenderMathScore)}
-                  </div>
-                </div>
+            </div>
+            
+            <div style={{ width: '1px', height: '40px', backgroundColor: 'rgba(255,255,255,0.2)' }} />
+            
+            {/* Defender Eval */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <span style={{ fontSize: '0.65rem', color: '#39ff14', textTransform: 'uppercase' }}>Defender Eval</span>
+              <div style={{ color: 'var(--neon-blue)', fontSize: '2rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
+                {formatHeuristicScore(defenderMathScore)}
               </div>
-           )}
+            </div>
+          </div>
           
           {/* Visual Bar */}
-          {engineType !== 'comparison' && (
-            <div style={{ width: '100%', height: '8px', backgroundColor: 'rgba(255,255,255,0.1)', marginTop: '12px', borderRadius: '4px', overflow: 'hidden', position: 'relative' }}>
-               {engineType === 'neural' ? (
-                  <>
-                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: 0, width: `${attackerNeuralScore !== undefined ? Math.round((((attackerNeuralScore) + 1) / 2) * 100) : 0}%`, backgroundColor: '#ffcc00', transition: 'width 0.3s ease', opacity: 0.6 }} />
-                    <div style={{ position: 'absolute', top: 0, bottom: 0, right: 0, width: `${defenderNeuralScore !== undefined ? Math.round((((defenderNeuralScore) + 1) / 2) * 100) : 0}%`, backgroundColor: '#39ff14', transition: 'width 0.3s ease', opacity: 0.6 }} />
-                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: '2px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
-                  </>
-               ) : (
-                  <>
-                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: totalScore < 0 ? 'auto' : '50%', right: totalScore < 0 ? '50%' : 'auto', width: getBarWidth(totalScore), backgroundColor: barColor, transition: 'width 0.3s ease' }} />
-                    <div style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: '2px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
-                  </>
-               )}
-            </div>
-          )}
+          <div style={{ width: '100%', height: '8px', backgroundColor: 'rgba(255,255,255,0.1)', marginTop: '12px', borderRadius: '4px', overflow: 'hidden', position: 'relative' }}>
+            <div style={{ position: 'absolute', top: 0, bottom: 0, left: totalScore < 0 ? 'auto' : '50%', right: totalScore < 0 ? '50%' : 'auto', width: getBarWidth(totalScore), backgroundColor: barColor, transition: 'width 0.3s ease' }} />
+            <div style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: '2px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
+          </div>
 
           {moveClassification && (
             <div style={{ marginTop: '12px', padding: '6px 12px', borderRadius: '6px', backgroundColor: 'rgba(0,0,0,0.4)', border: `1px solid ${moveClassification.color}`, display: 'inline-block', boxShadow: `0 0 10px ${moveClassification.color}40` }}>
@@ -411,8 +347,8 @@ export default function AnalysisPanel({
           </div>
         </div>
 
-        {/* ADVANCED METRICS (MATH ONLY) */}
-        {engineType === 'math' && advancedMetrics && (
+        {/* ADVANCED METRICS */}
+        {advancedMetrics && (
           <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <Activity size={10} /> ADVANCED POSITION METRICS
@@ -442,32 +378,8 @@ export default function AnalysisPanel({
           </div>
         )}
 
-        {/* TOP CANDIDATE LINES (AI ONLY) */}
-        {engineType === 'neural' && engineLines && engineLines.length > 0 && (
-          <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Target size={10} /> TOP CANDIDATE LINES
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {engineLines.map((line, i) => (
-                <div key={i} style={{ backgroundColor: 'rgba(255,255,255,0.05)', padding: '6px 8px', borderRadius: '4px', borderLeft: i === 0 ? '2px solid var(--neon-blue)' : '2px solid rgba(255,255,255,0.2)' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' }}>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 'bold', color: i === 0 ? 'var(--neon-blue)' : '#fff' }}>{i + 1}. {line.name || 'Unknown Strategy'}</span>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-muted)' }}>{line.winProbability}% Win Prob</span>
-                  </div>
-                  <div style={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.7)', display: 'flex', flexWrap: 'wrap', gap: '4px' }}>
-                    {line.formattedSteps.map((step, j) => (
-                      <span key={j} style={{ backgroundColor: 'rgba(0,0,0,0.5)', padding: '2px 4px', borderRadius: '2px' }}>{step}</span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* AP UTILIZATION (MATH ONLY) */}
-        {engineType === 'math' && advancedMetrics?.turnStats && phase === 'playing' && (
+        {advancedMetrics?.turnStats && phase === 'playing' && (
           <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <Activity size={10} /> AP UTILIZATION (THIS TURN)
@@ -509,8 +421,8 @@ export default function AnalysisPanel({
           </div>
         )}
 
-        {/* THREAT DELTA (MATH ONLY) */}
-        {engineType === 'math' && startOfTurnThreats && pieceThreats && phase === 'playing' && (
+        {/* THREAT DELTA */}
+        {startOfTurnThreats && pieceThreats && phase === 'playing' && (
           <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <Activity size={10} /> THREAT DELTA (THIS TURN)
@@ -548,11 +460,11 @@ export default function AnalysisPanel({
           </div>
         )}
 
-        {/* SUPERPOSITIONAL THREAT BREAKDOWN (MATH ONLY) */}
-        {engineType === 'math' && getThreatBreakdown()}
+        {/* SUPERPOSITIONAL THREAT BREAKDOWN */}
+        {getThreatBreakdown()}
 
-        {/* PIECE THREATS (MATH ONLY) */}
-        {engineType === 'math' && showPieceThreats && pieceThreats && pieceThreats.length > 0 && (
+        {/* PIECE THREATS */}
+        {showPieceThreats && pieceThreats && pieceThreats.length > 0 && (
           <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <Activity size={10} /> PIECE THREAT LEVELS
@@ -613,8 +525,8 @@ export default function AnalysisPanel({
           </div>
         )}
 
-        {/* Engine Lines (MATH ONLY) */}
-        {engineType === 'math' && engineLines && engineLines.length > 0 && (
+        {/* Engine Lines */}
+        {engineLines && engineLines.length > 0 && (
           <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
             <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
               <Activity size={10} /> TOP STRATEGIC PLAYS (MATH)
@@ -646,57 +558,7 @@ export default function AnalysisPanel({
           </div>
         )}
 
-        {/* DOJO MODE (DEV ONLY) */}
-        {(window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' || window.location.hostname.startsWith('192.168.')) && (
-          <div style={{ backgroundColor: 'rgba(255, 0, 255, 0.1)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255, 0, 255, 0.3)' }}>
-            <div style={{ fontSize: '0.65rem', color: '#ff00ff', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 'bold' }}>
-              <Activity size={10} /> OFFLINE DOJO EXPORT
-            </div>
-            <div style={{ fontSize: '0.75rem', color: '#fff', marginBottom: '8px' }}>
-              Export {history?.past?.length || 0} moves from this match as human training data.
-            </div>
-            <button 
-              onClick={async () => {
-                const { ExpectedDQN } = await import('../core/NeuralBot.js');
-                const { getBoardAnalysis } = await import('../core/BotStrategies.js');
-                const inputs = [];
-                const labels = [];
-                
-                // Process the entire history
-                for (let i = 0; i < history.past.length; i++) {
-                  const state = history.past[i];
-                  const rolePlayed = state.turnPlayer === 'red' ? state.roleRed : state.roleBlue;
-                  if (!rolePlayed) continue;
-                  
-                  try {
-                    const tensor = Array.from(ExpectedDQN.encodeState(state.board, state.actionPoints || 0, rolePlayed));
-                    const analysis = getBoardAnalysis(state.board, rolePlayed, 'hard', state, state.turnPlayer);
-                    let scaledScore = analysis.totalScore / 5000;
-                    scaledScore = Math.max(-1, Math.min(1, scaledScore));
-                    inputs.push(tensor);
-                    labels.push(scaledScore);
-                  } catch(e) { console.error("Skip state", e) }
-                }
-                
-                const response = await fetch('/api/dojo-export', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ inputs, labels })
-                });
-                
-                if (response.ok) {
-                  const data = await response.json();
-                  alert(`✅ Successfully pushed ${inputs.length} human-played states into the Dojo!\nTotal Pooled States: ${data.totalStates}\n\nYou can now run train.js to bake these strategies into the AI.`);
-                } else {
-                  alert(`❌ Failed to push to Dojo. Is the dev server running?`);
-                }
-              }}
-              style={{ width: '100%', padding: '8px', backgroundColor: '#ff00ff', color: '#000', border: 'none', borderRadius: '4px', fontWeight: 'bold', cursor: 'pointer' }}
-            >
-              DOWNLOAD DOJO DATA
-            </button>
-          </div>
-        )}
+
 
 
         {/* Challenge Recommendation */}

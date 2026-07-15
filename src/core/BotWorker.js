@@ -14,7 +14,7 @@
  * Both BotStrategies.js and Ruleset.js are pure JS with zero DOM dependencies — safe for workers.
  */
 
-import { EasyStrategy, MediumStrategy, HardStrategy } from './BotStrategies.js';
+import { EasyStrategy, MediumStrategy, HardStrategy, GAStrategy } from './BotStrategies.js';
 
 self.onmessage = function (e) {
   const { type, requestId } = e.data;
@@ -30,6 +30,8 @@ self.onmessage = function (e) {
         action = MediumStrategy.getPlayAction(board, role, actionPoints, gameState, botPlayer);
       } else if (difficulty === 'hard') {
         action = HardStrategy.getPlayAction(board, role, actionPoints, gameState, botPlayer);
+      } else if (difficulty === 'ga') {
+        action = GAStrategy.getPlayAction(board, role, actionPoints, gameState, botPlayer);
       }
 
       self.postMessage({ requestId, result: action });
@@ -44,6 +46,8 @@ self.onmessage = function (e) {
         action = MediumStrategy.getSetupAction(board, phase, playerColor, challengedPiece);
       } else if (difficulty === 'hard') {
         action = HardStrategy.getSetupAction(board, phase, playerColor, challengedPiece);
+      } else if (difficulty === 'ga') {
+        action = GAStrategy.getSetupAction(board, phase, playerColor, challengedPiece);
       }
 
       self.postMessage({ requestId, result: action });

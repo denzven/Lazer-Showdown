@@ -1,0 +1,22 @@
+{
+  "attCapture50Bonus": 58051.77469584009,
+  "attCapture30Bonus": 19308.716873583286,
+  "attCapture20Bonus": 12546.48846941648,
+  "attWinBonus": 135734.7592318546,
+  "attThreatMultiplier": 1.220622993883224,
+  "attApproachPenaltyMultiplier": 4.405113168940538,
+  "attApproachThreshold": 0.4327427114906193,
+  "attImmediateCaptureMultiplier": 1.0663811879745795,
+  "attMirrorBounceBonus": 8.606514085224406,
+  "attMobilityBonus": 6.520210266981592,
+  "attCenterControlBonus": 5.199312663688324,
+  "attTrapBonusMultiplier": 0.52397546867111,
+  "attEscapePenaltyMultiplier": 0.49148461050450665,
+  "defSurvivalMultiplier": 6.157149524076391,
+  "defThreatPenaltyMultiplier": 16.249924095002864,
+  "defClusterPenalty": 51.97491553809357,
+  "defCollinearPenalty": 17.64643845327127,
+  "defMobilityBonus": 5.936662674621267,
+  "defCenterControlPenalty": 8.535116776472236,
+  "defSafetyStepPenaltyMultiplier": 0.13569999692711562
+}

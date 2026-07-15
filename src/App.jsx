@@ -201,10 +201,10 @@ function App() {
 
               <button
                 className="cyber-button"
-                onClick={() => { setDifficulty('neural'); setMode('bot'); game.clearWorkspace(); }}
+                onClick={() => { setDifficulty('ga'); setMode('bot'); game.clearWorkspace(); }}
                 style={{ padding: '16px', fontSize: '1rem', width: '100%', textTransform: 'uppercase', borderColor: '#ff00ff', color: '#ff00ff' }}
               >
-                AI (NEURAL NET)
+                AI (EXPECTIMINIMAX)
               </button>
 
               <button

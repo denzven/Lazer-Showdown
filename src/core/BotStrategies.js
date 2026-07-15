@@ -5,12 +5,40 @@ import {
   validateMovement,
   traceLaserBeam 
 } from './Ruleset.js';
+import gaWeights from './ga_weights.json' with { type: 'json' };
 
 // --- THREAT MAP CACHE (Phase 2a) ---
 // Keyed by laser position + direction. Invalidates automatically when the laser moves or rotates.
 // During a Defender's turn the laser is static, so the cache hits on every inner node of
 // the Depth-3 search — reducing threat map computation by ~90% per AP.
 let _threatMapCache = { key: null, map: null };
+
+// --- DEFAULT EVALUATION WEIGHTS (For Expectiminimax & GA) ---
+export const DEFAULT_WEIGHTS = {
+  // Attacker Weights
+  attCapture50Bonus: 50000,
+  attCapture30Bonus: 30000,
+  attCapture20Bonus: 20000,
+  attWinBonus: 100000,
+  attThreatMultiplier: 2,
+  attApproachPenaltyMultiplier: 3,
+  attApproachThreshold: 0.7,
+  attImmediateCaptureMultiplier: 2,
+  attMirrorBounceBonus: 10,
+  attMobilityBonus: 5,
+  attCenterControlBonus: 10,
+  attTrapBonusMultiplier: 1.0,
+  attEscapePenaltyMultiplier: 0.5,
+
+  // Defender Weights
+  defSurvivalMultiplier: 10,
+  defThreatPenaltyMultiplier: 20,
+  defClusterPenalty: 50,
+  defCollinearPenalty: 30,
+  defMobilityBonus: 5,
+  defCenterControlPenalty: 10,
+  defSafetyStepPenaltyMultiplier: 0.12,
+};
 
 // --- SHARED HELPER FUNCTIONS ---
 
@@ -349,7 +377,7 @@ function evaluateMediumAttacker(board, cautiousness = 1.0) {
 }
 
 // Evaluate board for Attacker (higher is better for attacker)
-export function evaluateBoardAttacker(board, cautiousness = 1.0) {
+export function evaluateBoardAttacker(board, cautiousness = 1.0, weights = DEFAULT_WEIGHTS) {
   const { lazerPos, lazerDir, pointPieces } = getBoardState(board);
   if (!lazerPos) return -99999;
   
@@ -357,17 +385,17 @@ export function evaluateBoardAttacker(board, cautiousness = 1.0) {
   
   // 1. Base score for having point pieces off the board (captured)
   const remainingTypes = pointPieces.map(p => p.type);
-  if (!remainingTypes.includes(BLOCK_TYPES.BLOCK_50)) score += 50000;
-  if (!remainingTypes.includes(BLOCK_TYPES.BLOCK_30)) score += 30000;
-  if (!remainingTypes.includes(BLOCK_TYPES.BLOCK_20)) score += 20000;
+  if (!remainingTypes.includes(BLOCK_TYPES.BLOCK_50)) score += weights.attCapture50Bonus;
+  if (!remainingTypes.includes(BLOCK_TYPES.BLOCK_30)) score += weights.attCapture30Bonus;
+  if (!remainingTypes.includes(BLOCK_TYPES.BLOCK_20)) score += weights.attCapture20Bonus;
 
-  if (pointPieces.length === 0) return score + 100000; // Win state
+  if (pointPieces.length === 0) return score + weights.attWinBonus; // Win state
 
   // 2. Maximize threat against pieces on the board using the unified threat map
   const threats = getPieceThreatLevels(board);
   for (const t of threats) {
      // A 100% threat level translates to a high bonus, encouraging positioning that ensures a hit
-     score += getPieceValue(t.type) * 2 * t.threatLevel; 
+     score += getPieceValue(t.type) * weights.attThreatMultiplier * t.threatLevel; 
   }
 
   // Approach gradient: when the best achievable threat is low (laser is far from any firing angle),
@@ -375,24 +403,24 @@ export function evaluateBoardAttacker(board, cautiousness = 1.0) {
   // This extends the attacker's effective planning horizon beyond the depth-3 search tree.
   // Scale: at maxThreat=0.1 on a 50-pt piece → -(0.6 × 5000 × 3) = -9,000 pull toward target.
   //        at maxThreat=0.7+ → 0 (laser is already in a strong firing position, no extra pull).
-  if (threats.length > 0 && threats[0].threatLevel < 0.7) {
-    score -= (0.7 - threats[0].threatLevel) * getPieceValue(threats[0].type) * 3;
+  if (threats.length > 0 && threats[0].threatLevel < weights.attApproachThreshold) {
+    score -= (weights.attApproachThreshold - threats[0].threatLevel) * getPieceValue(threats[0].type) * weights.attApproachPenaltyMultiplier;
   }
 
   // 3. Are we hitting a piece currently?
   const trace = traceLaserBeam(board, lazerPos, lazerDir);
   if (trace.hitPiece && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(trace.hitPiece.cell.type)) {
      // If highly cautious (desperate), heavily favor immediate captures over complex trick shots
-     score += getPieceValue(trace.hitPiece.cell.type) * 2 * cautiousness; 
+     score += getPieceValue(trace.hitPiece.cell.type) * weights.attImmediateCaptureMultiplier * cautiousness; 
   }
 
   // Bonus for hitting mirrors (complex shots are good)
   const mirrorBounces = trace.path.filter(p => p.type === 'mirror-bounce').length;
   // If cautious/desperate, complex trick shots are valued slightly less compared to guaranteed captures
-  score += mirrorBounces * 10 * (1 / cautiousness);
+  score += mirrorBounces * weights.attMirrorBounceBonus * (1 / cautiousness);
 
-  score += calculateMobility(board, 'attacker') * 5;
-  score += calculateCenterControl(board) * 10;
+  score += calculateMobility(board, 'attacker') * weights.attMobilityBonus;
+  score += calculateCenterControl(board) * weights.attCenterControlBonus;
 
   // Phase 3b — Adversarial 1-step escape check.
   // If the beam is currently aimed at a piece (but not yet fired), verify whether the defender
@@ -418,8 +446,8 @@ export function evaluateBoardAttacker(board, cautiousness = 1.0) {
       }
       // No escape = near-certain trap → strong bonus. Escapable = fragile angle → penalty.
       score += canEscape
-        ? -getPieceValue(hp.cell.type) * 0.5
-        :  getPieceValue(hp.cell.type) * 1.0;
+        ? -getPieceValue(hp.cell.type) * weights.attEscapePenaltyMultiplier
+        :  getPieceValue(hp.cell.type) * weights.attTrapBonusMultiplier;
     }
   }
 
@@ -439,6 +467,115 @@ function get2d6CumulativeProbability(targetAP) {
   if (targetAP === 11) return 3/36;
   if (targetAP === 12) return 1/36;
   return 0; // >12
+}
+
+export function get2d6ExactProbability(ap) {
+  if (ap === 2 || ap === 12) return 1/36;
+  if (ap === 3 || ap === 11) return 2/36;
+  if (ap === 4 || ap === 10) return 3/36;
+  if (ap === 5 || ap === 9) return 4/36;
+  if (ap === 6 || ap === 8) return 5/36;
+  if (ap === 7) return 6/36;
+  return 0;
+}
+
+// 1-Ply Opponent Search (Minimizes our score)
+function findOpponentMinScore(board, oppRole, originalRole, depth, cautiousness, weights) {
+  const evalFn = originalRole === 'attacker' ? evaluateBoardAttacker : evaluateBoardDefender;
+  let minScore = Infinity;
+
+  function search(currentBoard, currentDepth) {
+    if (currentDepth === 0) {
+      const score = evalFn(currentBoard, cautiousness, weights);
+      if (score < minScore) minScore = score;
+      return;
+    }
+    const actions = getPossibleActions(currentBoard, oppRole);
+    if (actions.length === 0) {
+      const score = evalFn(currentBoard, cautiousness, weights);
+      if (score < minScore) minScore = score;
+      return;
+    }
+    for (const a of actions) {
+      const nextBoard = applyLightweightAction(currentBoard, a);
+      search(nextBoard, currentDepth - 1);
+    }
+  }
+
+  search(board, depth);
+  return minScore;
+}
+
+export function findBestActionSequenceExpectiminimax(board, role, actionPoints, cautiousness = 1.0, weights = DEFAULT_WEIGHTS, oppDepthCap = 1) {
+  const ourDepth = Math.min(actionPoints, 2); // Cap depth to keep GA fast
+  const oppRole = role === 'attacker' ? 'defender' : 'attacker';
+  
+  let bestAction = null;
+  let bestScore = -Infinity;
+  let bestMobility = -1;
+
+  // Flattened our-turn search up to depth 2 (Level 1 and Level 2)
+  const actions1 = getPossibleActions(board, role);
+  
+  for (const a1 of actions1) {
+    const b1 = applyLightweightAction(board, a1);
+    
+    // Evaluate EV of b1
+    let ev1 = 0;
+    if (oppDepthCap <= 2) {
+      ev1 = findOpponentMinScore(b1, oppRole, role, oppDepthCap, cautiousness, weights);
+    } else {
+      const memo = {};
+      for (let ap = 2; ap <= 12; ap++) {
+        const p = get2d6ExactProbability(ap);
+        const oppDepth = Math.min(ap, oppDepthCap);
+        if (memo[oppDepth] === undefined) {
+          memo[oppDepth] = findOpponentMinScore(b1, oppRole, role, oppDepth, cautiousness, weights);
+        }
+        ev1 += p * memo[oppDepth];
+      }
+    }
+    
+    // Check if we can go deeper for our turn
+    if (ourDepth > 1) {
+      const actions2 = getPossibleActions(b1, role);
+      let bestLevel2Score = -Infinity;
+      for (const a2 of actions2) {
+        const b2 = applyLightweightAction(b1, a2);
+        
+        let ev2 = 0;
+        if (oppDepthCap <= 2) {
+          ev2 = findOpponentMinScore(b2, oppRole, role, oppDepthCap, cautiousness, weights);
+        } else {
+          const memo = {};
+          for (let ap = 2; ap <= 12; ap++) {
+            const p = get2d6ExactProbability(ap);
+            const oppDepth = Math.min(ap, oppDepthCap);
+            if (memo[oppDepth] === undefined) {
+              memo[oppDepth] = findOpponentMinScore(b2, oppRole, role, oppDepth, cautiousness, weights);
+            }
+            ev2 += p * memo[oppDepth];
+          }
+        }
+        
+        if (ev2 > bestLevel2Score) {
+          bestLevel2Score = ev2;
+        }
+      }
+      if (bestLevel2Score !== -Infinity) {
+        ev1 = bestLevel2Score; // If we have a sequence of 2, use the best leaf's EV
+      }
+    }
+
+    const mobilityAfter = calculateMobility(b1, role);
+    if (ev1 > bestScore || (ev1 === bestScore && mobilityAfter > bestMobility)) {
+      bestScore = ev1;
+      bestMobility = mobilityAfter;
+      bestAction = a1;
+    }
+  }
+
+  return { bestAction, bestScore };
 }
 
 // Evaluate board for Medium Defender (Lizbishmir: True Blended Heuristic)
@@ -490,19 +627,19 @@ function evaluateMediumDefender(board, cautiousness = 1.0) {
 }
 
 // Evaluate board for Defender (higher is better for defender)
-export function evaluateBoardDefender(board, cautiousness = 1.0) {
+export function evaluateBoardDefender(board, cautiousness = 1.0, weights = DEFAULT_WEIGHTS) {
   const { lazerPos, lazerDir, pointPieces } = getBoardState(board);
   let score = 0;
 
   // 1. Base score for surviving pieces
   for (const p of pointPieces) {
-    score += getPieceValue(p.type) * 10;
+    score += getPieceValue(p.type) * weights.defSurvivalMultiplier;
   }
 
   // Check the threat of all pieces on the board directly using the unified threat map
   const threats = getPieceThreatLevels(board);
   for (const t of threats) {
-    score -= getPieceValue(t.type) * 20 * t.threatLevel * cautiousness;
+    score -= getPieceValue(t.type) * weights.defThreatPenaltyMultiplier * t.threatLevel * cautiousness;
   }
 
   // Calculate Clustering Penalty and Collinear Penalty
@@ -512,7 +649,7 @@ export function evaluateBoardDefender(board, cautiousness = 1.0) {
       const p2 = pointPieces[j];
       const dist = Math.abs(p1.r - p2.r) + Math.abs(p1.c - p2.c);
       if (dist <= 2) {
-        score -= 50; // Severe penalty for clustering
+        score -= weights.defClusterPenalty; // Severe penalty for clustering
       }
       // Phase 1b — Patched collinear check: any non-null entity (mirror OR point piece)
       // breaks the line of sight and prevents the collinear vulnerability penalty.
@@ -523,7 +660,7 @@ export function evaluateBoardDefender(board, cautiousness = 1.0) {
          for (let c = minC + 1; c < maxC; c++) {
             if (board[p1.r][c] !== null) { blocked = true; break; }
          }
-         if (!blocked) score -= 30;
+         if (!blocked) score -= weights.defCollinearPenalty;
       }
       if (p1.c === p2.c) {
          const minR = Math.min(p1.r, p2.r);
@@ -532,13 +669,13 @@ export function evaluateBoardDefender(board, cautiousness = 1.0) {
          for (let r = minR + 1; r < maxR; r++) {
             if (board[r][p1.c] !== null) { blocked = true; break; }
          }
-         if (!blocked) score -= 30;
+         if (!blocked) score -= weights.defCollinearPenalty;
       }
     }
   }
 
-  score += calculateMobility(board, 'defender') * 5;
-  score -= calculateCenterControl(board) * 10;
+  score += calculateMobility(board, 'defender') * weights.defMobilityBonus;
+  score -= calculateCenterControl(board) * weights.defCenterControlPenalty;
 
   // Safety pathfinding gradient: BFS each piece toward nearest low-threat cell.
   // More aggressive weight than Medium (0.12 vs 0.06) — Hard Defender actively routes
@@ -548,7 +685,7 @@ export function evaluateBoardDefender(board, cautiousness = 1.0) {
     const safetyThreatMap = generateThreatMap(board); // memoized = O(1) on Defender turns
     for (const p of pointPieces) {
       const safetySteps = computeSafetySteps(board, p.r, p.c, safetyThreatMap);
-      score -= safetySteps * getPieceValue(p.type) * 0.12;
+      score -= safetySteps * getPieceValue(p.type) * weights.defSafetyStepPenaltyMultiplier;
     }
   }
 
@@ -1170,28 +1307,18 @@ export function getPieceThreatLevels(board) {
   return threats.sort((a, b) => b.threatLevel - a.threatLevel);
 }
 
-export function classifyPlay(sequence, engineType) {
+export function classifyPlay(sequence) {
   const hasFire = sequence.some(a => a.type === 'laser-press');
   const hasMove = sequence.some(a => a.type === 'move');
   const hasRotate = sequence.some(a => a.type === 'rotate');
   
-  if (engineType === 'neural') {
-    if (hasFire && hasMove) return "Move & Fire";
-    if (hasFire && hasRotate) return "Aim & Fire";
-    if (hasFire) return "Direct Attack";
-    if (hasMove && hasRotate) return "Complex Maneuver";
-    if (hasMove) return "Tactical Reposition";
-    if (hasRotate) return "Re-aiming";
-    return "Strategic Pass";
-  } else {
-    if (hasFire && hasMove) return "Move & Fire";
-    if (hasFire && hasRotate) return "Aim & Fire";
-    if (hasFire) return "Direct Attack";
-    if (hasMove && hasRotate) return "Complex Maneuver";
-    if (hasMove) return "Tactical Reposition";
-    if (hasRotate) return "Re-aiming";
-    return "Strategic Pass";
-  }
+  if (hasFire && hasMove) return "Move & Fire";
+  if (hasFire && hasRotate) return "Aim & Fire";
+  if (hasFire) return "Direct Attack";
+  if (hasMove && hasRotate) return "Complex Maneuver";
+  if (hasMove) return "Tactical Reposition";
+  if (hasRotate) return "Re-aiming";
+  return "Strategic Pass";
 }
 
 export function formatActionText(action) {
@@ -1557,3 +1684,17 @@ function genericSetupAction(board, phase, difficulty, challengedPiece) {
   }
   return null;
 }
+
+// Genetic Algorithm Tuned Heuristic Strategy (Expectiminimax)
+export const GAStrategy = {
+  getPlayAction: (board, role, actionPoints, gameState, botPlayer) => {
+    const cautiousness = getCautiousness(gameState, botPlayer);
+    // Depth cap 1 for opponent simulation to maintain responsive speed on the web
+    const { bestAction } = findBestActionSequenceExpectiminimax(board, role, actionPoints, cautiousness, gaWeights, 1);
+    return bestAction;
+  },
+  getSetupAction: (board, phase, playerColor, challengedPiece) => {
+    // GA bot uses the Hard strategy for placement/setup as a strong baseline
+    return HardStrategy.getSetupAction(board, phase, playerColor, challengedPiece);
+  }
+};

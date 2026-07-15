@@ -5,6 +5,36 @@ import {
 } from '../core/GameState';
 import { getBotSetupAction, getBotPlayAction, generateThreatMap, getBoardAnalysis, generatePossibilityWeb } from '../core/BotEngine';
 
+function getBotActionDelay(difficulty, action, gameState, humanPaceAvg) {
+  let baseDelay = 300;
+  if (difficulty === 'easy') baseDelay = 250;
+  else if (difficulty === 'medium') baseDelay = 550;
+  else if (difficulty === 'hard') baseDelay = 850;
+  else if (difficulty === 'ga') baseDelay = 700;
+
+  const paceFactor = Math.max(0.6, Math.min(1.6, humanPaceAvg / 1000));
+  let pacedDelay = baseDelay * paceFactor;
+
+  let decisionWeight = 0;
+  if (action) {
+    if (action.type === 'laser-press') {
+      decisionWeight = 800; 
+    } else if (action.type === 'place') {
+      decisionWeight = 300;
+    } else if (action.type === 'move') {
+      const targetPiece = gameState.board[action.toR]?.[action.toC];
+      if (targetPiece && targetPiece.type !== 'empty') {
+        decisionWeight = 500;
+      }
+    } else if (action.type === 'rotate') {
+      decisionWeight = 200;
+    }
+  }
+
+  const roundFactor = Math.min(gameState.round * 50, 200);
+  return Math.max(200, Math.min(3000, pacedDelay + decisionWeight + roundFactor));
+}
+
 export function useGame(network, mode, difficulty, customBoardData = null) {
   const [gameState, setGameState] = useState(() => getInitialState(customBoardData, mode));
   const [history, setHistory] = useState({ past: [], future: [] });
@@ -18,6 +48,21 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
 
   // Track whether the bot has already attempted a challenge this set (tutorial only)
   const botChallengeAttempted = useRef(false);
+
+  const lastActionTimestamp = useRef(Date.now());
+  const humanMoveTimeAvg = useRef(1000);
+  const botTimeoutRef = useRef(null);
+
+  // Reset human action timestamp when it becomes the human's active turn
+  useEffect(() => {
+    const isHumanActiveTurn = gameState.phase === 'playing' && 
+      ((gameState.turnPlayer === 'attacker' && gameState.roleBlue !== 'attacker') ||
+       (gameState.turnPlayer === 'defender' && gameState.roleBlue !== 'defender'));
+       
+    if (isHumanActiveTurn) {
+      lastActionTimestamp.current = Date.now();
+    }
+  }, [gameState.turnPlayer, gameState.phase, gameState.roleBlue]);
 
   const [analysisMode, setAnalysisMode] = useState(false);
   const [analysisData, setAnalysisData] = useState(null);
@@ -119,6 +164,19 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
    */
   const executeAction = useCallback((action) => {
     if (status !== 'connected' && action.type !== 'clear') return;
+
+    const isHumanAct = (mode === 'bot' || mode === 'tutorial') && 
+      action.player !== 'blue' &&
+      ['place', 'move', 'rotate', 'laser-press'].includes(action.type);
+
+    if (isHumanAct) {
+      const now = Date.now();
+      const elapsed = now - lastActionTimestamp.current;
+      if (elapsed > 100 && elapsed < 6000) {
+        humanMoveTimeAvg.current = (humanMoveTimeAvg.current * 0.7) + (elapsed * 0.3);
+      }
+      lastActionTimestamp.current = now;
+    }
 
     setGameState((curr) => {
       // Determine the acting player based on the active phase
@@ -222,7 +280,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
       const timer = setTimeout(() => {
         const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer, difficulty);
         if (action) executeAction({ ...action, player: botPlayer });
-      }, 2500);
+      }, 300);
       return () => clearTimeout(timer);
     }
 
@@ -230,7 +288,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
       const timer = setTimeout(() => {
         const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer, difficulty);
         if (action) executeAction({ ...action, player: botPlayer });
-      }, 2500);
+      }, 300);
       return () => clearTimeout(timer);
     }
 
@@ -238,7 +296,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
       const timer = setTimeout(() => {
         const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer, difficulty, gameState.challengedPiece);
         if (action) executeAction({ ...action, player: botPlayer });
-      }, 2500);
+      }, 300);
       return () => clearTimeout(timer);
     }
 
@@ -257,31 +315,38 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
             const v1 = Math.floor(Math.random() * 6) + 1;
             const v2 = Math.floor(Math.random() * 6) + 1;
             executeAction({ type: 'end-roll', values: [v1, v2], player: botPlayer });
-          }, 600);
-        }, 2500);
+          }, 200);
+        }, 300);
         return () => clearTimeout(timer);
       }
 
-      // Step 2: Perform actions step-by-step
+      // Step 2: Perform actions step-by-step with dynamic decision-weighted pacing
       if (gameState.hasRolledDice && gameState.actionPoints > 0 && !gameState.dice.isRolling) {
-        const timer = setTimeout(async () => {
-          const botRole = isBotAttacker ? 'attacker' : 'defender';
-          const action = await getBotPlayAction(gameState.board, botRole, gameState.actionPoints, difficulty, gameState, botPlayer);
+        const botRole = isBotAttacker ? 'attacker' : 'defender';
+        
+        getBotPlayAction(gameState.board, botRole, gameState.actionPoints, difficulty, gameState, botPlayer).then(action => {
           if (action) {
-            executeAction({ ...action, player: botPlayer });
+            const delay = getBotActionDelay(difficulty, action, gameState, humanMoveTimeAvg.current);
+            botTimeoutRef.current = setTimeout(() => {
+              executeAction({ ...action, player: botPlayer });
+            }, delay);
           } else {
-            // End turn if no useful moves are found or safe
-            executeAction({ type: 'end-turn', player: botPlayer });
+            botTimeoutRef.current = setTimeout(() => {
+              executeAction({ type: 'end-turn', player: botPlayer });
+            }, 300);
           }
-        }, 3000); // Step delay increased to allow reading text
-        return () => clearTimeout(timer);
+        });
+
+        return () => {
+          if (botTimeoutRef.current) clearTimeout(botTimeoutRef.current);
+        };
       }
 
       // Step 3: End turn if no AP left
       if (gameState.hasRolledDice && gameState.actionPoints === 0 && !gameState.dice.isRolling) {
         const timer = setTimeout(() => {
           executeAction({ type: 'end-turn', player: botPlayer });
-        }, 3000);
+        }, 300);
         return () => clearTimeout(timer);
       }
     }
@@ -337,7 +402,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
         }
 
         executeAction({ type: 'declare-challenge', declare: true, pieceType: target, player: botPlayer });
-      }, 1500);
+      }, 400);
       return () => clearTimeout(timer);
     }
 
@@ -350,8 +415,8 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
           setTimeout(() => {
             const blueVal = mode === 'tutorial' ? (Math.random() < 0.8 ? 1 : 2) : (Math.floor(Math.random() * 6) + 1);
             executeAction({ type: 'challenge-roll', value: blueVal, player: botPlayer });
-          }, 600);
-        }, 1000);
+          }, 200);
+        }, 300);
         return () => clearTimeout(timer);
       }
     }
@@ -365,8 +430,8 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
           setTimeout(() => {
             const blueVal = mode === 'tutorial' ? (Math.random() < 0.8 ? 1 : 2) : (Math.floor(Math.random() * 6) + 1);
             executeAction({ type: 'toss-roll', value: blueVal, player: botPlayer });
-          }, 600);
-        }, 1000);
+          }, 200);
+        }, 300);
         return () => clearTimeout(timer);
       }
     }
@@ -383,7 +448,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
           selectedRole = 'attacker';
         }
         executeAction({ type: 'toss-select-role', role: selectedRole, player: botPlayer });
-      }, 1500);
+      }, 300);
       return () => clearTimeout(timer);
     }
   }, [

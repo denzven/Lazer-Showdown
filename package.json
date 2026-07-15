@@ -9,12 +9,10 @@
     "lint": "oxlint",
     "preview": "vite preview",
     "predeploy": "npm run build",
-    "deploy": "gh-pages -d dist"
+    "deploy": "gh-pages -d dist",
+    "train": "node scripts/train_ga.js"
   },
   "dependencies": {
-    "@tensorflow/tfjs": "4.22.0",
-    "@tensorflow/tfjs-node": "4.22.0",
-    "@tensorflow/tfjs-node-gpu": "4.22.0",
     "canvas-confetti": "^1.9.4",
     "lucide-react": "^1.23.0",
     "mobile-drag-drop": "^3.0.0-rc.0",

@@ -505,15 +505,10 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
   const [selectedCell, setSelectedCell] = useState(null);
   const [selectedPaletteBlock, setSelectedPaletteBlock] = useState(null);
   const [showLaserBeam, setShowLaserBeam] = useState(false);
-  
-  const [engineType, setEngineType] = useState('math'); // 'math', 'neural', or 'comparison'
-  
-  const showHeatmap = engineType === 'math' || engineType === 'comparison';
-  const showGhostRays = engineType === 'math';
-  const showPieceThreats = engineType === 'math';
-  const showQHeatmap = engineType === 'neural' || engineType === 'comparison';
+  const showHeatmap = true;
+  const showGhostRays = true;
+  const showPieceThreats = true;
 
-  const [qHeatmapData, setQHeatmapData] = useState(null);
   const [highlightedCell, setHighlightedCell] = useState(null);
 
   const challengeRecommendation = React.useMemo(() => {
@@ -526,29 +521,6 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
   const [boardAnalysis, setBoardAnalysis] = useState(null);
   const [moveClassification, setMoveClassification] = useState(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [neuralThreatMap, setNeuralThreatMap] = useState(null);
-
-  useEffect(() => {
-    if (!showQHeatmap) {
-      setQHeatmapData(null);
-      return;
-    }
-    let isMounted = true;
-    const fetchQHeatmap = async () => {
-      const currentGameState = {
-        roleRed, roleBlue, turnPlayer,
-        scores: game.scores, actionPoints: game.actionPoints, round: game.round, set: game.set, capturedPieces: game.capturedPieces
-      };
-      
-      const { generateQValueHeatmapAsync } = await import('../core/NeuralBot.js');
-      const botRole = turnPlayer; // Evaluate from the perspective of the current turn player
-      const heatmap = await generateQValueHeatmapAsync(board, botRole, game.actionPoints, currentGameState);
-      
-      if (isMounted) setQHeatmapData(heatmap);
-    };
-    fetchQHeatmap();
-    return () => { isMounted = false; };
-  }, [board, showQHeatmap, turnPlayer, roleRed, roleBlue, game.scores, game.actionPoints, game.round, game.set, game.capturedPieces]);
 
   useEffect(() => {
     if (!analysisMode) {
@@ -558,25 +530,15 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
     let isMounted = true;
     const analyze = async () => {
       const activeRole = role === 'attacker' ? (roleRed === 'attacker' ? 'red' : 'blue') : (roleRed === 'defender' ? 'red' : 'blue');
-      const difficultyToUse = engineType === 'neural' ? 'neural' : (difficulty || 'hard');
+      const difficultyToUse = difficulty === 'ga' ? 'ga' : (difficulty || 'hard');
       const res = await getBoardAnalysisAsync(board, role, difficultyToUse, { turnPlayer, roleRed, roleBlue }, activeRole);
       if (isMounted) setBoardAnalysis(res);
-
-      if (engineType === 'neural') {
-        const { generateNeuralThreatMapAsync } = await import('../core/NeuralBot.js');
-        const currentGameState = {
-          roleRed, roleBlue, turnPlayer,
-          scores: game.scores, actionPoints: game.actionPoints, round: game.round, set: game.set, capturedPieces: game.capturedPieces
-        };
-        const neuralMap = await generateNeuralThreatMapAsync(board, currentGameState);
-        if (isMounted) setNeuralThreatMap(neuralMap);
-      }
     };
     analyze();
     return () => { isMounted = false; };
-  }, [board, role, difficulty, analysisMode, turnPlayer, roleRed, roleBlue, engineType, game.scores, game.actionPoints, game.round, game.set, game.capturedPieces]);
+  }, [board, role, difficulty, analysisMode, turnPlayer, roleRed, roleBlue, game.scores, game.actionPoints, game.round, game.set, game.capturedPieces]);
 
-  const activeThreatMap = engineType === 'neural' ? neuralThreatMap : threatMap;
+  const activeThreatMap = threatMap;
 
   useEffect(() => {
     if (!analysisMode) {
@@ -607,7 +569,7 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
 
     const actorPlayer = beforeState.turnPlayer;
     const actorRole = actorPlayer === 'red' ? beforeState.roleRed : beforeState.roleBlue;
-    const difficultyToUse = engineType === 'neural' ? 'neural' : (difficulty || 'hard');
+    const difficultyToUse = difficulty === 'ga' ? 'ga' : (difficulty || 'hard');
 
     let isMounted = true;
     const analyzeMove = async () => {
@@ -628,7 +590,7 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
     };
     analyzeMove();
     return () => { isMounted = false; };
-  }, [reviewIndex, analysisMode, history.past, difficulty, engineType, game]);
+  }, [reviewIndex, analysisMode, history.past, difficulty, game]);
 
   const [engineLines, setEngineLines] = useState([]);
 
@@ -640,7 +602,7 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
     }
     const fetchLines = async () => {
       try {
-        const difficultyToUse = engineType === 'neural' ? 'neural' : (difficulty || 'medium');
+        const difficultyToUse = difficulty === 'ga' ? 'ga' : (difficulty || 'medium');
         const lines = await getBotEngineLinesAsync(board, turnPlayer, game.actionPoints || 2, difficultyToUse, game);
         if (isMounted) setEngineLines(lines);
       } catch (e) {
@@ -649,7 +611,7 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
     };
     fetchLines();
     return () => { isMounted = false; };
-  }, [board, turnPlayer, difficulty, game, analysisMode, engineType]);
+  }, [board, turnPlayer, difficulty, game, analysisMode]);
 
   const pieceThreats = React.useMemo(() => {
     if (!analysisMode) return [];
@@ -1349,7 +1311,6 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
             showHeatmap={showHeatmap}
             showGhostRays={showGhostRays}
             showPieceThreats={showPieceThreats}
-            showQHeatmap={showQHeatmap}
             startOfTurnThreats={startOfTurnThreats}
             onClose={() => setAnalysisMode(false)}
             reviewIndex={reviewIndex}
@@ -1365,10 +1326,7 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
                 setHighlightedCell({ r, c });
               }
             }}
-            engineType={engineType}
-            setEngineType={setEngineType}
             isAnalyzing={isAnalyzing}
-            phase={phase}
             challengeRecommendation={challengeRecommendation}
           />
         )}
@@ -1525,8 +1483,6 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
           showLaserBeam={showLaserBeam}
           threatMap={showHeatmap ? activeThreatMap : null}
           possibilityWeb={showGhostRays ? game.possibilityWeb : null}
-          engineType={engineType}
-          qHeatmapData={showQHeatmap ? qHeatmapData : null}
           highlightedCell={highlightedCell}
           tutorialHighlight={tutorialStep?.highlight}
           tutorialHighlights={tutorialStep?.highlights}
