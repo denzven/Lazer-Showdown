@@ -921,13 +921,7 @@ function App() {
                 </button>
               </div>
 
-              <button 
-                className="cyber-button"
-                style={{ width: '100%', marginTop: '10px', borderColor: '#39ff14', color: '#39ff14', padding: '12px' }}
-                onClick={() => setMode('devs-corner')}
-              >
-                🚀 DEVELOPER'S CORNER
-              </button>
+
 
               <p style={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#b15cff', marginTop: '5px' }}>
                 Made with Love by DZVN 💜
@@ -940,7 +934,7 @@ function App() {
         </div>
       ) : mode === 'devs-corner' ? (
         <DevsCorner 
-          onBack={() => setMode('credits')}
+          onBack={() => setMode('main-menu')}
           customBoards={selectableBoards}
           onImportBoard={(name, data) => setSelectableBoards(prev => [...prev.filter(b => b.name !== name), { name, data }])}
           subMode={devsCornerSubMode}
@@ -1215,6 +1209,13 @@ function App() {
                 style={{ padding: '14px', letterSpacing: '0.1em', borderColor: '#b15cff', color: '#b15cff' }}
               >
                 LORE
+              </button>
+              <button 
+                className="cyber-button" 
+                onClick={() => setMode('devs-corner')} 
+                style={{ padding: '14px', letterSpacing: '0.1em', borderColor: '#39ff14', color: '#39ff14' }}
+              >
+                DEV'S CORNER
               </button>
               <button 
                 className="cyber-button" 

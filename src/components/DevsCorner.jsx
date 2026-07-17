@@ -400,7 +400,8 @@ function CustomSelect({ value, onChange, options, colorTheme = 'blue' }) {
             overflow: 'hidden',
             display: 'flex',
             flexDirection: 'column',
-            padding: '4px 0'
+            padding: '4px 0',
+            zIndex: 100
           }}
         >
           {options.map(opt => {
@@ -555,6 +556,7 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [],
   const [editorBoardName, setEditorBoardName] = useState('my_custom_board');
   const [editorError, setEditorError] = useState(null);
   const [editorSuccess, setEditorSuccess] = useState(null);
+  const [editorSymmetry, setEditorSymmetry] = useState('none'); // 'none', 'horizontal', 'vertical', 'radial'
 
   // Laser Simulator states
   const [simLaserActive, setSimLaserActive] = useState(false);
@@ -592,12 +594,65 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [],
     setEditorBoard(prev => {
       const next = prev.map(row => row.slice());
       const cell = next[r][c];
+      
+      let nextCell = null;
       if (!cell) {
-        next[r][c] = { type: 'mirror', orientation: '/' };
+        nextCell = { type: 'mirror', orientation: '/' };
       } else if (cell.orientation === '/') {
-        next[r][c] = { type: 'mirror', orientation: '\\' };
+        nextCell = { type: 'mirror', orientation: '\\' };
       } else {
-        next[r][c] = null;
+        nextCell = null;
+      }
+
+      next[r][c] = nextCell;
+
+      // Apply symmetry reflections
+      if (editorSymmetry === 'horizontal') {
+        const mr = 7 - r;
+        if (mr !== r) {
+          next[mr][c] = nextCell ? { ...nextCell, orientation: nextCell.orientation === '/' ? '\\' : '/' } : null;
+        }
+      } else if (editorSymmetry === 'vertical') {
+        const mc = 7 - c;
+        if (mc !== c) {
+          next[r][mc] = nextCell ? { ...nextCell, orientation: nextCell.orientation === '/' ? '\\' : '/' } : null;
+        }
+      } else if (editorSymmetry === 'radial2') {
+        const mr = 7 - r;
+        const mc = 7 - c;
+        if (mr !== r || mc !== c) {
+          next[mr][mc] = nextCell ? { ...nextCell, orientation: nextCell.orientation } : null;
+        }
+      } else if (editorSymmetry === 'radial4') {
+        const coords = [
+          { nr: c, nc: 7 - r, flip: true },
+          { nr: 7 - r, nc: 7 - c, flip: false },
+          { nr: 7 - c, nc: r, flip: true }
+        ];
+        coords.forEach(({ nr, nc, flip }) => {
+          if (nr !== r || nc !== c) {
+            if (nextCell) {
+              const targetOrientation = flip 
+                ? (nextCell.orientation === '/' ? '\\' : '/')
+                : nextCell.orientation;
+              next[nr][nc] = { ...nextCell, orientation: targetOrientation };
+            } else {
+              next[nr][nc] = null;
+            }
+          }
+        });
+      } else if (editorSymmetry === 'both') {
+        const mr = 7 - r;
+        const mc = 7 - c;
+        if (mr !== r) {
+          next[mr][c] = nextCell ? { ...nextCell, orientation: nextCell.orientation === '/' ? '\\' : '/' } : null;
+        }
+        if (mc !== c) {
+          next[r][mc] = nextCell ? { ...nextCell, orientation: nextCell.orientation === '/' ? '\\' : '/' } : null;
+        }
+        if (mr !== r && mc !== c) {
+          next[mr][mc] = nextCell ? { ...nextCell, orientation: nextCell.orientation } : null;
+        }
       }
 
       blockError = checkAdjacencyBlocking(next);
@@ -1212,7 +1267,7 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [],
         {/* Header */}
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
           <button className="cyber-button" onClick={onBack} style={{ padding: '8px 16px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <ChevronLeft size={16} /> BACK TO CREDITS
+            <ChevronLeft size={16} /> BACK TO MAIN MENU
           </button>
           <div style={{ textAlign: 'right' }}>
             <h1 className="lobby-title font-display" style={{ fontSize: '1.8rem', margin: 0 }}>DEV'S CORNER</h1>
@@ -1706,6 +1761,7 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [],
                   {/* 8x8 Grid Canvas */}
                   <div 
                     style={{
+                      position: 'relative',
                       display: 'grid',
                       gridTemplateColumns: 'repeat(8, 40px)',
                       gridTemplateRows: 'repeat(8, 40px)',
@@ -1770,13 +1826,83 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [],
                         );
                       })
                     ))}
+
+                    {/* Horizontal Symmetry Guideline */}
+                    {/* Horizontal Symmetry Guideline */}
+                    {(editorSymmetry === 'horizontal' || editorSymmetry === 'both') && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '4px',
+                        right: '4px',
+                        height: '0px',
+                        borderTop: '2px dotted var(--neon-blue)',
+                        boxShadow: '0 0 6px var(--neon-blue)',
+                        pointerEvents: 'none',
+                        zIndex: 10,
+                        transform: 'translateY(-50%)',
+                        opacity: 0.85
+                      }} />
+                    )}
+
+                    {/* Vertical Symmetry Guideline */}
+                    {(editorSymmetry === 'vertical' || editorSymmetry === 'both') && (
+                      <div style={{
+                        position: 'absolute',
+                        left: '50%',
+                        top: '4px',
+                        bottom: '4px',
+                        width: '0px',
+                        borderLeft: '2px dotted var(--neon-blue)',
+                        boxShadow: '0 0 6px var(--neon-blue)',
+                        pointerEvents: 'none',
+                        zIndex: 10,
+                        transform: 'translateX(-50%)',
+                        opacity: 0.85
+                      }} />
+                    )}
+
+                    {/* Radial Center Dot */}
+                    {(editorSymmetry === 'radial2' || editorSymmetry === 'radial4') && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        width: '8px',
+                        height: '8px',
+                        borderRadius: '50%',
+                        background: 'var(--neon-blue)',
+                        boxShadow: '0 0 8px var(--neon-blue), 0 0 15px var(--neon-blue)',
+                        transform: 'translate(-50%, -50%)',
+                        pointerEvents: 'none',
+                        zIndex: 11
+                      }} />
+                    )}
+
+                    {/* Radial 4-Way Circular Outline */}
+                    {editorSymmetry === 'radial4' && (
+                      <div style={{
+                        position: 'absolute',
+                        top: '50%',
+                        left: '50%',
+                        width: '180px',
+                        height: '180px',
+                        borderRadius: '50%',
+                        border: '2px dotted var(--neon-blue)',
+                        boxShadow: '0 0 6px var(--neon-blue)',
+                        transform: 'translate(-50%, -50%)',
+                        pointerEvents: 'none',
+                        zIndex: 10,
+                        opacity: 0.65
+                      }} />
+                    )}
                   </div>
                 </div>
               </div>
 
               {/* Design Controls */}
               <div style={{ flex: 1, minWidth: '280px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px', position: 'relative', zIndex: 10 }}>
                   <h4 style={{ color: 'var(--text-primary)', margin: '0 0 4px 0', fontSize: '0.95rem' }}>GRID CONTROLS</h4>
                   
                   {/* File name inputs */}
@@ -1796,6 +1922,24 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [],
                         borderRadius: '4px',
                         fontSize: '0.85rem'
                       }}
+                    />
+                  </div>
+
+                  {/* Symmetry Toggle Selection */}
+                  <div style={{ position: 'relative', zIndex: 20 }}>
+                    <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Mirror Symmetry Mode:</label>
+                    <CustomSelect 
+                      value={editorSymmetry} 
+                      onChange={setEditorSymmetry} 
+                      options={[
+                        { id: 'none', name: 'No Symmetry' },
+                        { id: 'horizontal', name: 'Horizontal ↔️' },
+                        { id: 'vertical', name: 'Vertical ↕️' },
+                        { id: 'both', name: 'Horiz + Vert (4-Way)' },
+                        { id: 'radial2', name: 'Radial (2-Way) 🔄' },
+                        { id: 'radial4', name: 'Radial (4-Way) 🌀' }
+                      ]} 
+                      colorTheme="cyan"
                     />
                   </div>
 
