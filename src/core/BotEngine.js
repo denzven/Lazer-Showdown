@@ -8,7 +8,7 @@
  *  - If the Worker fails or is unavailable, a synchronous fallback is used transparently.
  */
 
-import { EasyStrategy, MediumStrategy, HardStrategy, GAStrategy, CUSTOM_STRATEGIES, generateThreatMap, getBoardAnalysis, generatePossibilityWeb } from './BotStrategies.js';
+import { EasyStrategy, MediumStrategy, HardStrategy, GAStrategy, CUSTOM_STRATEGIES, generateThreatMap, generateExpectiminimaxThreatMap, getBoardAnalysis, generatePossibilityWeb } from './BotStrategies.js';
 
 // --- WEB WORKER SINGLETON ---
 // Created once, reused for the entire session. Destroyed and recreated on fatal errors.
@@ -90,13 +90,13 @@ function syncPlayAction(board, role, actionPoints, difficulty, gameState, botPla
  *
  * Phase 1f fix: Easy correctly uses EasyStrategy (was incorrectly using HardStrategy on L7).
  */
-export function getBotSetupAction(board, phase, playerColor, difficulty = 'medium', challengedPiece = null) {
-  if (difficulty === 'easy')   return EasyStrategy.getSetupAction(board, phase, playerColor, challengedPiece);
-  if (difficulty === 'medium') return MediumStrategy.getSetupAction(board, phase, playerColor, challengedPiece);
-  if (difficulty === 'hard')   return HardStrategy.getSetupAction(board, phase, playerColor, challengedPiece);
-  if (difficulty === 'ga')     return GAStrategy.getSetupAction(board, phase, playerColor, challengedPiece);
+export function getBotSetupAction(board, phase, playerColor, difficulty = 'medium', challengedPiece = null, boardHeatmap = null) {
+  if (difficulty === 'easy')   return EasyStrategy.getSetupAction(board, phase, playerColor, challengedPiece, boardHeatmap);
+  if (difficulty === 'medium') return MediumStrategy.getSetupAction(board, phase, playerColor, challengedPiece, boardHeatmap);
+  if (difficulty === 'hard')   return HardStrategy.getSetupAction(board, phase, playerColor, challengedPiece, boardHeatmap);
+  if (difficulty === 'ga')     return GAStrategy.getSetupAction(board, phase, playerColor, challengedPiece, boardHeatmap);
   if (CUSTOM_STRATEGIES[difficulty]) {
-    return CUSTOM_STRATEGIES[difficulty].getSetupAction(board, phase, playerColor, challengedPiece);
+    return CUSTOM_STRATEGIES[difficulty].getSetupAction(board, phase, playerColor, challengedPiece, boardHeatmap);
   }
   return null;
 }
@@ -160,6 +160,20 @@ export function getBotChallengeAction(board, gameState, botPlayer, difficulty) {
     return CUSTOM_STRATEGIES[difficulty].getChallengeAction ? CUSTOM_STRATEGIES[difficulty].getChallengeAction(board, gameState, botPlayer) : null;
   }
   return null;
+}
+
+export async function analyzeBoardAsync(board, deep = false) {
+  const promise = dispatchToWorker('ANALYZE_BOARD', { board, deep });
+  if (promise) {
+    try {
+      const result = await promise;
+      return result.heatmap;
+    } catch (e) {
+      console.error('[BotEngine] Async board analysis failed, falling back to sync', e);
+    }
+  }
+  // Sync fallback
+  return deep ? generateExpectiminimaxThreatMap(board, 1) : generateThreatMap(board, true);
 }
 
 export { generateThreatMap, getBoardAnalysis, generatePossibilityWeb };

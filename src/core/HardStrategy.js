@@ -14,8 +14,8 @@ export const HardStrategy = {
    * Called during setup/placement phases.
    * Places blocks dynamically based on baseline threat map profiles and dispersion metrics.
    */
-  getSetupAction: (board, phase, playerColor, challengedPiece) => {
-    return genericSetupAction(board, phase, 'hard', challengedPiece);
+  getSetupAction: (board, phase, playerColor, challengedPiece, boardHeatmap) => {
+    return genericSetupAction(board, phase, playerColor, 'hard', challengedPiece, boardHeatmap);
   },
 
   /**

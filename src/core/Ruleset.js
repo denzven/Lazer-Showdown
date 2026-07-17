@@ -30,8 +30,10 @@ export const FIXED_MIRRORS = [
 export function getInitialBoard(customBoardData = null) {
   const board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
   
-  if (customBoardData && Array.isArray(customBoardData)) {
-    for (const m of customBoardData) {
+  const mirrorData = (customBoardData && customBoardData.data) ? customBoardData.data : customBoardData;
+
+  if (mirrorData && Array.isArray(mirrorData)) {
+    for (const m of mirrorData) {
       if (m.type === 'mirror' && m.grid_pos) {
         const r = m.grid_pos[0];
         const c = m.grid_pos[1];

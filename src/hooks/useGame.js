@@ -346,7 +346,7 @@ export function useGame(network, mode, difficulty, customBoardData = null, spect
     // A. Setup Placements
     if (gameState.phase === 'setup-defender' || gameState.phase === 'challenge-setup' || gameState.phase === 'setup-attacker') {
       const timer = setTimeout(() => {
-        const action = getBotSetupAction(gameState.board, gameState.phase, activeBotColor, activeBotStrategy, gameState.challengedPiece);
+        const action = getBotSetupAction(gameState.board, gameState.phase, activeBotColor, activeBotStrategy, gameState.challengedPiece, gameState.boardHeatmap);
         if (action) executeAction({ ...action, player: activeBotColor });
       }, 300);
       return () => clearTimeout(timer);

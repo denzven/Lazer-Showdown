@@ -13,7 +13,7 @@ export const GAStrategy = {
    */
   getPlayAction: (board, role, actionPoints, gameState, botPlayer) => {
     const cautiousness = getCautiousness(gameState, botPlayer);
-    const { bestAction } = findBestActionSequenceExpectiminimax(board, role, actionPoints, cautiousness, gaWeights, 1);
+    const { action: bestAction } = findBestActionSequenceExpectiminimax(board, role, actionPoints, cautiousness, gaWeights, 1);
     return bestAction;
   },
 
@@ -21,8 +21,8 @@ export const GAStrategy = {
    * Called during setup/placement phases.
    * Placements optimized with dispersion and edge-cover logic.
    */
-  getSetupAction: (board, phase, playerColor, challengedPiece) => {
-    return genericSetupAction(board, phase, 'hard', challengedPiece);
+  getSetupAction: (board, phase, playerColor, challengedPiece, boardHeatmap) => {
+    return genericSetupAction(board, phase, playerColor, 'ga', challengedPiece, boardHeatmap);
   },
 
   /**

@@ -14,7 +14,7 @@
  * Both BotStrategies.js and Ruleset.js are pure JS with zero DOM dependencies — safe for workers.
  */
 
-import { EasyStrategy, MediumStrategy, HardStrategy, GAStrategy } from './BotStrategies.js';
+import { EasyStrategy, MediumStrategy, HardStrategy, GAStrategy, generateThreatMap, generateExpectiminimaxThreatMap } from './BotStrategies.js';
 
 self.onmessage = function (e) {
   const { type, requestId } = e.data;
@@ -36,6 +36,18 @@ self.onmessage = function (e) {
 
       self.postMessage({ requestId, result: action });
 
+    } else if (type === 'ANALYZE_BOARD') {
+      const { board, deep } = e.data;
+      
+      let threatMap;
+      if (deep) {
+        threatMap = generateExpectiminimaxThreatMap(board, 1);
+      } else {
+        threatMap = generateThreatMap(board, true);
+      }
+      
+      self.postMessage({ requestId, result: { heatmap: threatMap } });
+      
     } else if (type === 'SETUP_ACTION') {
       const { board, phase, playerColor, difficulty, challengedPiece } = e.data;
       let action = null;

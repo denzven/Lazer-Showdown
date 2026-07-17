@@ -9,6 +9,8 @@ import ReactMarkdown from 'react-markdown';
 import './index.css';
 import InstallPWA from './components/InstallPWA';
 import DevsCorner from './components/DevsCorner';
+import { generateExpectiminimaxThreatMap } from './core/BotHelpers';
+import { getInitialBoard } from './core/Ruleset';
 const loreModules = import.meta.glob(['./lore/*.md', './lore/*.txt'], { query: '?raw', import: 'default', eager: true });
 const loreFiles = Object.keys(loreModules).sort().map(key => loreModules[key]);
 
@@ -20,10 +22,17 @@ const normalizedLoreImages = Object.fromEntries(
 
 // Load custom boards
 const boardModules = import.meta.glob('./boards/*.json', { import: 'default', eager: true });
-const customBoards = Object.keys(boardModules).map(key => ({
-  name: key.replace('./boards/', '').replace('.json', ''),
-  data: boardModules[key]
-}));
+const heatmapModules = import.meta.glob('./heatmaps/*.json', { import: 'default', eager: true });
+
+const customBoards = Object.keys(boardModules).map(key => {
+  const name = key.replace('./boards/', '').replace('.json', '');
+  const heatmapKey = `./heatmaps/${name}.json`;
+  return {
+    name,
+    data: boardModules[key],
+    heatmap: heatmapModules[heatmapKey] || null
+  };
+});
 
 const RULES_MARKDOWN = `
 ### 🏗️ Structure
@@ -75,10 +84,15 @@ function App() {
   const loreScrollRef = useRef(null);
   const [selectedBoardName, setSelectedBoardName] = useState('default');
   const [selectableBoards, setSelectableBoards] = useState(() => [
-    ...Object.keys(boardModules).map(key => ({
-      name: key.replace('./boards/', '').replace('.json', ''),
-      data: boardModules[key]
-    }))
+    ...Object.keys(boardModules).map(key => {
+      const name = key.replace('./boards/', '').replace('.json', '');
+      const heatmapKey = `./heatmaps/${name}.json`;
+      return {
+        name,
+        data: boardModules[key],
+        heatmap: heatmapModules[heatmapKey] || null
+      };
+    })
   ]);
   const boardUploadInputRef = useRef(null);
   const [boardUploadError, setBoardUploadError] = useState(null);
@@ -139,13 +153,19 @@ function App() {
 
         const cleanName = file.name.replace('.json', '').replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
         
+        // Compute heatmap for the uploaded board synchronously
+        // We convert the data to a 2D board matrix for the threat map generator
+        const tempBoard = getInitialBoard(data);
+        const generatedHeatmap = generateExpectiminimaxThreatMap(tempBoard);
+
+        const fullBoardObj = { name: cleanName, data, heatmap: generatedHeatmap };
         // Prevent duplicate names
         setSelectableBoards(prev => {
           const filtered = prev.filter(b => b.name !== cleanName);
-          return [...filtered, { name: cleanName, data }];
+          return [...filtered, fullBoardObj];
         });
         setSelectedBoardName(cleanName);
-        game.clearWorkspace(data);
+        game.clearWorkspace(fullBoardObj);
       } catch (err) {
         setBoardUploadError(`Import failed: ${err.message}`);
       }
@@ -560,7 +580,7 @@ function App() {
 
   const selectedBoardData = selectedBoardName === 'default' 
     ? null 
-    : selectableBoards.find(b => b.name === selectedBoardName)?.data;
+    : selectableBoards.find(b => b.name === selectedBoardName);
 
   const game = useGame(activeNetwork, mode, difficulty, selectedBoardData, spectateConfig);
 
@@ -944,7 +964,7 @@ function App() {
           onStartSpectate={(redBot, blueBot, boardName = 'default') => {
             setSpectateConfig({ redBot, blueBot });
             setSelectedBoardName(boardName);
-            const bData = boardName === 'default' ? null : customBoards.find(b => b.name === boardName)?.data;
+            const bData = boardName === 'default' ? null : customBoards.find(b => b.name === boardName);
             game.clearWorkspace(bData);
             setMode('spectate');
           }}
@@ -1058,7 +1078,7 @@ function App() {
                       key={b.name}
                       onClick={() => {
                         setSelectedBoardName(b.name);
-                        game.clearWorkspace(b.data);
+                        game.clearWorkspace(b);
                         setBoardDropdownOpen(false);
                       }}
                       style={{

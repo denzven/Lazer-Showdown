@@ -665,6 +665,8 @@ export function applySandboxAction(board, action, player, context = {}) {
 export function getInitialState(customBoardData = null, mode = null) {
   const emptyBoard = getInitialBoard(customBoardData);
   const initialSideEffects = evaluateBoardState(emptyBoard, null, 'system');
+  
+  const boardHeatmap = (customBoardData && customBoardData.heatmap) ? customBoardData.heatmap : null;
 
 
 
@@ -696,6 +698,7 @@ export function getInitialState(customBoardData = null, mode = null) {
     challengedPiece: null,
     challengeTossRolls: { red: null, blue: null },
     turnStats: { lazerMove: 0, lazerRotate: 0, lazerFire: 0, pieceMove: 0, pieceMoveBreakdown: { 'block-20': 0, 'block-30': 0, 'block-50': 0 }, wastedAP: 0 },
-    customBoardData: customBoardData
+    customBoardData: customBoardData,
+    boardHeatmap: boardHeatmap
   };
 }

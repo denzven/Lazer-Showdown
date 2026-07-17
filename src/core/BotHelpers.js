@@ -498,8 +498,7 @@ export function findBestActionSequenceExpectiminimax(board, role, actionPoints, 
       bestAction = a1;
     }
   }
-
-  return { bestAction, bestScore };
+  return { action: bestAction, score: bestScore };
 }
 
 export function evaluateMediumDefender(board, cautiousness = 1.0) {
@@ -790,7 +789,36 @@ export function generatePossibilityWeb(board) {
   return webPaths;
 }
 
-export function generateThreatMap(board) {
+export function computeMovementCosts(board, startR, startC) {
+  const costs = Array(8).fill(null).map(() => Array(8).fill(999));
+  if (board[startR][startC] !== null && board[startR][startC].type !== 'block-lazer') return costs;
+
+  costs[startR][startC] = 0;
+  const queue = [{ r: startR, c: startC }];
+  
+  const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+  while(queue.length > 0) {
+    const {r, c} = queue.shift();
+    const currentCost = costs[r][c];
+
+    for(const [dr, dc] of dirs) {
+      const nr = r + dr;
+      const nc = c + dc;
+      if (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+        // Can move into empty cells
+        if (board[nr][nc] === null) {
+          if (currentCost + 1 < costs[nr][nc]) {
+            costs[nr][nc] = currentCost + 1;
+            queue.push({r: nr, c: nc});
+          }
+        }
+      }
+    }
+  }
+  return costs;
+}
+
+export function generateThreatMap(board, useCache = true) {
   const { lazerPos, lazerDir } = getBoardState(board);
   const map = Array(8).fill(null).map(() => Array(8).fill(null).map(() => ({ total: 0, sources: {} })));
   const rotations = [0, 90, 180, 270];
@@ -809,12 +837,15 @@ export function generateThreatMap(board) {
 
     for (const corner of corners) {
       if (board[corner.r][corner.c] !== null) continue;
+      
+      const moveCosts = computeMovementCosts(board, corner.r, corner.c);
 
       for (let lr = 0; lr < 8; lr++) {
         for (let lc = 0; lc < 8; lc++) {
           if (board[lr][lc] !== null && !(lr === corner.r && lc === corner.c)) continue;
           
-          const moveDist = Math.abs(corner.r - lr) + Math.abs(corner.c - lc);
+          const moveDist = moveCosts[lr][lc];
+          if (moveDist >= 999) continue;
           
           for (const rot of rotations) {
             const minRotationCost = Math.min(...corner.dirs.map(d => {
@@ -840,16 +871,18 @@ export function generateThreatMap(board) {
     for (let r = 0; r < 8; r++) {
       for (let c = 0; c < 8; c++) {
         if (board[r][c] === null || board[r][c].type !== 'mirror') {
-          let maxProb = 0;
+          let sumProb = 0;
+          let validCorners = 0;
           for (const corner of corners) {
             if (minAPMap[r][c][corner.id] < 999) {
               const prob = get2d6CumulativeProbability(minAPMap[r][c][corner.id]);
               map[r][c].sources[corner.id] = prob;
-              if (prob > maxProb) maxProb = prob;
+              sumProb += prob;
             }
+            validCorners++;
           }
-          if (maxProb > 0) {
-            map[r][c].total = maxProb;
+          if (validCorners > 0) {
+            map[r][c].total = sumProb / validCorners;
           }
         }
       }
@@ -866,11 +899,14 @@ export function generateThreatMap(board) {
     Array(8).fill(null).map(() => ({ 0: 999, 90: 999, 180: 999, 270: 999 }))
   );
 
+  const moveCosts = computeMovementCosts(board, lazerPos.r, lazerPos.c);
+
   for (let lr = 0; lr < 8; lr++) {
     for (let lc = 0; lc < 8; lc++) {
       if (board[lr][lc] !== null && !(lr === lazerPos.r && lc === lazerPos.c)) continue;
       
-      const moveDist = Math.abs(lazerPos.r - lr) + Math.abs(lazerPos.c - lc);
+      const moveDist = moveCosts[lr][lc];
+      if (moveDist >= 999) continue;
       
       for (const rot of rotations) {
         let rotDiff = Math.abs(lazerDir - rot);
@@ -913,6 +949,97 @@ export function generateThreatMap(board) {
 
   _threatMapCache = { key: _cacheKey, map };
   return map;
+}
+
+export function generateExpectiminimaxThreatMap(board, oppDepthCap = 1) {
+  const baselineMap = generateThreatMap(board, false);
+  const deepMap = Array(8).fill(null).map(() => Array(8).fill(null).map(() => ({ total: 0, sources: {} })));
+  
+  const { lazerPos } = getBoardState(board);
+
+  const corners = lazerPos ? [] : [
+    { r: 0, c: 0, dirs: [90, 180], id: 'TL' },
+    { r: 0, c: 7, dirs: [180, 270], id: 'TR' },
+    { r: 7, c: 0, dirs: [0, 90], id: 'BL' },
+    { r: 7, c: 7, dirs: [270, 0], id: 'BR' }
+  ];
+
+  const customWeights = {
+    attCapture50Bonus: 5000,
+    attCapture30Bonus: 0,
+    attCapture20Bonus: 0,
+    attWinBonus: 0,
+    attThreatMultiplier: 0,
+    attApproachPenaltyMultiplier: 0,
+    attApproachThreshold: 0,
+    attImmediateCaptureMultiplier: 0,
+    attMirrorBounceBonus: 0,
+    attMobilityBonus: 0,
+    attCenterControlBonus: 0,
+    attTrapBonusMultiplier: 0,
+    attEscapePenaltyMultiplier: 0,
+    defSurvivalMultiplier: 0,
+    defThreatPenaltyMultiplier: 0,
+    defClusterPenalty: 0,
+    defCollinearPenalty: 0,
+    defMobilityBonus: 0,
+    defCenterControlPenalty: 0,
+    defSafetyStepPenaltyMultiplier: 0
+  };
+
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const isCorner = (r === 0 || r === 7) && (c === 0 || c === 7);
+      if (board[r][c] === null && !isCorner) {
+        
+        // Prune! If the heuristic threat map says 0, there is no way the attacker can hit this tile,
+        // because the heuristic threat map assumes the attacker has free reign to use AP without defender interference.
+        if (baselineMap[r][c].total === 0) {
+           continue; 
+        }
+
+        if (lazerPos) {
+           // Not needed for BoardEditor, but fallback if called with real board
+           let maxProb = 0;
+           for (const rot of [0, 90, 180, 270]) {
+              const simBoard = board.map(row => row.map(cell => cell ? { ...cell } : null));
+              simBoard[r][c] = { type: 'block-50', owner: 'defender' };
+              simBoard[lazerPos.r][lazerPos.c] = { type: 'block-lazer', owner: 'attacker', rotation: rot };
+              const { score } = findBestActionSequenceExpectiminimax(simBoard, 'attacker', 2, 1.0, customWeights, oppDepthCap);
+              const prob = Math.max(0, Math.min(1, score / 5000));
+              if (prob > maxProb) maxProb = prob;
+           }
+           deepMap[r][c].total = maxProb;
+           deepMap[r][c].sources['deep'] = maxProb;
+        } else {
+           let sumProb = 0;
+           let validCorners = 0;
+           for (const corner of corners) {
+             if (board[corner.r][corner.c] !== null) continue;
+             let maxProb = 0;
+             for (const rot of corner.dirs) {
+                const simBoard = board.map(row => row.map(cell => cell ? { ...cell } : null));
+                simBoard[r][c] = { type: 'block-50', owner: 'defender' };
+                simBoard[corner.r][corner.c] = { type: 'block-lazer', owner: 'attacker', rotation: rot };
+
+                const { score } = findBestActionSequenceExpectiminimax(simBoard, 'attacker', 2, 1.0, customWeights, oppDepthCap);
+                const prob = Math.max(0, Math.min(1, score / 5000));
+                if (prob > maxProb) maxProb = prob;
+             }
+             sumProb += maxProb;
+             deepMap[r][c].sources[corner.id] = maxProb;
+             validCorners++;
+           }
+           if (validCorners > 0) {
+             deepMap[r][c].total = sumProb / validCorners;
+             deepMap[r][c].sources['deep'] = sumProb / validCorners;
+           }
+        }
+      }
+    }
+  }
+
+  return deepMap;
 }
 
 export function classifyMove(beforeScore, afterScore, turnPlayer) {
@@ -1197,7 +1324,7 @@ export function getBoardAnalysis(board, role, difficulty, gameState, botPlayer) 
 }
 
 // Generic Setup logic extracted from original
-export function genericSetupAction(board, phase, difficulty, challengedPiece) {
+export function genericSetupAction(board, phase, playerColor, difficulty, challengedPiece = null, boardHeatmap = null) {
   if (phase === 'setup-defender' || phase === 'challenge-setup') {
     const counts = { [BLOCK_TYPES.BLOCK_20]: 0, [BLOCK_TYPES.BLOCK_30]: 0, [BLOCK_TYPES.BLOCK_50]: 0 };
     for (let r = 0; r < BOARD_SIZE; r++) {
@@ -1245,7 +1372,9 @@ export function genericSetupAction(board, phase, difficulty, challengedPiece) {
           }
         }
 
-        const threatMap = difficulty === 'hard' ? generateThreatMap(board) : null;
+        const threatMap = (difficulty === 'hard' || difficulty === 'ga') 
+          ? (boardHeatmap || generateThreatMap(board)) 
+          : null;
 
         const evaluateCell = (cell) => {
           let score = 0;

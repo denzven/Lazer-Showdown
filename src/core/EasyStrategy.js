@@ -12,8 +12,8 @@ export const EasyStrategy = {
    * Called during setup/placement phases.
    * Simple randomized corner and baseline placements.
    */
-  getSetupAction: (board, phase, playerColor, challengedPiece) => {
-    return genericSetupAction(board, phase, 'easy', challengedPiece);
+  getSetupAction: (board, phase, playerColor, challengedPiece, boardHeatmap) => {
+    return genericSetupAction(board, phase, playerColor, 'easy', challengedPiece, boardHeatmap);
   },
 
   /**

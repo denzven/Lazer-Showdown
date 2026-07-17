@@ -14,8 +14,8 @@ export const MediumStrategy = {
    * Called during setup/placement phases.
    * Leverages balanced positioning and edge cover heuristics.
    */
-  getSetupAction: (board, phase, playerColor, challengedPiece) => {
-    return genericSetupAction(board, phase, 'medium', challengedPiece);
+  getSetupAction: (board, phase, playerColor, challengedPiece, boardHeatmap) => {
+    return genericSetupAction(board, phase, playerColor, 'medium', challengedPiece, boardHeatmap);
   },
 
   /**
