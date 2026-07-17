@@ -4,7 +4,7 @@ import { useGame } from './hooks/useGame';
 import ConnectionScreen from './components/Lobby/ConnectionScreen';
 import Layout from './components/Layout';
 import TutorialLayout from './components/TutorialLayout';
-import { Globe, Users, Cpu, ChevronDown, Share2 } from 'lucide-react';
+import { Globe, Users, Cpu, ChevronDown, Share2, Upload } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import './index.css';
 import InstallPWA from './components/InstallPWA';
@@ -74,10 +74,84 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
   const loreScrollRef = useRef(null);
   const [selectedBoardName, setSelectedBoardName] = useState('default');
+  const [selectableBoards, setSelectableBoards] = useState(() => [
+    ...Object.keys(boardModules).map(key => ({
+      name: key.replace('./boards/', '').replace('.json', ''),
+      data: boardModules[key]
+    }))
+  ]);
+  const boardUploadInputRef = useRef(null);
+  const [boardUploadError, setBoardUploadError] = useState(null);
   const [boardDropdownOpen, setBoardDropdownOpen] = useState(false);
   const [playerElo, setPlayerElo] = useState(() => parseInt(localStorage.getItem('playerElo')) || 1000);
   const [rulesTab, setRulesTab] = useState('rules');
+  const [devsCornerSubMode, setDevsCornerSubMode] = useState('bot'); // 'bot' or 'editor'
+  const [devsCornerActiveTab, setDevsCornerActiveTab] = useState('contract'); // 'contract', 'guide', 'simulator', 'spectate'
   const network = useNetwork();
+
+  const validateCustomBoardJson = (data) => {
+    if (!Array.isArray(data)) {
+      throw new Error("Invalid format: Root of JSON must be an array of mirror objects.");
+    }
+    
+    const testBoard = Array(8).fill(null).map(() => Array(8).fill(null));
+    for (const m of data) {
+      if (m.type === 'mirror' && Array.isArray(m.grid_pos) && m.grid_pos.length === 2) {
+        const [r, c] = m.grid_pos;
+        if (r < 0 || r >= 8 || c < 0 || c >= 8) {
+          throw new Error(`Mirror position (${r}, ${c}) is out of bounds.`);
+        }
+        const isCorner = (r === 0 || r === 7) && (c === 0 || c === 7);
+        if (isCorner) {
+          throw new Error("Mirrors cannot be placed in the laser starting coordinates (corner cells).");
+        }
+        testBoard[r][c] = { type: 'mirror', orientation: m.angle === 90 ? '\\' : '/' };
+      }
+    }
+
+    const corners = [
+      { cr: 0, cc: 0, a1: [0, 1], a2: [1, 0] },
+      { cr: 0, cc: 7, a1: [0, 6], a2: [1, 7] },
+      { cr: 7, cc: 0, a1: [7, 1], a2: [6, 0] },
+      { cr: 7, cc: 7, a1: [7, 6], a2: [6, 7] }
+    ];
+
+    for (const c of corners) {
+      const cell1 = testBoard[c.a1[0]][c.a1[1]];
+      const cell2 = testBoard[c.a2[0]][c.a2[1]];
+      if (cell1 && cell2) {
+        throw new Error(`Corner (${c.cr}, ${c.cc}) cannot be locked in by mirrors on both exit paths (${c.a1[0]}, ${c.a1[1]}) and (${c.a2[0]}, ${c.a2[1]}).`);
+      }
+    }
+    return true;
+  };
+
+  const handleImportBoardJson = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBoardUploadError(null);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target.result);
+        validateCustomBoardJson(data);
+
+        const cleanName = file.name.replace('.json', '').replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+        
+        // Prevent duplicate names
+        setSelectableBoards(prev => {
+          const filtered = prev.filter(b => b.name !== cleanName);
+          return [...filtered, { name: cleanName, data }];
+        });
+        setSelectedBoardName(cleanName);
+        game.clearWorkspace(data);
+      } catch (err) {
+        setBoardUploadError(`Import failed: ${err.message}`);
+      }
+    };
+    reader.readAsText(file);
+  };
 
   // Hardware Back Button Interception State & Refs
   const backPressTimer = useRef(null);
@@ -107,7 +181,7 @@ function App() {
     if (hash === '#/rules') return 'rules';
     if (hash === '#/video-guide') return 'video-guide';
     if (hash === '#/credits') return 'credits';
-    if (hash === '#/devs-corner') return 'devs-corner';
+    if (hash.startsWith('#/devs-corner')) return 'devs-corner';
     
     // Parse lore page sub-paths
     if (hash.startsWith('#/lore/')) {
@@ -178,7 +252,30 @@ function App() {
     else if (newMode === 'rules') targetHash = '#/rules';
     else if (newMode === 'video-guide') targetHash = '#/video-guide';
     else if (newMode === 'credits') targetHash = '#/credits';
-    else if (newMode === 'devs-corner') targetHash = '#/devs-corner';
+    else if (newMode === 'devs-corner') {
+      let activeSub = devsCornerSubMode;
+      let activeTabStr = devsCornerActiveTab;
+
+      if (diffOverride === 'editor' || diffOverride === 'bot') {
+        activeSub = diffOverride;
+      } else if (diffOverride && ['contract', 'guide', 'simulator', 'spectate'].includes(diffOverride)) {
+        activeSub = 'bot';
+        activeTabStr = diffOverride;
+      }
+
+      setDevsCornerSubMode(activeSub);
+      setDevsCornerActiveTab(activeTabStr);
+
+      if (activeSub === 'editor') {
+        targetHash = '#/devs-corner/board-editor';
+      } else {
+        let tabHash = 'contract';
+        if (activeTabStr === 'guide') tabHash = 'guide';
+        else if (activeTabStr === 'simulator') tabHash = 'tournament';
+        else if (activeTabStr === 'spectate') tabHash = 'spectator';
+        targetHash = `#/devs-corner/bots/${tabHash}`;
+      }
+    }
     else if (newMode === 'lore') {
       targetHash = `#/lore/${lorePage + 1}`;
     }
@@ -219,6 +316,20 @@ function App() {
       } else if (hash === '#/lore') {
         setLorePage(0);
       }
+      // Extract devs corner subMode and activeTab
+      if (hash === '#/devs-corner/board-editor') {
+        setDevsCornerSubMode('editor');
+      } else if (hash.startsWith('#/devs-corner/bots/')) {
+        setDevsCornerSubMode('bot');
+        const tab = hash.substring(19);
+        if (tab === 'guide') setDevsCornerActiveTab('guide');
+        else if (tab === 'tournament') setDevsCornerActiveTab('simulator');
+        else if (tab === 'spectator') setDevsCornerActiveTab('spectate');
+        else setDevsCornerActiveTab('contract');
+      } else if (hash === '#/devs-corner/bots' || hash === '#/devs-corner') {
+        setDevsCornerSubMode('bot');
+        setDevsCornerActiveTab('contract');
+      }
     };
     window.addEventListener('hashchange', handleHashChange);
     return () => window.removeEventListener('hashchange', handleHashChange);
@@ -238,6 +349,19 @@ function App() {
       if (!isNaN(pageIndex) && pageIndex > 0 && pageIndex <= loreFiles.length) {
         setLorePage(pageIndex - 1);
       }
+    }
+    if (hash === '#/devs-corner/board-editor') {
+      setDevsCornerSubMode('editor');
+    } else if (hash.startsWith('#/devs-corner/bots/')) {
+      setDevsCornerSubMode('bot');
+      const tab = hash.substring(19);
+      if (tab === 'guide') setDevsCornerActiveTab('guide');
+      else if (tab === 'tournament') setDevsCornerActiveTab('simulator');
+      else if (tab === 'spectator') setDevsCornerActiveTab('spectate');
+      else setDevsCornerActiveTab('contract');
+    } else if (hash === '#/devs-corner/bots' || hash === '#/devs-corner') {
+      setDevsCornerSubMode('bot');
+      setDevsCornerActiveTab('contract');
     }
   }, []);
 
@@ -307,8 +431,13 @@ function App() {
         desc = "Meet the builders behind Lazer Showdown. Powered by React, Vite, WebRTC, and the Gemini AI coding assistant.";
         break;
       case 'devs-corner':
-        title = "Developer's Corner - Upload Custom Bots | Lazer Showdown";
-        desc = "Write custom bot scripts! Developer guides, API helper utilities, and headless double-round-robin tournament simulators to watch bots showdown.";
+        if (devsCornerSubMode === 'editor') {
+          title = "Grid Layout Editor - Design Custom Maps | Lazer Showdown";
+          desc = "Build, preview, download and import custom mirror boards for Lazer Showdown with our interactive grid designer.";
+        } else {
+          title = "Developer's Corner - Upload Custom Bots | Lazer Showdown";
+          desc = "Write custom bot scripts! Developer guides, API helper utilities, and headless double-round-robin tournament simulators to watch bots showdown.";
+        }
         break;
       case 'lore':
         title = `Grid Terminal Archives - Chapter ${lorePage + 1} | Lazer Showdown`;
@@ -343,7 +472,7 @@ function App() {
 
     const twitterDesc = document.querySelector('meta[name="twitter:description"]');
     if (twitterDesc) twitterDesc.setAttribute("content", desc);
-  }, [mode, lorePage]);
+  }, [mode, lorePage, devsCornerSubMode]);
 
   // Back button interception popstate
   useEffect(() => {
@@ -431,7 +560,7 @@ function App() {
 
   const selectedBoardData = selectedBoardName === 'default' 
     ? null 
-    : customBoards.find(b => b.name === selectedBoardName)?.data;
+    : selectableBoards.find(b => b.name === selectedBoardName)?.data;
 
   const game = useGame(activeNetwork, mode, difficulty, selectedBoardData, spectateConfig);
 
@@ -812,7 +941,12 @@ function App() {
       ) : mode === 'devs-corner' ? (
         <DevsCorner 
           onBack={() => setMode('credits')}
-          customBoards={customBoards}
+          customBoards={selectableBoards}
+          onImportBoard={(name, data) => setSelectableBoards(prev => [...prev.filter(b => b.name !== name), { name, data }])}
+          subMode={devsCornerSubMode}
+          onSubModeChange={(newSub) => setMode('devs-corner', newSub)}
+          activeTab={devsCornerActiveTab}
+          onTabChange={(newTab) => setMode('devs-corner', newTab)}
           onStartSpectate={(redBot, blueBot, boardName = 'default') => {
             setSpectateConfig({ redBot, blueBot });
             setSelectedBoardName(boardName);
@@ -882,7 +1016,7 @@ function App() {
                   boxShadow: boardDropdownOpen ? '0 0 10px rgba(0, 240, 255, 0.3)' : 'none'
                 }}
               >
-                <span>{selectedBoardName === 'default' ? 'DEFAULT BOARD' : selectedBoardName.replace(/_/g, ' ').toUpperCase()}</span>
+                <span>{selectedBoardName === 'default' ? 'DEFAULT BOARD' : selectedBoardName === 'import' ? 'IMPORT CUSTOM BOARD...' : selectedBoardName.replace(/_/g, ' ').toUpperCase()}</span>
                 <ChevronDown size={18} style={{ transform: boardDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
               </div>
 
@@ -925,7 +1059,7 @@ function App() {
                   >
                     DEFAULT BOARD
                   </div>
-                  {customBoards.map(b => (
+                  {selectableBoards.map(b => (
                     <div 
                       key={b.name}
                       onClick={() => {
@@ -947,9 +1081,63 @@ function App() {
                       {b.name.replace(/_/g, ' ').toUpperCase()}
                     </div>
                   ))}
+                  <div 
+                    onClick={() => {
+                      setSelectedBoardName('import');
+                      setBoardDropdownOpen(false);
+                    }}
+                    style={{
+                      padding: '10px 16px',
+                      cursor: 'pointer',
+                      color: 'var(--neon-green)',
+                      borderTop: '1px solid rgba(0, 240, 255, 0.15)',
+                      textAlign: 'left',
+                      fontWeight: 'bold',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '6px'
+                    }}
+                    onMouseEnter={(e) => e.target.style.backgroundColor = 'rgba(57, 255, 20, 0.15)'}
+                    onMouseLeave={(e) => e.target.style.backgroundColor = 'transparent'}
+                  >
+                    <Upload size={14} /> IMPORT CUSTOM BOARD...
+                  </div>
                 </div>
               )}
             </div>
+
+            {selectedBoardName === 'import' && (
+              <div style={{ marginTop: '-15px', marginBottom: '25px', display: 'flex', flexDirection: 'column', gap: '8px', alignItems: 'center' }}>
+                <button 
+                  className="cyber-button"
+                  onClick={() => boardUploadInputRef.current?.click()}
+                  style={{ 
+                    fontSize: '0.85rem', 
+                    padding: '8px 16px', 
+                    borderColor: 'var(--neon-green)', 
+                    color: 'var(--neon-green)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    minHeight: 'auto'
+                  }}
+                >
+                  <Upload size={14} /> UPLOAD BOARD JSON
+                </button>
+                <input 
+                  type="file" 
+                  ref={boardUploadInputRef} 
+                  accept=".json" 
+                  onChange={handleImportBoardJson} 
+                  style={{ display: 'none' }} 
+                />
+                {boardUploadError && (
+                  <div style={{ color: 'var(--neon-red)', fontSize: '0.78rem', marginTop: '4px', maxWidth: '280px' }}>
+                    ⚠️ {boardUploadError}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div className="menu-button-row" style={{ display: 'flex', gap: '16px', justifyContent: 'center', width: '100%', flexWrap: 'wrap' }}>
               <button

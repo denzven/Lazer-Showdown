@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   Upload, Play, Award, HelpCircle, BookOpen, Terminal, 
-  RefreshCw, ChevronLeft, ChevronDown, ArrowRight, Info, AlertTriangle, CheckCircle 
+  RefreshCw, ChevronLeft, ChevronDown, ArrowRight, Info, AlertTriangle, CheckCircle,
+  Cpu, Grid, Trash2, Download
 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import botsDocRaw from '../../docs/BOTS.md?raw';
@@ -442,8 +443,7 @@ function CustomSelect({ value, onChange, options, colorTheme = 'blue' }) {
   );
 }
 
-export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] }) {
-  const [activeTab, setActiveTab] = useState('contract'); // 'contract', 'simulator', 'spectate'
+export default function DevsCorner({ onBack, onStartSpectate, customBoards = [], onImportBoard, subMode = 'bot', onSubModeChange, activeTab = 'contract', onTabChange }) {
   const [customBots, setCustomBots] = useState({ a: null, b: null });
   const [uploadStatus, setUploadStatus] = useState({ a: 'idle', b: 'idle' });
   const [error, setError] = useState(null);
@@ -468,6 +468,66 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
   const [specRed, setSpecRed] = useState('easy');
   const [specBlue, setSpecBlue] = useState('hard');
   const [specBoard, setSpecBoard] = useState('default');
+  const spectatorBoardInputRef = useRef(null);
+  const [spectatorBoardError, setSpectatorBoardError] = useState(null);
+
+  const validateSpectatorBoardJson = (data) => {
+    if (!Array.isArray(data)) {
+      throw new Error("Invalid format: Root of JSON must be an array of mirror objects.");
+    }
+    
+    const testBoard = Array(8).fill(null).map(() => Array(8).fill(null));
+    for (const m of data) {
+      if (m.type === 'mirror' && Array.isArray(m.grid_pos) && m.grid_pos.length === 2) {
+        const [r, c] = m.grid_pos;
+        if (r < 0 || r >= 8 || c < 0 || c >= 8) {
+          throw new Error(`Mirror position (${r}, ${c}) is out of bounds.`);
+        }
+        const isCorner = (r === 0 || r === 7) && (c === 0 || c === 7);
+        if (isCorner) {
+          throw new Error("Mirrors cannot be placed in the laser starting coordinates (corner cells).");
+        }
+        testBoard[r][c] = { type: 'mirror', orientation: m.angle === 90 ? '\\' : '/' };
+      }
+    }
+
+    const corners = [
+      { cr: 0, cc: 0, a1: [0, 1], a2: [1, 0] },
+      { cr: 0, cc: 7, a1: [0, 6], a2: [1, 7] },
+      { cr: 7, cc: 0, a1: [7, 1], a2: [6, 0] },
+      { cr: 7, cc: 7, a1: [7, 6], a2: [6, 7] }
+    ];
+
+    for (const c of corners) {
+      const cell1 = testBoard[c.a1[0]][c.a1[1]];
+      const cell2 = testBoard[c.a2[0]][c.a2[1]];
+      if (cell1 && cell2) {
+        throw new Error(`Corner (${c.cr}, ${c.cc}) cannot be locked in by mirrors on both exit paths (${c.a1[0]}, ${c.a1[1]}) and (${c.a2[0]}, ${c.a2[1]}).`);
+      }
+    }
+    return true;
+  };
+
+  const handleImportSpectatorBoardJson = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setSpectatorBoardError(null);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target.result);
+        validateSpectatorBoardJson(data);
+
+        const cleanName = file.name.replace('.json', '').replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+        onImportBoard(cleanName, data);
+        setSpecBoard(cleanName);
+      } catch (err) {
+        setSpectatorBoardError(`Import failed: ${err.message}`);
+      }
+    };
+    reader.readAsText(file);
+  };
 
   const getSelectableBoards = () => {
     const list = [
@@ -476,6 +536,7 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
     customBoards.forEach(b => {
       list.push({ id: b.name, name: b.name.replace(/_/g, ' ').toUpperCase() });
     });
+    list.push({ id: 'import', name: 'IMPORT CUSTOM BOARD...' });
     return list;
   };
 
@@ -488,6 +549,311 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
 
   const consoleEndRef = useRef(null);
   const simCancelRef = useRef(false);
+
+  // Board Editor states
+  const [editorBoard, setEditorBoard] = useState(() => Array(8).fill(null).map(() => Array(8).fill(null)));
+  const [editorBoardName, setEditorBoardName] = useState('my_custom_board');
+  const [editorError, setEditorError] = useState(null);
+  const [editorSuccess, setEditorSuccess] = useState(null);
+
+  // Laser Simulator states
+  const [simLaserActive, setSimLaserActive] = useState(false);
+  const [simLaserR, setSimLaserR] = useState(0);
+  const [simLaserC, setSimLaserC] = useState(0);
+  const [simLaserDir, setSimLaserDir] = useState(180); // 0 (UP), 90 (RIGHT), 180 (DOWN), 270 (LEFT)
+
+  const checkAdjacencyBlocking = (board) => {
+    const corners = [
+      { cr: 0, cc: 0, a1: [0, 1], a2: [1, 0] },
+      { cr: 0, cc: 7, a1: [0, 6], a2: [1, 7] },
+      { cr: 7, cc: 0, a1: [7, 1], a2: [6, 0] },
+      { cr: 7, cc: 7, a1: [7, 6], a2: [6, 7] }
+    ];
+
+    for (const c of corners) {
+      const cell1 = board[c.a1[0]][c.a1[1]];
+      const cell2 = board[c.a2[0]][c.a2[1]];
+      if (cell1 && cell2) {
+        return `Corner (${c.cr}, ${c.cc}) cannot be locked in by mirrors on both exit paths (${c.a1[0]}, ${c.a1[1]}) and (${c.a2[0]}, ${c.a2[1]}).`;
+      }
+    }
+    return null;
+  };
+
+  const handleCellClick = (r, c) => {
+    const isCorner = (r === 0 || r === 7) && (c === 0 || c === 7);
+    if (isCorner) {
+      setEditorError("Mirrors cannot be placed in the laser starting coordinates (corner cells).");
+      return;
+    }
+
+    let blockError = null;
+
+    setEditorBoard(prev => {
+      const next = prev.map(row => row.slice());
+      const cell = next[r][c];
+      if (!cell) {
+        next[r][c] = { type: 'mirror', orientation: '/' };
+      } else if (cell.orientation === '/') {
+        next[r][c] = { type: 'mirror', orientation: '\\' };
+      } else {
+        next[r][c] = null;
+      }
+
+      blockError = checkAdjacencyBlocking(next);
+      if (blockError) {
+        return prev; // Revert change!
+      }
+      return next;
+    });
+
+    if (blockError) {
+      setEditorError(blockError);
+      setEditorSuccess(null);
+    } else {
+      setEditorError(null);
+      setEditorSuccess(null);
+    }
+  };
+
+  const tracePath = simLaserActive 
+    ? traceLaserBeam(editorBoard, { r: simLaserR, c: simLaserC }, simLaserDir).path 
+    : [];
+
+  const renderLaserBeam = (r, c) => {
+    if (!simLaserActive) return null;
+    
+    // Check if cell is the starting position
+    if (r === simLaserR && c === simLaserC) {
+      const elements = [];
+      // Draw exit half-beam
+      if (simLaserDir === 0) {
+        elements.push(<div key="start-beam" style={{ position: 'absolute', bottom: '50%', top: 0, left: '50%', width: '4px', background: '#ff2a85', boxShadow: '0 0 8px #ff2a85, 0 0 15px #ff2a85', transform: 'translateX(-50%)', pointerEvents: 'none', zIndex: 10 }} />);
+      } else if (simLaserDir === 90) {
+        elements.push(<div key="start-beam" style={{ position: 'absolute', left: '50%', right: 0, top: '50%', height: '4px', background: '#ff2a85', boxShadow: '0 0 8px #ff2a85, 0 0 15px #ff2a85', transform: 'translateY(-50%)', pointerEvents: 'none', zIndex: 10 }} />);
+      } else if (simLaserDir === 180) {
+        elements.push(<div key="start-beam" style={{ position: 'absolute', top: '50%', bottom: 0, left: '50%', width: '4px', background: '#ff2a85', boxShadow: '0 0 8px #ff2a85, 0 0 15px #ff2a85', transform: 'translateX(-50%)', pointerEvents: 'none', zIndex: 10 }} />);
+      } else if (simLaserDir === 270) {
+        elements.push(<div key="start-beam" style={{ position: 'absolute', right: '50%', left: 0, top: '50%', height: '4px', background: '#ff2a85', boxShadow: '0 0 8px #ff2a85, 0 0 15px #ff2a85', transform: 'translateY(-50%)', pointerEvents: 'none', zIndex: 10 }} />);
+      }
+      // Glowing laser center dot
+      elements.push(
+        <div key="start-source" style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          width: '12px',
+          height: '12px',
+          borderRadius: '50%',
+          background: '#fff',
+          border: '2px solid #ff2a85',
+          boxShadow: '0 0 8px #ff2a85, 0 0 15px #ff2a85',
+          transform: 'translate(-50%, -50%)',
+          pointerEvents: 'none',
+          zIndex: 11
+        }} />
+      );
+      return elements;
+    }
+
+    const pathIndex = tracePath.findIndex(p => p.r === r && p.c === c);
+    if (pathIndex === -1) return null;
+
+    const step = tracePath[pathIndex];
+    const prev = pathIndex > 0 ? tracePath[pathIndex - 1] : { r: simLaserR, c: simLaserC };
+    const next = pathIndex < tracePath.length - 1 ? tracePath[pathIndex + 1] : null;
+
+    // Direction vectors
+    const fromDirR = r - prev.r;
+    const fromDirC = c - prev.c;
+    const toDirR = next ? next.r - r : fromDirR;
+    const toDirC = next ? next.c - c : fromDirC;
+
+    const isBounce = step.type === 'mirror-bounce';
+
+    if (!isBounce) {
+      if (fromDirR !== 0) {
+        // Vertical line
+        return (
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            bottom: 0,
+            left: '50%',
+            width: '4px',
+            background: '#ff2a85',
+            boxShadow: '0 0 8px #ff2a85, 0 0 15px #ff2a85',
+            transform: 'translateX(-50%)',
+            pointerEvents: 'none',
+            zIndex: 10
+          }} />
+        );
+      } else {
+        // Horizontal line
+        return (
+          <div style={{
+            position: 'absolute',
+            left: 0,
+            right: 0,
+            top: '50%',
+            height: '4px',
+            background: '#ff2a85',
+            boxShadow: '0 0 8px #ff2a85, 0 0 15px #ff2a85',
+            transform: 'translateY(-50%)',
+            pointerEvents: 'none',
+            zIndex: 10
+          }} />
+        );
+      }
+    } else {
+      const elements = [];
+      
+      // Entry segment
+      if (fromDirR < 0) { // entered from bottom
+        elements.push(<div key="in" style={{ position: 'absolute', bottom: '50%', top: 0, left: '50%', width: '4px', background: '#ff2a85', boxShadow: '0 0 8px #ff2a85', transform: 'translateX(-50%)', pointerEvents: 'none', zIndex: 10 }} />);
+      } else if (fromDirR > 0) { // entered from top
+        elements.push(<div key="in" style={{ position: 'absolute', top: '50%', bottom: 0, left: '50%', width: '4px', background: '#ff2a85', boxShadow: '0 0 8px #ff2a85', transform: 'translateX(-50%)', pointerEvents: 'none', zIndex: 10 }} />);
+      } else if (fromDirC < 0) { // entered from right
+        elements.push(<div key="in" style={{ position: 'absolute', right: '50%', left: 0, top: '50%', height: '4px', background: '#ff2a85', boxShadow: '0 0 8px #ff2a85', transform: 'translateY(-50%)', pointerEvents: 'none', zIndex: 10 }} />);
+      } else if (fromDirC > 0) { // entered from left
+        elements.push(<div key="in" style={{ position: 'absolute', left: '50%', right: 0, top: '50%', height: '4px', background: '#ff2a85', boxShadow: '0 0 8px #ff2a85', transform: 'translateY(-50%)', pointerEvents: 'none', zIndex: 10 }} />);
+      }
+
+      // Exit segment
+      if (toDirR < 0) { // exited towards top
+        elements.push(<div key="out" style={{ position: 'absolute', bottom: '50%', top: 0, left: '50%', width: '4px', background: '#ff2a85', boxShadow: '0 0 8px #ff2a85', transform: 'translateX(-50%)', pointerEvents: 'none', zIndex: 10 }} />);
+      } else if (toDirR > 0) { // exited towards bottom
+        elements.push(<div key="out" style={{ position: 'absolute', top: '50%', bottom: 0, left: '50%', width: '4px', background: '#ff2a85', boxShadow: '0 0 8px #ff2a85', transform: 'translateX(-50%)', pointerEvents: 'none', zIndex: 10 }} />);
+      } else if (toDirC < 0) { // exited towards left
+        elements.push(<div key="out" style={{ position: 'absolute', right: '50%', left: 0, top: '50%', height: '4px', background: '#ff2a85', boxShadow: '0 0 8px #ff2a85', transform: 'translateY(-50%)', pointerEvents: 'none', zIndex: 10 }} />);
+      } else if (toDirC > 0) { // exited towards right
+        elements.push(<div key="out" style={{ position: 'absolute', left: '50%', right: 0, top: '50%', height: '4px', background: '#ff2a85', boxShadow: '0 0 8px #ff2a85', transform: 'translateY(-50%)', pointerEvents: 'none', zIndex: 10 }} />);
+      }
+
+      // Bounce node center dot
+      elements.push(
+        <div key="center" style={{
+          position: 'absolute',
+          top: '50%',
+          left: '50%',
+          width: '8px',
+          height: '8px',
+          borderRadius: '50%',
+          background: '#fff',
+          border: '2px solid #ff2a85',
+          boxShadow: '0 0 8px #ff2a85, 0 0 15px #ff2a85',
+          transform: 'translate(-50%, -50%)',
+          pointerEvents: 'none',
+          zIndex: 11
+        }} />
+      );
+
+      return elements;
+    }
+  };
+
+  const handleClearEditorBoard = () => {
+    setEditorBoard(Array(8).fill(null).map(() => Array(8).fill(null)));
+    setEditorError(null);
+    setEditorSuccess("Grid cleared.");
+  };
+
+  const handleLoadDefaultMirrors = () => {
+    const nextBoard = Array(8).fill(null).map(() => Array(8).fill(null));
+    const FIXED_MIRRORS = [
+      { r: 1, c: 2, orientation: '/' },
+      { r: 1, c: 5, orientation: '\\' },
+      { r: 3, c: 3, orientation: '\\' },
+      { r: 3, c: 4, orientation: '/' },
+      { r: 4, c: 3, orientation: '/' },
+      { r: 4, c: 4, orientation: '\\' },
+      { r: 6, c: 2, orientation: '\\' },
+      { r: 6, c: 5, orientation: '/' }
+    ];
+    for (const m of FIXED_MIRRORS) {
+      nextBoard[m.r][m.c] = { type: 'mirror', orientation: m.orientation };
+    }
+    setEditorBoard(nextBoard);
+    setEditorBoardName('default_modified');
+    setEditorError(null);
+    setEditorSuccess("Loaded default fixed mirror configuration.");
+  };
+
+  const handleExportJsonFile = () => {
+    const list = [];
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const cell = editorBoard[r][c];
+        if (cell && cell.type === 'mirror') {
+          list.push({
+            type: 'mirror',
+            grid_pos: [r, c],
+            angle: cell.orientation === '\\' ? 90 : 0
+          });
+        }
+      }
+    }
+    
+    const formattedName = editorBoardName.trim().replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase();
+    if (!formattedName) {
+      setEditorError("Please enter a valid board name.");
+      return;
+    }
+
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(list, null, 2));
+    const downloadAnchor = document.createElement('a');
+    downloadAnchor.setAttribute("href", dataStr);
+    downloadAnchor.setAttribute("download", `${formattedName}.json`);
+    document.body.appendChild(downloadAnchor);
+    downloadAnchor.click();
+    downloadAnchor.remove();
+
+    setEditorSuccess(`Successfully exported ${formattedName}.json!`);
+  };
+
+  const handleImportJsonFile = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setEditorError(null);
+    setEditorSuccess(null);
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const data = JSON.parse(event.target.result);
+        if (!Array.isArray(data)) {
+          throw new Error("JSON file must be an array of objects representing mirrors.");
+        }
+        
+        const nextBoard = Array(8).fill(null).map(() => Array(8).fill(null));
+        for (const m of data) {
+          if (m.type === 'mirror' && Array.isArray(m.grid_pos) && m.grid_pos.length === 2) {
+            const r = m.grid_pos[0];
+            const c = m.grid_pos[1];
+            if (r >= 0 && r < 8 && c >= 0 && c < 8) {
+              const isCorner = (r === 0 || r === 7) && (c === 0 || c === 7);
+              if (isCorner) continue; // Skip corner positions (where lasers live)
+              const orientation = m.angle === 90 ? '\\' : '/';
+              nextBoard[r][c] = { type: 'mirror', orientation };
+            }
+          }
+        }
+
+        const blockError = checkAdjacencyBlocking(nextBoard);
+        if (blockError) {
+          throw new Error(blockError);
+        }
+
+        setEditorBoard(nextBoard);
+        setEditorBoardName(file.name.replace('.json', '').replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase());
+        setEditorSuccess(`Loaded board: ${file.name}`);
+      } catch (err) {
+        setEditorError(`Import failed: ${err.message}`);
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
 
   useEffect(() => {
     if (consoleEndRef.current) {
@@ -854,37 +1220,57 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
           </div>
         </div>
 
-        {/* Tab Navigation */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', marginBottom: '24px', gap: '8px', flexWrap: 'wrap' }}>
+        {/* Sub-mode Choice Selection */}
+        <div style={{ display: 'flex', gap: '16px', marginBottom: '24px' }}>
           <button 
-            className={`cyber-button ${activeTab === 'contract' ? 'blue' : ''}`}
-            onClick={() => setActiveTab('contract')}
-            style={{ borderBottom: activeTab === 'contract' ? '1px solid var(--neon-blue)' : 'none', borderRadius: '8px 8px 0 0', padding: '10px 16px', flex: 1, minWidth: '120px' }}
+            className={`cyber-button ${subMode === 'bot' ? 'blue' : ''}`}
+            onClick={() => onSubModeChange('bot')}
+            style={{ flex: 1, padding: '12px 20px', fontSize: '0.95rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
           >
-            <HelpCircle size={16} style={{ marginRight: '6px', display: 'inline' }} /> Bot Contract
+            <Cpu size={18} /> BOT DEVELOPER HUB
           </button>
           <button 
-            className={`cyber-button ${activeTab === 'guide' ? 'blue' : ''}`}
-            onClick={() => setActiveTab('guide')}
-            style={{ borderBottom: activeTab === 'guide' ? '1px solid var(--neon-blue)' : 'none', borderRadius: '8px 8px 0 0', padding: '10px 16px', flex: 1, minWidth: '120px' }}
+            className={`cyber-button ${subMode === 'editor' ? 'blue' : ''}`}
+            onClick={() => onSubModeChange('editor')}
+            style={{ flex: 1, padding: '12px 20px', fontSize: '0.95rem', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
           >
-            <BookOpen size={16} style={{ marginRight: '6px', display: 'inline' }} /> Dev Guide
-          </button>
-          <button 
-            className={`cyber-button ${activeTab === 'simulator' ? 'blue' : ''}`}
-            onClick={() => setActiveTab('simulator')}
-            style={{ borderBottom: activeTab === 'simulator' ? '1px solid var(--neon-blue)' : 'none', borderRadius: '8px 8px 0 0', padding: '10px 16px', flex: 1, minWidth: '120px' }}
-          >
-            <Terminal size={16} style={{ marginRight: '6px', display: 'inline' }} /> Headless Tournament
-          </button>
-          <button 
-            className={`cyber-button ${activeTab === 'spectate' ? 'blue' : ''}`}
-            onClick={() => setActiveTab('spectate')}
-            style={{ borderBottom: activeTab === 'spectate' ? '1px solid var(--neon-blue)' : 'none', borderRadius: '8px 8px 0 0', padding: '10px 16px', flex: 1, minWidth: '120px' }}
-          >
-            <Play size={16} style={{ marginRight: '6px', display: 'inline' }} /> Visual Spectator
+            <Grid size={18} /> BOARD EDITOR
           </button>
         </div>
+
+        {/* Tab Navigation (only visible in Bot Dev mode) */}
+        {subMode === 'bot' && (
+          <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', marginBottom: '24px', gap: '8px', flexWrap: 'wrap' }}>
+            <button 
+              className={`cyber-button ${activeTab === 'contract' ? 'blue' : ''}`}
+              onClick={() => onTabChange('contract')}
+              style={{ borderBottom: activeTab === 'contract' ? '1px solid var(--neon-blue)' : 'none', borderRadius: '8px 8px 0 0', padding: '10px 16px', flex: 1, minWidth: '120px' }}
+            >
+              <HelpCircle size={16} style={{ marginRight: '6px', display: 'inline' }} /> Bot Contract
+            </button>
+            <button 
+              className={`cyber-button ${activeTab === 'guide' ? 'blue' : ''}`}
+              onClick={() => onTabChange('guide')}
+              style={{ borderBottom: activeTab === 'guide' ? '1px solid var(--neon-blue)' : 'none', borderRadius: '8px 8px 0 0', padding: '10px 16px', flex: 1, minWidth: '120px' }}
+            >
+              <BookOpen size={16} style={{ marginRight: '6px', display: 'inline' }} /> Dev Guide
+            </button>
+            <button 
+              className={`cyber-button ${activeTab === 'simulator' ? 'blue' : ''}`}
+              onClick={() => onTabChange('simulator')}
+              style={{ borderBottom: activeTab === 'simulator' ? '1px solid var(--neon-blue)' : 'none', borderRadius: '8px 8px 0 0', padding: '10px 16px', flex: 1, minWidth: '120px' }}
+            >
+              <Terminal size={16} style={{ marginRight: '6px', display: 'inline' }} /> Headless Tournament
+            </button>
+            <button 
+              className={`cyber-button ${activeTab === 'spectate' ? 'blue' : ''}`}
+              onClick={() => onTabChange('spectate')}
+              style={{ borderBottom: activeTab === 'spectate' ? '1px solid var(--neon-blue)' : 'none', borderRadius: '8px 8px 0 0', padding: '10px 16px', flex: 1, minWidth: '120px' }}
+            >
+              <Play size={16} style={{ marginRight: '6px', display: 'inline' }} /> Visual Spectator
+            </button>
+          </div>
+        )}
 
         {/* Global Error Banner */}
         {error && (
@@ -895,7 +1281,7 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
         )}
 
         {/* TAB 1: Bot Contract & Guide */}
-        {activeTab === 'contract' && (
+        {subMode === 'bot' && activeTab === 'contract' && (
           <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: '1.6', display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div className="glass-panel" style={{ padding: '20px', borderLeft: '3px solid var(--neon-blue)', background: 'rgba(0, 240, 255, 0.02)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div>
@@ -906,7 +1292,7 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
               </div>
               <button 
                 className="cyber-button"
-                onClick={() => setActiveTab('guide')}
+                onClick={() => onTabChange('guide')}
                 style={{ alignSelf: 'flex-start', padding: '10px 20px', fontSize: '0.85rem', borderColor: 'var(--neon-blue)', color: 'var(--neon-blue)', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}
               >
                 <BookOpen size={16} /> READ FULL DEV GUIDE (BOTS.md)
@@ -1017,7 +1403,7 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
         )}
 
         {/* TAB 1.5: Developer Guide (BOTS.md) */}
-        {activeTab === 'guide' && (
+        {subMode === 'bot' && activeTab === 'guide' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div className="glass-panel" style={{ padding: '30px', maxHeight: '60vh', overflowY: 'auto', textAlign: 'left', color: 'var(--text-secondary)' }}>
               <ReactMarkdown
@@ -1041,7 +1427,7 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
         )}
 
         {/* TAB 2: Headless Tournament Simulator */}
-        {activeTab === 'simulator' && (
+        {subMode === 'bot' && activeTab === 'simulator' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             <div style={{ display: 'flex', gap: '20px', flexWrap: 'wrap' }}>
               
@@ -1179,7 +1565,7 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
         )}
 
         {/* TAB 3: Visual Spectator Launcher */}
-        {activeTab === 'spectate' && (
+        {subMode === 'bot' && activeTab === 'spectate' && (
           <div className="glass-panel" style={{ padding: '30px', display: 'flex', flexDirection: 'column', gap: '20px', alignItems: 'center' }}>
             <h3 style={{ color: 'var(--text-primary)', fontSize: '1.2rem', marginBottom: '10px', textAlign: 'center' }}>
               LAUNCH VISUAL SPECTATOR MODE
@@ -1236,6 +1622,39 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
               </div>
             </div>
 
+            {specBoard === 'import' && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'center', margin: '0 0 15px 0' }}>
+                <button 
+                  className="cyber-button"
+                  onClick={() => spectatorBoardInputRef.current?.click()}
+                  style={{ 
+                    fontSize: '0.85rem', 
+                    padding: '8px 16px', 
+                    borderColor: 'var(--neon-green)', 
+                    color: 'var(--neon-green)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    minHeight: 'auto'
+                  }}
+                >
+                  <Upload size={14} /> UPLOAD BOARD JSON
+                </button>
+                <input 
+                  type="file" 
+                  ref={spectatorBoardInputRef} 
+                  accept=".json" 
+                  onChange={handleImportSpectatorBoardJson} 
+                  style={{ display: 'none' }} 
+                />
+                {spectatorBoardError && (
+                  <div style={{ color: 'var(--neon-red)', fontSize: '0.78rem', marginTop: '2px', maxWidth: '280px' }}>
+                    ⚠️ {spectatorBoardError}
+                  </div>
+                )}
+              </div>
+            )}
+
             <button 
               className="cyber-button blue" 
               onClick={() => onStartSpectate(specRed, specBlue, specBoard)}
@@ -1243,6 +1662,290 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
             >
               LAUNCH LIVE SPECTATE <ArrowRight size={18} style={{ marginLeft: '8px', display: 'inline' }} />
             </button>
+          </div>
+        )}
+
+        {/* SUB MODE: Board Layout Editor */}
+        {subMode === 'editor' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            
+            {/* Explanatory Banner */}
+            <div className="glass-panel" style={{ padding: '20px', borderLeft: '3px solid var(--neon-blue)', background: 'rgba(0, 240, 255, 0.02)' }}>
+              <h3 style={{ color: 'var(--text-primary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <Grid size={18} style={{ color: 'var(--neon-blue)' }} /> Design Custom Board Maps
+              </h3>
+              <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: '1.6' }}>
+                Build custom mirror grids! Click on any empty square to place a <strong>/ (0°)</strong> mirror. Click it again to toggle to a <strong>\ (90°)</strong> mirror. Click a third time to clear the square. Save your layout and import it into the local match board or visual spectator mode.
+              </p>
+            </div>
+
+            {/* Editor Grid and Info */}
+            <div style={{ display: 'flex', gap: '24px', flexWrap: 'wrap', justifyContent: 'center', alignItems: 'flex-start' }}>
+              
+              {/* The 8x8 Grid Container */}
+              <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                {/* Column Headers */}
+                <div style={{ display: 'flex', paddingLeft: '24px', width: '100%', minWidth: '344px', marginBottom: '4px' }}>
+                  {Array(8).fill(null).map((_, idx) => (
+                    <div key={idx} style={{ flex: 1, textAlign: 'center', fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--neon-blue)', opacity: 0.8 }}>
+                      {idx}
+                    </div>
+                  ))}
+                </div>
+
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {/* Row Headers */}
+                  <div style={{ display: 'flex', flexDirection: 'column', height: '320px', justifyContent: 'space-around', paddingRight: '4px' }}>
+                    {Array(8).fill(null).map((_, idx) => (
+                      <div key={idx} style={{ fontSize: '0.75rem', fontWeight: 'bold', color: 'var(--neon-blue)', opacity: 0.8, height: '40px', display: 'flex', alignItems: 'center' }}>
+                        {idx}
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* 8x8 Grid Canvas */}
+                  <div 
+                    style={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(8, 40px)',
+                      gridTemplateRows: 'repeat(8, 40px)',
+                      gap: '2px',
+                      background: 'rgba(0, 0, 0, 0.6)',
+                      border: '2px solid var(--border-color)',
+                      boxShadow: '0 0 15px rgba(0, 240, 255, 0.1)',
+                      borderRadius: '8px',
+                      padding: '4px'
+                    }}
+                  >
+                    {Array(8).fill(null).map((_, r) => (
+                      Array(8).fill(null).map((_, c) => {
+                        const cell = editorBoard[r][c];
+                        const isCorner = (r === 0 && c === 0) || (r === 0 && c === 7) || (r === 7 && c === 0) || (r === 7 && c === 7);
+                        return (
+                          <div 
+                            key={`${r}-${c}`}
+                            onClick={() => handleCellClick(r, c)}
+                            style={{
+                              position: 'relative',
+                              width: '40px',
+                              height: '40px',
+                              background: isCorner ? 'rgba(255, 42, 133, 0.05)' : 'rgba(5, 5, 10, 0.8)',
+                              border: isCorner ? '1px dashed rgba(255, 42, 133, 0.3)' : '1px solid rgba(255, 255, 255, 0.05)',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              transition: 'all 0.15s ease'
+                            }}
+                          >
+                            {/* Dotted target inside cell */}
+                            {!cell && !isCorner && (
+                              <div style={{ width: '4px', height: '4px', borderRadius: '50%', backgroundColor: 'rgba(255,255,255,0.1)' }} />
+                            )}
+                            
+                            {/* Attacker Corner Marks */}
+                            {isCorner && !cell && (
+                              <div style={{ fontSize: '0.6rem', color: 'var(--neon-red)', fontWeight: 'bold', opacity: 0.6 }}>LAZR</div>
+                            )}
+
+                            {/* Glowing Slash Mirror preview */}
+                            {cell && cell.type === 'mirror' && (
+                              <div style={{
+                                position: 'absolute',
+                                top: '50%',
+                                left: '50%',
+                                width: '28px',
+                                height: '3px',
+                                background: 'var(--neon-blue)',
+                                boxShadow: '0 0 8px var(--neon-blue), 0 0 15px var(--neon-blue)',
+                                transform: `translate(-50%, -50%) rotate(${cell.orientation === '/' ? '-45deg' : '45deg'})`,
+                                pointerEvents: 'none'
+                              }} />
+                            )}
+
+                            {/* Laser Simulator Beam Segment */}
+                            {renderLaserBeam(r, c)}
+                          </div>
+                        );
+                      })
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Design Controls */}
+              <div style={{ flex: 1, minWidth: '280px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <h4 style={{ color: 'var(--text-primary)', margin: '0 0 4px 0', fontSize: '0.95rem' }}>GRID CONTROLS</h4>
+                  
+                  {/* File name inputs */}
+                  <div>
+                    <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '6px' }}>Board Name identifier:</label>
+                    <input 
+                      type="text"
+                      value={editorBoardName}
+                      onChange={(e) => setEditorBoardName(e.target.value)}
+                      placeholder="custom_board_name"
+                      style={{
+                        width: '100%',
+                        padding: '8px 12px',
+                        background: 'rgba(0, 0, 0, 0.4)',
+                        border: '1px solid var(--border-color)',
+                        color: 'var(--text-primary)',
+                        borderRadius: '4px',
+                        fontSize: '0.85rem'
+                      }}
+                    />
+                  </div>
+
+                  {/* Status Logs */}
+                  {editorError && (
+                    <div style={{ padding: '8px 12px', background: 'rgba(255, 42, 133, 0.08)', border: '1px solid var(--neon-red)', borderRadius: '4px', color: 'var(--neon-red)', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                      {editorError}
+                    </div>
+                  )}
+
+                  {editorSuccess && (
+                    <div style={{ padding: '8px 12px', background: 'rgba(57, 255, 20, 0.08)', border: '1px solid #39ff14', borderRadius: '4px', color: '#39ff14', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                      {editorSuccess}
+                    </div>
+                  )}
+
+                  {/* Actions buttons grid */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <button 
+                      className="cyber-button blue"
+                      onClick={handleExportJsonFile}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '0.8rem', padding: '10px 8px' }}
+                    >
+                      <Download size={14} style={{ display: 'inline-block' }} /> DOWNLOAD JSON
+                    </button>
+
+                    <label 
+                      className="cyber-button"
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '0.8rem', padding: '10px 8px', cursor: 'pointer' }}
+                    >
+                      <Upload size={14} style={{ display: 'inline-block' }} /> IMPORT FILE
+                      <input type="file" accept=".json" onChange={handleImportJsonFile} style={{ display: 'none' }} />
+                    </label>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                    <button 
+                      className="cyber-button"
+                      onClick={handleLoadDefaultMirrors}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '0.8rem', padding: '10px 8px', borderColor: 'var(--neon-blue)', color: 'var(--neon-blue)' }}
+                    >
+                      <RefreshCw size={14} style={{ display: 'inline-block' }} /> LOAD DEFAULT
+                    </button>
+
+                    <button 
+                      className="cyber-button red"
+                      onClick={handleClearEditorBoard}
+                      style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '0.8rem', padding: '10px 8px' }}
+                    >
+                      <Trash2 size={14} style={{ display: 'inline-block' }} /> CLEAR GRID
+                    </button>
+                  </div>
+                </div>
+
+                {/* Laser Simulation Controls */}
+                <div className="glass-panel" style={{ padding: '20px', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                  <h4 style={{ color: 'var(--text-primary)', margin: '0', fontSize: '0.95rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>⚡ LAZER SIMULATION</span>
+                    <CustomCheckbox 
+                      checked={simLaserActive} 
+                      onChange={(e) => setSimLaserActive(e.target.checked)} 
+                      label=""
+                    />
+                  </h4>
+
+                  {simLaserActive && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: '12px' }}>
+                      
+                      {/* Laser Source Position */}
+                      <div>
+                        <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>Laser Source Corner:</label>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                          <button 
+                            className={`cyber-button ${simLaserR === 0 && simLaserC === 0 ? 'blue' : ''}`}
+                            onClick={() => { setSimLaserR(0); setSimLaserC(0); }}
+                            style={{ fontSize: '0.75rem', padding: '6px', minHeight: 'auto' }}
+                          >
+                            Top-Left (0,0)
+                          </button>
+                          <button 
+                            className={`cyber-button ${simLaserR === 0 && simLaserC === 7 ? 'blue' : ''}`}
+                            onClick={() => { setSimLaserR(0); setSimLaserC(7); }}
+                            style={{ fontSize: '0.75rem', padding: '6px', minHeight: 'auto' }}
+                          >
+                            Top-Right (0,7)
+                          </button>
+                          <button 
+                            className={`cyber-button ${simLaserR === 7 && simLaserC === 0 ? 'blue' : ''}`}
+                            onClick={() => { setSimLaserR(7); setSimLaserC(0); }}
+                            style={{ fontSize: '0.75rem', padding: '6px', minHeight: 'auto' }}
+                          >
+                            Bottom-Left (7,0)
+                          </button>
+                          <button 
+                            className={`cyber-button ${simLaserR === 7 && simLaserC === 7 ? 'blue' : ''}`}
+                            onClick={() => { setSimLaserR(7); setSimLaserC(7); }}
+                            style={{ fontSize: '0.75rem', padding: '6px', minHeight: 'auto' }}
+                          >
+                            Bottom-Right (7,7)
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Laser Fire Direction */}
+                      <div>
+                        <label style={{ fontSize: '0.78rem', color: 'var(--text-secondary)', display: 'block', marginBottom: '8px' }}>Firing Direction:</label>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
+                          <button 
+                            className={`cyber-button ${simLaserDir === 0 ? 'blue' : ''}`}
+                            onClick={() => setSimLaserDir(0)}
+                            style={{ fontSize: '0.75rem', padding: '6px', minHeight: 'auto' }}
+                          >
+                            UP ⬆️
+                          </button>
+                          <button 
+                            className={`cyber-button ${simLaserDir === 90 ? 'blue' : ''}`}
+                            onClick={() => setSimLaserDir(90)}
+                            style={{ fontSize: '0.75rem', padding: '6px', minHeight: 'auto' }}
+                          >
+                            RIGHT ➡️
+                          </button>
+                          <button 
+                            className={`cyber-button ${simLaserDir === 180 ? 'blue' : ''}`}
+                            onClick={() => setSimLaserDir(180)}
+                            style={{ fontSize: '0.75rem', padding: '6px', minHeight: 'auto' }}
+                          >
+                            DOWN ⬇️
+                          </button>
+                          <button 
+                            className={`cyber-button ${simLaserDir === 270 ? 'blue' : ''}`}
+                            onClick={() => setSimLaserDir(270)}
+                            style={{ fontSize: '0.75rem', padding: '6px', minHeight: 'auto' }}
+                          >
+                            LEFT ⬅️
+                          </button>
+                        </div>
+                      </div>
+
+                    </div>
+                  )}
+                </div>
+
+                {/* Import guideline details */}
+                <div className="glass-panel" style={{ padding: '15px 20px', fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.5' }}>
+                  💡 <strong>How to Use Custom JSONs:</strong><br />
+                  Once downloaded, place the file in the project's <code>src/boards/</code> directory (e.g. <code>src/boards/my_maze.json</code>). Vite will automatically scan and register the new layout. You will then see it selectable under both the Main Menu board options and Dev's Corner visual spectating dropdowns!
+                </div>
+              </div>
+
+            </div>
           </div>
         )}
 
