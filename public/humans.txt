@@ -1,0 +1,17 @@
+# TEAM
+
+    Bhavna S Pillai - Game Concept and Visual Assets Design
+    Ayush Raut - Game Concept and Rules Design
+    Denzven Ignatius - Frontend PWA Development and WebRTC Multiplayer Integration
+    From: Kharghar, Navi Mumbai, India
+
+# THANKS
+
+    Gemini 3.1 Pro (High) - AI Pair Programming Assistant
+    Antigravity IDE - Development Orchestration
+
+# TECHNOLOGY COLOPHON
+
+    CSS3, HTML5, ES6 JavaScript
+    React, Vite, React-Markdown, Lucide-React
+    WebRTC (Peer-to-Peer direct connection)

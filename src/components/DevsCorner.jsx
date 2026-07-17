@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  Upload, Play, Award, HelpCircle, Terminal, 
-  RefreshCw, ChevronLeft, ArrowRight, Info, AlertTriangle, CheckCircle 
+  Upload, Play, Award, HelpCircle, BookOpen, Terminal, 
+  RefreshCw, ChevronLeft, ChevronDown, ArrowRight, Info, AlertTriangle, CheckCircle 
 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import botsDocRaw from '../../docs/BOTS.md?raw';
 import { 
   EasyStrategy, MediumStrategy, HardStrategy, GAStrategy, CUSTOM_STRATEGIES,
   getBoardState, getPossibleActions, applyLightweightAction, getPieceThreatLevels,
@@ -13,11 +15,330 @@ import { BLOCK_TYPES, traceLaserBeam, validatePlacement, validateMovement } from
 import { getInitialState, applySandboxAction } from '../core/GameState';
 import { getBotSetupAction } from '../core/BotEngine';
 
+const SAMPLE_BOT_CODE = `// Example simple custom bot (MyBot.js)
+const { getBoardState, getPossibleActions, applyLightweightAction, traceLaserBeam } = LazerAI;
+
+export function getPlayAction(board, role, actionPoints, gameState, botPlayer) {
+  const actions = getPossibleActions(board, role);
+  if (actions.length === 0) return null;
+  
+  // Example heuristic: If Attacker, fire laser immediately if aligned, otherwise select a random move
+  if (role === 'attacker') {
+    const { lazerPos, lazerDir } = getBoardState(board);
+    if (lazerPos) {
+      const trace = traceLaserBeam(board, lazerPos, lazerDir);
+      if (trace.hitPiece && ['block-20', 'block-30', 'block-50'].includes(trace.hitPiece.cell.type)) {
+        return { type: 'laser-press' };
+      }
+    }
+  }
+  
+  // Fallback: return a random legal action
+  return actions[Math.floor(Math.random() * actions.length)];
+}
+
+export function getSetupAction(board, phase, playerColor, challengedPiece) {
+  // Option to customize piece setup placement logic (optional)
+  return null; // returning null falls back to the default placement evaluator
+}`;
+
+// Custom Javascript Syntax Highlighter Tokenizer
+function highlightJsCode(code) {
+  const tokens = [];
+  const rules = [
+    { type: 'comment', regex: /^\/\/.*$/ },
+    { type: 'string', regex: /^"(?:[^"\\]|\\.)*"|^'(?:[^'\\]|\\.)*'|^`(?:[^`\\]|\\.)*`/ },
+    { type: 'keyword', regex: /^(?:const|let|var|export|function|return|if|else|import|typeof|null|true|false)\b/ },
+    { type: 'builtin', regex: /^(?:LazerAI|Math|random|floor|length|includes|BLOCK_TYPES|getBoardState|getPossibleActions|applyLightweightAction|traceLaserBeam|lazerPos|lazerDir|hitPiece)\b/ },
+    { type: 'number', regex: /^\b\d+\b/ },
+    { type: 'operator', regex: /^[+\-*\/%&|^!=<>:~?]+/ },
+    { type: 'punctuation', regex: /^[{}()\[\],.;]+/ },
+    { type: 'identifier', regex: /^[a-zA-Z_$][a-zA-Z0-9_$]*/ },
+    { type: 'whitespace', regex: /^\s+/ },
+    { type: 'text', regex: /^./ }
+  ];
+
+  let remaining = code;
+  while (remaining.length > 0) {
+    let matched = false;
+    for (const rule of rules) {
+      const match = remaining.match(rule.regex);
+      if (match) {
+        tokens.push({ type: rule.type, text: match[0] });
+        remaining = remaining.substring(match[0].length);
+        matched = true;
+        break;
+      }
+    }
+    if (!matched) {
+      tokens.push({ type: 'text', text: remaining.charAt(0) });
+      remaining = remaining.substring(1);
+    }
+  }
+
+  return tokens.map((token, idx) => {
+    let color = 'var(--text-primary)';
+    let fontWeight = 'normal';
+    if (token.type === 'comment') {
+      color = '#6a9955';
+    } else if (token.type === 'string') {
+      color = '#ce9178';
+    } else if (token.type === 'keyword') {
+      color = '#c586c0';
+      fontWeight = 'bold';
+    } else if (token.type === 'builtin') {
+      color = '#4fc1ff';
+    } else if (token.type === 'number') {
+      color = '#b5cea8';
+    } else if (token.type === 'operator') {
+      color = '#d4d4d4';
+    } else if (token.type === 'punctuation') {
+      color = '#ffd700';
+    } else if (token.type === 'identifier') {
+      color = '#9cdcfe';
+    }
+    return (
+      <span key={idx} style={{ color, fontWeight }}>
+        {token.text}
+      </span>
+    );
+  });
+}
+
+// Custom Markdown Code Block component with highlighting and copy capability
+function MarkdownCodeBlock({ className, children, ...props }) {
+  const match = /language-(\w+)/.exec(className || '');
+  const isInline = !className;
+  
+  if (isInline) {
+    return (
+      <code 
+        style={{ 
+          backgroundColor: 'rgba(255,255,255,0.05)', 
+          padding: '2px 6px', 
+          borderRadius: '4px', 
+          fontFamily: 'monospace',
+          fontSize: '0.85em',
+          color: 'var(--neon-blue)'
+        }} 
+        {...props}
+      >
+        {children}
+      </code>
+    );
+  }
+
+  const codeText = String(children).replace(/\n$/, '');
+  const language = match ? match[1] : '';
+  const [copied, setCopied] = useState(false);
+
+  return (
+    <div style={{ position: 'relative', margin: '16px 0' }}>
+      <button 
+        className="cyber-button"
+        onClick={() => {
+          navigator.clipboard.writeText(codeText);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 2000);
+        }}
+        style={{
+          position: 'absolute',
+          top: '8px',
+          right: '8px',
+          padding: '4px 10px',
+          fontSize: '0.68rem',
+          zIndex: 5,
+          minHeight: 'auto'
+        }}
+      >
+        {copied ? 'COPIED! ✓' : 'COPY'}
+      </button>
+      <pre style={{ 
+        padding: '16px', 
+        backgroundColor: '#07080e', 
+        border: '1px solid var(--border-color)', 
+        borderRadius: '8px', 
+        overflowX: 'auto', 
+        fontSize: '0.78rem', 
+        fontFamily: 'monospace', 
+        tabSize: 2,
+        userSelect: 'text',
+        WebkitUserSelect: 'text',
+        MozUserSelect: 'text',
+        msUserSelect: 'text',
+        lineHeight: '1.5',
+        textAlign: 'left'
+      }}>
+        <code>
+          {language === 'javascript' || language === 'js'
+            ? highlightJsCode(codeText)
+            : codeText
+          }
+        </code>
+      </pre>
+    </div>
+  );
+}
+
+// Custom Cyberpunk Styled Checkbox Component
+function CustomCheckbox({ checked, onChange, label, disabled = false }) {
+  return (
+    <label style={{ display: 'flex', alignItems: 'center', gap: '12px', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1, userSelect: 'none' }}>
+      <input 
+        type="checkbox" 
+        checked={checked} 
+        disabled={disabled}
+        onChange={onChange} 
+        style={{ display: 'none' }} 
+      />
+      <div style={{
+        width: '20px',
+        height: '20px',
+        border: checked ? '2px solid var(--neon-blue)' : '2px solid rgba(255, 255, 255, 0.2)',
+        borderRadius: '4px',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        backgroundColor: checked ? 'rgba(0, 240, 255, 0.15)' : 'rgba(0, 0, 0, 0.4)',
+        boxShadow: checked ? '0 0 8px rgba(0, 240, 255, 0.4)' : 'none',
+        transition: 'all 0.2s ease',
+        flexShrink: 0
+      }}>
+        {checked && (
+          <div style={{
+            width: '10px',
+            height: '10px',
+            backgroundColor: 'var(--neon-blue)',
+            borderRadius: '2px',
+            boxShadow: '0 0 6px var(--neon-blue)'
+          }} />
+        )}
+      </div>
+      <span style={{ fontSize: '0.88rem', color: checked ? 'var(--text-primary)' : 'var(--text-secondary)', transition: 'color 0.2s' }}>
+        {label}
+      </span>
+    </label>
+  );
+}
+
+// Custom Cyberpunk Styled Dropdown Component
+function CustomSelect({ value, onChange, options, colorTheme = 'blue' }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+
+  const activeThemeColor = colorTheme === 'red' ? 'var(--neon-red)' : 'var(--neon-blue)';
+  const activeBgColor = colorTheme === 'red' ? 'rgba(255, 42, 133, 0.12)' : 'rgba(0, 240, 255, 0.12)';
+
+  const selectedOption = options.find(o => o.id === value) || options[0];
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  return (
+    <div ref={dropdownRef} style={{ position: 'relative', width: '100%', zIndex: isOpen ? 100 : 1 }}>
+      {/* Toggle bar */}
+      <div 
+        onClick={() => setIsOpen(!isOpen)}
+        style={{
+          width: '100%',
+          padding: '10px 14px',
+          background: 'rgba(5, 5, 10, 0.85)',
+          border: `1px solid ${activeThemeColor}`,
+          color: '#fff',
+          borderRadius: '6px',
+          fontWeight: 'bold',
+          fontSize: '0.85rem',
+          cursor: 'pointer',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          boxShadow: isOpen ? `0 0 10px ${activeThemeColor}40` : 'none',
+          transition: 'all 0.2s ease',
+          userSelect: 'none'
+        }}
+      >
+        <span>{selectedOption ? selectedOption.name : 'Select Bot...'}</span>
+        <ChevronDown 
+          size={16} 
+          style={{ 
+            transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', 
+            transition: 'transform 0.2s ease',
+            color: activeThemeColor
+          }} 
+        />
+      </div>
+
+      {/* Options list */}
+      {isOpen && (
+        <div 
+          style={{
+            position: 'absolute',
+            top: 'calc(100% + 6px)',
+            left: 0,
+            width: '100%',
+            background: 'rgba(10, 10, 15, 0.98)',
+            border: `1px solid ${activeThemeColor}`,
+            borderRadius: '6px',
+            boxShadow: `0 4px 20px rgba(0, 0, 0, 0.8), 0 0 15px ${activeThemeColor}20`,
+            overflow: 'hidden',
+            display: 'flex',
+            flexDirection: 'column',
+            padding: '4px 0'
+          }}
+        >
+          {options.map(opt => {
+            const isSelected = opt.id === value;
+            return (
+              <div
+                key={opt.id}
+                onClick={() => {
+                  onChange(opt.id);
+                  setIsOpen(false);
+                }}
+                style={{
+                  padding: '10px 14px',
+                  cursor: 'pointer',
+                  fontSize: '0.85rem',
+                  color: isSelected ? activeThemeColor : 'var(--text-primary)',
+                  backgroundColor: isSelected ? activeBgColor : 'transparent',
+                  fontWeight: isSelected ? 'bold' : 'normal',
+                  transition: 'all 0.15s ease',
+                  textAlign: 'left'
+                }}
+                onMouseEnter={(e) => {
+                  if (!isSelected) {
+                    e.target.style.backgroundColor = 'rgba(255, 255, 255, 0.05)';
+                  }
+                }}
+                onMouseLeave={(e) => {
+                  if (!isSelected) {
+                    e.target.style.backgroundColor = 'transparent';
+                  }
+                }}
+              >
+                {opt.name}
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] }) {
   const [activeTab, setActiveTab] = useState('contract'); // 'contract', 'simulator', 'spectate'
   const [customBots, setCustomBots] = useState({ a: null, b: null });
   const [uploadStatus, setUploadStatus] = useState({ a: 'idle', b: 'idle' });
   const [error, setError] = useState(null);
+  const [copied, setCopied] = useState(false);
   
   // Headless Tournament States
   const [selectedBots, setSelectedBots] = useState({
@@ -93,7 +414,7 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
       const objectUrl = URL.createObjectURL(blob);
 
       // Dynamically import the module
-      const module = await import(objectUrl);
+      const module = await import(/* @vite-ignore */ objectUrl);
 
       if (typeof module.getPlayAction !== 'function') {
         throw new Error("Module must export a 'getPlayAction(board, role, actionPoints, gameState, botPlayer)' function.");
@@ -403,25 +724,32 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
         </div>
 
         {/* Tab Navigation */}
-        <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', marginBottom: '24px', gap: '8px' }}>
+        <div style={{ display: 'flex', borderBottom: '1px solid var(--border-color)', marginBottom: '24px', gap: '8px', flexWrap: 'wrap' }}>
           <button 
             className={`cyber-button ${activeTab === 'contract' ? 'blue' : ''}`}
             onClick={() => setActiveTab('contract')}
-            style={{ borderBottom: activeTab === 'contract' ? '1px solid var(--neon-blue)' : 'none', borderRadius: '8px 8px 0 0', padding: '10px 20px', flex: 1 }}
+            style={{ borderBottom: activeTab === 'contract' ? '1px solid var(--neon-blue)' : 'none', borderRadius: '8px 8px 0 0', padding: '10px 16px', flex: 1, minWidth: '120px' }}
           >
             <HelpCircle size={16} style={{ marginRight: '6px', display: 'inline' }} /> Bot Contract
           </button>
           <button 
+            className={`cyber-button ${activeTab === 'guide' ? 'blue' : ''}`}
+            onClick={() => setActiveTab('guide')}
+            style={{ borderBottom: activeTab === 'guide' ? '1px solid var(--neon-blue)' : 'none', borderRadius: '8px 8px 0 0', padding: '10px 16px', flex: 1, minWidth: '120px' }}
+          >
+            <BookOpen size={16} style={{ marginRight: '6px', display: 'inline' }} /> Dev Guide
+          </button>
+          <button 
             className={`cyber-button ${activeTab === 'simulator' ? 'blue' : ''}`}
             onClick={() => setActiveTab('simulator')}
-            style={{ borderBottom: activeTab === 'simulator' ? '1px solid var(--neon-blue)' : 'none', borderRadius: '8px 8px 0 0', padding: '10px 20px', flex: 1 }}
+            style={{ borderBottom: activeTab === 'simulator' ? '1px solid var(--neon-blue)' : 'none', borderRadius: '8px 8px 0 0', padding: '10px 16px', flex: 1, minWidth: '120px' }}
           >
             <Terminal size={16} style={{ marginRight: '6px', display: 'inline' }} /> Headless Tournament
           </button>
           <button 
             className={`cyber-button ${activeTab === 'spectate' ? 'blue' : ''}`}
             onClick={() => setActiveTab('spectate')}
-            style={{ borderBottom: activeTab === 'spectate' ? '1px solid var(--neon-blue)' : 'none', borderRadius: '8px 8px 0 0', padding: '10px 20px', flex: 1 }}
+            style={{ borderBottom: activeTab === 'spectate' ? '1px solid var(--neon-blue)' : 'none', borderRadius: '8px 8px 0 0', padding: '10px 16px', flex: 1, minWidth: '120px' }}
           >
             <Play size={16} style={{ marginRight: '6px', display: 'inline' }} /> Visual Spectator
           </button>
@@ -438,11 +766,20 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
         {/* TAB 1: Bot Contract & Guide */}
         {activeTab === 'contract' && (
           <div style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: '1.6', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            <div className="glass-panel" style={{ padding: '20px', borderLeft: '3px solid var(--neon-blue)', background: 'rgba(0, 240, 255, 0.02)' }}>
-              <h3 style={{ color: 'var(--text-primary)', marginBottom: '8px' }}>🤖 Dynamic Custom Bot Loading</h3>
-              <p>
-                You can write your own bot strategies in JavaScript and upload them directly below! Custom bots run in a secure ES module context on the main thread and can access Lazer Showdown's physical evaluation and raycasting logic via a global helper namespace named <strong>LazerAI</strong>.
-              </p>
+            <div className="glass-panel" style={{ padding: '20px', borderLeft: '3px solid var(--neon-blue)', background: 'rgba(0, 240, 255, 0.02)', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <h3 style={{ color: 'var(--text-primary)', marginBottom: '8px' }}>🤖 Dynamic Custom Bot Loading</h3>
+                <p>
+                  You can write your own bot strategies in JavaScript and upload them directly below! Custom bots run in a secure ES module context on the main thread and can access Lazer Showdown's physical evaluation and raycasting logic via a global helper namespace named <strong>LazerAI</strong>.
+                </p>
+              </div>
+              <button 
+                className="cyber-button"
+                onClick={() => setActiveTab('guide')}
+                style={{ alignSelf: 'flex-start', padding: '10px 20px', fontSize: '0.85rem', borderColor: 'var(--neon-blue)', color: 'var(--neon-blue)', fontWeight: 'bold', display: 'flex', alignItems: 'center', gap: '8px' }}
+              >
+                <BookOpen size={16} /> READ FULL DEV GUIDE (BOTS.md)
+              </button>
             </div>
 
             {/* Upload Slots */}
@@ -485,34 +822,47 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
               <p style={{ marginBottom: '12px' }}>
                 Write your script as an ES module file and export the required functions. Access board parsing helpers, distance computations, and laser beam tracers directly from the global <code>LazerAI</code> object:
               </p>
-              <pre style={{ padding: '16px', backgroundColor: '#07080e', border: '1px solid var(--border-color)', borderRadius: '8px', overflowX: 'auto', fontSize: '0.75rem', fontFamily: 'monospace', color: 'var(--neon-blue)', tabSize: 2 }}>
-{`// Example simple custom bot (MyBot.js)
-const { getBoardState, getPossibleActions, applyLightweightAction, traceLaserBeam } = LazerAI;
-
-export function getPlayAction(board, role, actionPoints, gameState, botPlayer) {
-  const actions = getPossibleActions(board, role);
-  if (actions.length === 0) return null;
-  
-  // Example heuristic: If Attacker, fire laser immediately if aligned, otherwise select a random move
-  if (role === 'attacker') {
-    const { lazerPos, lazerDir } = getBoardState(board);
-    if (lazerPos) {
-      const trace = traceLaserBeam(board, lazerPos, lazerDir);
-      if (trace.hitPiece && ['block-20', 'block-30', 'block-50'].includes(trace.hitPiece.cell.type)) {
-        return { type: 'laser-press' };
-      }
-    }
-  }
-  
-  // Fallback: return a random legal action
-  return actions[Math.floor(Math.random() * actions.length)];
-}
-
-export function getSetupAction(board, phase, playerColor, challengedPiece) {
-  // Option to customize piece setup placement logic (optional)
-  return null; // returning null falls back to the default placement evaluator
-}`}
-              </pre>
+              <div style={{ position: 'relative', marginTop: '12px' }}>
+                <button 
+                  className="cyber-button"
+                  onClick={() => {
+                    navigator.clipboard.writeText(SAMPLE_BOT_CODE);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 2000);
+                  }}
+                  style={{
+                    position: 'absolute',
+                    top: '12px',
+                    right: '12px',
+                    padding: '6px 12px',
+                    fontSize: '0.7rem',
+                    zIndex: 5,
+                    minHeight: 'auto'
+                  }}
+                >
+                  {copied ? 'COPIED! ✓' : 'COPY CODE'}
+                </button>
+                <pre style={{ 
+                  padding: '18px', 
+                  backgroundColor: '#07080e', 
+                  border: '1px solid var(--border-color)', 
+                  borderRadius: '8px', 
+                  overflowX: 'auto', 
+                  fontSize: '0.78rem', 
+                  fontFamily: 'monospace', 
+                  tabSize: 2,
+                  userSelect: 'text',
+                  WebkitUserSelect: 'text',
+                  MozUserSelect: 'text',
+                  msUserSelect: 'text',
+                  lineHeight: '1.5',
+                  textAlign: 'left'
+                }}>
+                  <code>
+                    {highlightJsCode(SAMPLE_BOT_CODE)}
+                  </code>
+                </pre>
+              </div>
             </div>
 
             <div className="glass-panel" style={{ padding: '20px', borderLeft: '3px solid #b15cff', background: 'rgba(177, 92, 255, 0.02)' }}>
@@ -535,6 +885,30 @@ export function getSetupAction(board, phase, playerColor, challengedPiece) {
           </div>
         )}
 
+        {/* TAB 1.5: Developer Guide (BOTS.md) */}
+        {activeTab === 'guide' && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+            <div className="glass-panel" style={{ padding: '30px', maxHeight: '60vh', overflowY: 'auto', textAlign: 'left', color: 'var(--text-secondary)' }}>
+              <ReactMarkdown
+                components={{
+                  h1: ({node, ...props}) => <h1 style={{ color: 'var(--neon-blue)', fontFamily: 'var(--font-display)', fontSize: '1.8rem', marginTop: '0', marginBottom: '16px', borderBottom: '1px solid rgba(0, 240, 255, 0.1)', paddingBottom: '12px' }} {...props} />,
+                  h2: ({node, ...props}) => <h2 style={{ color: 'var(--neon-blue)', fontFamily: 'var(--font-display)', fontSize: '1.4rem', marginTop: '24px', marginBottom: '12px' }} {...props} />,
+                  h3: ({node, ...props}) => <h3 style={{ color: 'var(--neon-blue)', fontFamily: 'var(--font-display)', fontSize: '1.2rem', marginTop: '20px', marginBottom: '10px' }} {...props} />,
+                  p: ({node, ...props}) => <p style={{ color: '#e2e8f0', fontSize: '0.95rem', lineHeight: '1.7', marginBottom: '16px' }} {...props} />,
+                  strong: ({node, ...props}) => <strong style={{ color: 'var(--neon-blue)', fontWeight: 'bold' }} {...props} />,
+                  ul: ({node, ...props}) => <ul style={{ paddingLeft: '20px', marginBottom: '16px' }} {...props} />,
+                  ol: ({node, ...props}) => <ol style={{ paddingLeft: '20px', marginBottom: '16px' }} {...props} />,
+                  li: ({node, ...props}) => <li style={{ color: '#e2e8f0', fontSize: '0.95rem', lineHeight: '1.7', marginBottom: '8px' }} {...props} />,
+                  pre: ({children}) => <>{children}</>,
+                  code: MarkdownCodeBlock
+                }}
+              >
+                {botsDocRaw}
+              </ReactMarkdown>
+            </div>
+          </div>
+        )}
+
         {/* TAB 2: Headless Tournament Simulator */}
         {activeTab === 'simulator' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
@@ -544,30 +918,38 @@ export function getSetupAction(board, phase, playerColor, challengedPiece) {
               <div className="glass-panel" style={{ flex: 1.5, minWidth: '300px', padding: '20px' }}>
                 <h3 style={{ color: 'var(--text-primary)', fontSize: '1rem', marginBottom: '12px' }}>1. CHOOSE PARTICIPANTS</h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={selectedBots.easy} onChange={(e) => setSelectedBots(curr => ({ ...curr, easy: e.target.checked }))} />
-                    <span>Zlorooklp (Easy Heuristic)</span>
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={selectedBots.medium} onChange={(e) => setSelectedBots(curr => ({ ...curr, medium: e.target.checked }))} />
-                    <span>Lizbishmir (Medium Evaluator)</span>
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={selectedBots.hard} onChange={(e) => setSelectedBots(curr => ({ ...curr, hard: e.target.checked }))} />
-                    <span>Shahlzrmir (Hard Depth-3)</span>
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: 'pointer' }}>
-                    <input type="checkbox" checked={selectedBots.ga} onChange={(e) => setSelectedBots(curr => ({ ...curr, ga: e.target.checked }))} />
-                    <span>GA-Bot (Tuned Expectiminimax)</span>
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: customBots.a ? 'pointer' : 'not-allowed', opacity: customBots.a ? 1 : 0.5 }}>
-                    <input type="checkbox" checked={selectedBots.customA} disabled={!customBots.a} onChange={(e) => setSelectedBots(curr => ({ ...curr, customA: e.target.checked }))} />
-                    <span>Custom Bot A: {customBots.a ? customBots.a.name : '[Upload a file in Tab 1]'}</span>
-                  </label>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '10px', cursor: customBots.b ? 'pointer' : 'not-allowed', opacity: customBots.b ? 1 : 0.5 }}>
-                    <input type="checkbox" checked={selectedBots.customB} disabled={!customBots.b} onChange={(e) => setSelectedBots(curr => ({ ...curr, customB: e.target.checked }))} />
-                    <span>Custom Bot B: {customBots.b ? customBots.b.name : '[Upload a file in Tab 1]'}</span>
-                  </label>
+                  <CustomCheckbox 
+                    checked={selectedBots.easy} 
+                    onChange={(e) => setSelectedBots(curr => ({ ...curr, easy: e.target.checked }))} 
+                    label="Zlorooklp (Easy Heuristic)" 
+                  />
+                  <CustomCheckbox 
+                    checked={selectedBots.medium} 
+                    onChange={(e) => setSelectedBots(curr => ({ ...curr, medium: e.target.checked }))} 
+                    label="Lizbishmir (Medium Evaluator)" 
+                  />
+                  <CustomCheckbox 
+                    checked={selectedBots.hard} 
+                    onChange={(e) => setSelectedBots(curr => ({ ...curr, hard: e.target.checked }))} 
+                    label="Shahlzrmir (Hard Depth-3)" 
+                  />
+                  <CustomCheckbox 
+                    checked={selectedBots.ga} 
+                    onChange={(e) => setSelectedBots(curr => ({ ...curr, ga: e.target.checked }))} 
+                    label="GA-Bot (Tuned Expectiminimax)" 
+                  />
+                  <CustomCheckbox 
+                    checked={selectedBots.customA} 
+                    disabled={!customBots.a}
+                    onChange={(e) => setSelectedBots(curr => ({ ...curr, customA: e.target.checked }))} 
+                    label={customBots.a ? `Custom Bot A: ${customBots.a.name}` : 'Custom Bot A: [Upload in Tab 1]'} 
+                  />
+                  <CustomCheckbox 
+                    checked={selectedBots.customB} 
+                    disabled={!customBots.b}
+                    onChange={(e) => setSelectedBots(curr => ({ ...curr, customB: e.target.checked }))} 
+                    label={customBots.b ? `Custom Bot B: ${customBots.b.name}` : 'Custom Bot B: [Upload in Tab 1]'} 
+                  />
                 </div>
               </div>
 
@@ -679,15 +1061,12 @@ export function getSetupAction(board, phase, playerColor, challengedPiece) {
               {/* Red Bot selection */}
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <label style={{ fontSize: '0.8rem', color: 'var(--neon-red)', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>RED PLAYER BOT:</label>
-                <select 
+                <CustomSelect 
                   value={specRed} 
-                  onChange={(e) => setSpecRed(e.target.value)}
-                  style={{ width: '100%', padding: '10px', background: 'rgba(0,0,0,0.6)', border: '1px solid var(--neon-red)', color: '#fff', borderRadius: '6px', fontWeight: 'bold' }}
-                >
-                  {getSelectableBots().map(b => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-                </select>
+                  onChange={setSpecRed} 
+                  options={getSelectableBots()} 
+                  colorTheme="red"
+                />
               </div>
 
               <div style={{ color: 'var(--text-muted)', fontWeight: 'bold', fontSize: '1.2rem', marginTop: '20px' }}>VS</div>
@@ -695,15 +1074,12 @@ export function getSetupAction(board, phase, playerColor, challengedPiece) {
               {/* Blue Bot selection */}
               <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 <label style={{ fontSize: '0.8rem', color: 'var(--neon-blue)', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>BLUE PLAYER BOT:</label>
-                <select 
+                <CustomSelect 
                   value={specBlue} 
-                  onChange={(e) => setSpecBlue(e.target.value)}
-                  style={{ width: '100%', padding: '10px', background: 'rgba(0,0,0,0.6)', border: '1px solid var(--neon-blue)', color: '#fff', borderRadius: '6px', fontWeight: 'bold' }}
-                >
-                  {getSelectableBots().map(b => (
-                    <option key={b.id} value={b.id}>{b.name}</option>
-                  ))}
-                </select>
+                  onChange={setSpecBlue} 
+                  options={getSelectableBots()} 
+                  colorTheme="blue"
+                />
               </div>
             </div>
 

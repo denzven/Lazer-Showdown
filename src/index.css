@@ -1160,3 +1160,62 @@ h4,
   font-weight: 800;
 }@keyframes fadeInOut { 0% { opacity: 0; transform: translate(-50%, 20px); } 15% { opacity: 1; transform: translate(-50%, 0); } 85% { opacity: 1; transform: translate(-50%, 0); } 100% { opacity: 0; transform: translate(-50%, -20px); } }
 
+/* Lore Responsive Sidebar Layout */
+.lore-layout {
+  display: flex;
+  height: 80vh;
+  width: 100%;
+  overflow: hidden;
+  position: relative;
+}
+
+.lore-sidebar {
+  width: 260px;
+  border-right: 1px solid rgba(0, 240, 255, 0.2);
+  display: flex;
+  flex-direction: column;
+  padding: 24px;
+  background-color: rgba(10, 10, 10, 0.95);
+  flex-shrink: 0;
+  transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  z-index: 10;
+}
+
+.lore-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  padding: 32px;
+  position: relative;
+}
+
+.lore-toggle {
+  display: none !important;
+}
+
+/* Mobile responsive adjustments */
+@media (max-width: 768px) {
+  .lore-sidebar {
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    transform: translateX(-100%);
+    box-shadow: 5px 0 15px rgba(0, 0, 0, 0.5);
+  }
+  
+  .lore-sidebar.open {
+    transform: translateX(0);
+  }
+  
+  .lore-content {
+    padding: 60px 20px 20px 20px !important; /* Make room for the absolute toggle button */
+  }
+  
+  .lore-toggle {
+    display: block !important;
+  }
+}
+

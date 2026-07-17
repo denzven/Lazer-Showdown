@@ -1,13 +1,52 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { ArrowLeft, Plus, LogIn } from 'lucide-react';
 
 export default function ConnectionScreen({ network, game, onBack }) {
   const { status, roomCode, error, hostGame, joinGame, disconnect } = network;
 
-  const [view, setView] = useState(() => {
+  const [view, setViewState] = useState(() => {
+    const hash = window.location.hash;
     const params = new URLSearchParams(window.location.search);
-    return params.get('room') ? 'setup-join' : 'menu';
+    if (hash === '#/online/host') return 'setup-host';
+    if (hash === '#/online/join' || params.get('room')) return 'setup-join';
+    return 'menu';
   });
+
+  // Sync state to URL hash
+  const setView = (newView) => {
+    let targetHash = '#/online';
+    if (newView === 'setup-host') targetHash = '#/online/host';
+    else if (newView === 'setup-join') targetHash = '#/online/join';
+    else if (newView === 'menu') targetHash = '#/online';
+
+    if (window.location.hash !== targetHash) {
+      if (window.Lazer_setIsProgrammaticNav) {
+        window.Lazer_setIsProgrammaticNav(true);
+      }
+      window.location.hash = targetHash;
+      setTimeout(() => {
+        if (window.Lazer_setIsProgrammaticNav) {
+          window.Lazer_setIsProgrammaticNav(false);
+        }
+      }, 0);
+    }
+    setViewState(newView);
+  };
+
+  // Sync state from browser hash updates (e.g. browser back button)
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      const params = new URLSearchParams(window.location.search);
+      let targetView = 'menu';
+      if (hash === '#/online/host') targetView = 'setup-host';
+      else if (hash === '#/online/join' || params.get('room')) targetView = 'setup-join';
+      
+      setViewState(targetView);
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, []);
   const [hostName, setHostName] = useState(() => localStorage.getItem('lazer_nickname') || '');
   const [joinName, setJoinName] = useState(() => localStorage.getItem('lazer_nickname') || '');
   const [inputCode, setInputCode] = useState(() => {
@@ -41,7 +80,7 @@ export default function ConnectionScreen({ network, game, onBack }) {
   };
 
   const handleCopyLink = () => {
-    const link = `${window.location.origin}${window.location.pathname}?room=${roomCode}`;
+    const link = `${window.location.origin}${window.location.pathname}?room=${roomCode}#/online/join`;
     const shareData = {
       title: 'Lazer Showdown',
       text: `Join my Lazer Showdown match! Room code: ${roomCode}`,

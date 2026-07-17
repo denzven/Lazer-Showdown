@@ -1,0 +1,6 @@
+# www.robotstxt.org/
+# Allow all crawlers to index all pages of Lazer Showdown
+User-agent: *
+Allow: /
+
+Sitemap: https://denzven.github.io/Lazer-Showdown/sitemap.xml
