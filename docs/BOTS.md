@@ -177,8 +177,53 @@ import {
 
 export const SpectreStrategy = {
   getSetupAction: (board, phase, playerColor, challengedPiece) => {
-    // For simplicity, reuse the game's robust Hard placement logic
-    return HardStrategy.getSetupAction(board, phase, playerColor, challengedPiece);
+    if (phase === 'setup-defender') {
+      let placedCount = 0;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const cell = board[r][c];
+          if (cell && ['block-20', 'block-30', 'block-50'].includes(cell.type)) placedCount++;
+        }
+      }
+      if (placedCount >= 3) {
+        return { type: 'confirm-setup' };
+      }
+      const pieceTypes = ['block-20', 'block-30', 'block-50'];
+      const pieceType = pieceTypes[placedCount] || 'block-20';
+      for (let r = 2; r <= 5; r++) {
+        for (let c = 1; c <= 6; c++) {
+          if (!board[r][c]) {
+            return { type: 'place', pieceType, r, c, rotation: 0 };
+          }
+        }
+      }
+    } else if (phase === 'challenge-setup') {
+      let isPlaced = false;
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const cell = board[r][c];
+          if (cell && cell.type === challengedPiece) {
+            isPlaced = true;
+            break;
+          }
+        }
+      }
+      if (isPlaced) {
+        return { type: 'confirm-setup' };
+      }
+      for (let r = 2; r <= 5; r++) {
+        for (let c = 1; c <= 6; c++) {
+          if (!board[r][c]) {
+            return { type: 'place', pieceType: challengedPiece, r, c, rotation: 0 };
+          }
+        }
+      }
+    } else if (phase === 'setup-attacker') {
+      if (!board[0][0]) {
+        return { type: 'place', pieceType: 'block-lazer', r: 0, c: 0, rotation: 90 };
+      }
+    }
+    return { type: 'confirm-setup' };
   },
 
   getPlayAction: (board, role, actionPoints, gameState, botPlayer) => {

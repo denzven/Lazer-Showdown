@@ -813,9 +813,11 @@ function App() {
         <DevsCorner 
           onBack={() => setMode('credits')}
           customBoards={customBoards}
-          onStartSpectate={(redBot, blueBot) => {
+          onStartSpectate={(redBot, blueBot, boardName = 'default') => {
             setSpectateConfig({ redBot, blueBot });
-            game.clearWorkspace();
+            setSelectedBoardName(boardName);
+            const bData = boardName === 'default' ? null : customBoards.find(b => b.name === boardName)?.data;
+            game.clearWorkspace(bData);
             setMode('spectate');
           }}
         />

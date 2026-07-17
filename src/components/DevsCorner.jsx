@@ -16,30 +16,139 @@ import { getInitialState, applySandboxAction } from '../core/GameState';
 import { getBotSetupAction } from '../core/BotEngine';
 
 const SAMPLE_BOT_CODE = `// Example simple custom bot (MyBot.js)
-const { getBoardState, getPossibleActions, applyLightweightAction, traceLaserBeam } = LazerAI;
+//
+// 💡 DESIGNING YOUR BOT STRATEGY:
+// Write your custom strategy here. You can construct look-ahead algorithms, heuristic 
+// evaluation trees, or minimax search routines by using the global helper APIs below.
+//
+// 🛠️ AVAILABLE LAZERAI HELPER FUNCTIONS:
+// - getBoardState(board): Extracts board metadata -> { lazerPos: {r, c}, lazerDir: 0|90|180|270, pointPieces: [], emptyCells: [] }
+// - getPossibleActions(board, role): Lists all legal moves/actions -> Array of Action Objects
+// - applyLightweightAction(board, action): Clones the board & simulates the action -> returns cloned 8x8 Board
+// - traceLaserBeam(board, position, direction): Traces laser raycast -> { path: [{r, c}], hitPiece: {r, c, cell} | null }
+// - validatePlacement(board, r, c, pieceType): Checks setup placements -> { valid: boolean, error: string }
+// - validateMovement(board, fromR, fromC, toR, toC): Checks movement rules -> { valid: boolean, error: string }
+// - generateThreatMap(board): Evaluates danger levels for all tiles -> 8x8 grid of threats (0.0 to 1.0)
+// - getPieceThreatLevels(board): Lists point pieces sorted by active threat levels
+// - computeSafetySteps(board, r, c, threatMap): Computes BFS path length to reach a safe cell (threat <= 0.25)
+// - bfsToNearestFiringCell(board, r, c): Computes BFS path to a grid coordinate from which a laser can fire and hit target
+// - getReverseFiringCells(board): Maps target elements back to coordinates that hit them
+const { 
+  getBoardState, 
+  getPossibleActions, 
+  applyLightweightAction, 
+  traceLaserBeam, 
+  validatePlacement,
+  generateThreatMap,
+  getPieceThreatLevels,
+  computeSafetySteps
+} = LazerAI;
 
+/**
+ * 🎮 STEP 1: DEFINE GAMEPLAY DECISIONS
+ * getPlayAction is called when it is your turn to move.
+ * Evaluate legal actions here using board look-aheads and heuristic evaluations.
+ */
 export function getPlayAction(board, role, actionPoints, gameState, botPlayer) {
   const actions = getPossibleActions(board, role);
   if (actions.length === 0) return null;
   
-  // Example heuristic: If Attacker, fire laser immediately if aligned, otherwise select a random move
+  // Example Heuristic: If Attacker, fire laser immediately if aligned, otherwise select a random move
   if (role === 'attacker') {
     const { lazerPos, lazerDir } = getBoardState(board);
     if (lazerPos) {
+      // Trace the path of the laser ray
       const trace = traceLaserBeam(board, lazerPos, lazerDir);
+      
+      // If the beam is currently pointing at a high-value point piece, fire!
       if (trace.hitPiece && ['block-20', 'block-30', 'block-50'].includes(trace.hitPiece.cell.type)) {
         return { type: 'laser-press' };
       }
     }
   }
   
-  // Fallback: return a random legal action
+  // Fallback: return a random legal action (you can replace this with Minimax, Alpha-Beta, or GA weights)
   return actions[Math.floor(Math.random() * actions.length)];
 }
 
+/**
+ * 🏗️ STEP 2: DEFINE PIECE PLACEMENTS
+ * getSetupAction is called during setup rounds.
+ * Customize your startup placement coordinates and mirror block structures here.
+ */
 export function getSetupAction(board, phase, playerColor, challengedPiece) {
-  // Option to customize piece setup placement logic (optional)
-  return null; // returning null falls back to the default placement evaluator
+  if (phase === 'setup-defender') {
+    // Count pieces currently placed
+    let placedCount = 0;
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const cell = board[r][c];
+        if (cell && ['block-20', 'block-30', 'block-50'].includes(cell.type)) placedCount++;
+      }
+    }
+    // Defender needs to place exactly 3 point blocks
+    if (placedCount >= 3) {
+      return { type: 'confirm-setup' };
+    }
+    // Place point pieces on safe middle rows (r: 2 to 5)
+    const pieceTypes = ['block-20', 'block-30', 'block-50'];
+    const pieceType = pieceTypes[placedCount] || 'block-20';
+    for (let r = 2; r <= 5; r++) {
+      for (let c = 1; c <= 6; c++) {
+        // Validate coordinates to avoid mirror stands and corners
+        if (validatePlacement && validatePlacement(board, r, c, pieceType).valid) {
+          return { type: 'place', pieceType, r, c, rotation: 0 };
+        } else if (!board[r][c]) {
+          return { type: 'place', pieceType, r, c, rotation: 0 };
+        }
+      }
+    }
+  } else if (phase === 'challenge-setup') {
+    // Find if the challenged piece has been placed
+    let isPlaced = false;
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const cell = board[r][c];
+        if (cell && cell.type === challengedPiece) {
+          isPlaced = true;
+          break;
+        }
+      }
+    }
+    if (isPlaced) {
+      return { type: 'confirm-setup' };
+    }
+    // Place the challenged piece on a safe coordinate
+    for (let r = 2; r <= 5; r++) {
+      for (let c = 1; c <= 6; c++) {
+        if (validatePlacement && validatePlacement(board, r, c, challengedPiece).valid) {
+          return { type: 'place', pieceType: challengedPiece, r, c, rotation: 0 };
+        } else if (!board[r][c]) {
+          return { type: 'place', pieceType: challengedPiece, r, c, rotation: 0 };
+        }
+      }
+    }
+  } else if (phase === 'setup-attacker') {
+    // Place laser in top-left corner facing down (rotation: 90 degrees)
+    if (!board[0][0]) {
+      return { type: 'place', pieceType: 'block-lazer', r: 0, c: 0, rotation: 90 };
+    }
+  }
+  return { type: 'confirm-setup' };
+}
+
+/**
+ * 🎲 STEP 3: DEFINE BLUFFING AND CHALLENGES
+ * getChallengeAction is called when the opponent captures one of your pieces.
+ * Choose whether to initiate a dice roll challenge based on point values.
+ */
+export function getChallengeAction(board, gameState, playerColor) {
+  // Simple heuristic: Risk a challenge roll if a 50-point piece has been captured
+  const captured = gameState.capturedPieces || [];
+  if (captured.includes('block-50')) {
+    return { type: 'declare-challenge', declare: true, pieceType: 'block-50' };
+  }
+  return { type: 'declare-challenge', declare: false };
 }`;
 
 // Custom Javascript Syntax Highlighter Tokenizer
@@ -358,6 +467,24 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
   // Spectating Config
   const [specRed, setSpecRed] = useState('easy');
   const [specBlue, setSpecBlue] = useState('hard');
+  const [specBoard, setSpecBoard] = useState('default');
+
+  const getSelectableBoards = () => {
+    const list = [
+      { id: 'default', name: 'Default Board' }
+    ];
+    customBoards.forEach(b => {
+      list.push({ id: b.name, name: b.name.replace(/_/g, ' ').toUpperCase() });
+    });
+    return list;
+  };
+
+  const handleSelectRandomBoard = () => {
+    const boards = getSelectableBoards();
+    if (boards.length === 0) return;
+    const randomBoard = boards[Math.floor(Math.random() * boards.length)];
+    setSpecBoard(randomBoard.id);
+  };
 
   const consoleEndRef = useRef(null);
   const simCancelRef = useRef(false);
@@ -416,19 +543,23 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
       // Dynamically import the module
       const module = await import(/* @vite-ignore */ objectUrl);
 
-      if (typeof module.getPlayAction !== 'function') {
-        throw new Error("Module must export a 'getPlayAction(board, role, actionPoints, gameState, botPlayer)' function.");
+      const missing = [];
+      if (typeof module.getPlayAction !== 'function') missing.push('getPlayAction(board, role, actionPoints, gameState, botPlayer)');
+      if (typeof module.getSetupAction !== 'function') missing.push('getSetupAction(board, phase, playerColor, challengedPiece)');
+      if (typeof module.getChallengeAction !== 'function') missing.push('getChallengeAction(board, gameState, playerColor)');
+
+      if (missing.length > 0) {
+        throw new Error(`Missing required exports: ${missing.join(', ')}`);
       }
 
       const botName = file.name.replace('.js', '').substring(0, 15);
       const strategyId = `custom_${slot}_${Date.now()}`;
 
-      // Write into the strategies registry
+      // Write into the strategies registry without fallback defaults
       CUSTOM_STRATEGIES[strategyId] = {
         getPlayAction: module.getPlayAction,
-        getSetupAction: module.getSetupAction || ((board, phase, playerColor, challengedPiece) => {
-          return HardStrategy.getSetupAction(board, phase, playerColor, challengedPiece);
-        })
+        getSetupAction: module.getSetupAction,
+        getChallengeAction: module.getChallengeAction
       };
 
       setCustomBots(prev => ({
@@ -1083,9 +1214,31 @@ export default function DevsCorner({ onBack, onStartSpectate, customBoards = [] 
               </div>
             </div>
 
+            {/* Board Selection */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '550px', marginBottom: '15px' }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--neon-blue)', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>BATTLE GRID BOARD LAYOUT:</label>
+              <div style={{ display: 'flex', gap: '12px', width: '100%' }}>
+                <div style={{ flex: 1 }}>
+                  <CustomSelect 
+                    value={specBoard} 
+                    onChange={setSpecBoard} 
+                    options={getSelectableBoards()} 
+                    colorTheme="cyan"
+                  />
+                </div>
+                <button 
+                  className="cyber-button" 
+                  onClick={handleSelectRandomBoard}
+                  style={{ padding: '0 20px', minHeight: 'auto', display: 'flex', alignItems: 'center', gap: '8px', borderColor: 'var(--neon-blue)', color: 'var(--neon-blue)', fontWeight: 'bold' }}
+                >
+                  <RefreshCw size={16} /> RANDOM
+                </button>
+              </div>
+            </div>
+
             <button 
               className="cyber-button blue" 
-              onClick={() => onStartSpectate(specRed, specBlue)}
+              onClick={() => onStartSpectate(specRed, specBlue, specBoard)}
               style={{ padding: '16px 36px', fontSize: '1.1rem', fontWeight: 'bold', letterSpacing: '1px', marginTop: '10px', animation: 'afkPulse 1.5s infinite' }}
             >
               LAUNCH LIVE SPECTATE <ArrowRight size={18} style={{ marginLeft: '8px', display: 'inline' }} />
