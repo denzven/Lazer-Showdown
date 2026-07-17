@@ -683,7 +683,9 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
     if (phase === 'setup-attacker') return 'STATUS: Attacker Placing LAZER';
     if (phase === 'playing') {
       const activePlayerColor = roleRed === turnPlayer ? 'red' : 'blue';
-      if (mode === 'bot') {
+      if (mode === 'spectate') {
+        return `STATUS: Bot Turn (${activePlayerColor.toUpperCase()})`;
+      } else if (mode === 'bot') {
         return activePlayerColor === 'blue' ? 'STATUS: Computer Turn' : 'STATUS: Your Turn';
       } else if (mode === 'local') {
         return `STATUS: Player ${activePlayerColor === 'red' ? '1' : '2'} Turn (${turnPlayer.toUpperCase()})`;
@@ -730,11 +732,13 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
       ? (roleRed === 'attacker' ? 'red' : 'blue')
       : (roleRed === turnPlayer ? 'red' : 'blue');
 
-  const isLocalTurn = mode === 'local'
-    ? true
-    : (mode === 'tutorial' || mode === 'bot')
-      ? activePlayerColor === 'red'  // player is always RED; bot is BLUE
-      : (mode === 'online' && role === activePlayerColor);
+  const isLocalTurn = mode === 'spectate'
+    ? false
+    : mode === 'local'
+      ? true
+      : (mode === 'tutorial' || mode === 'bot')
+        ? activePlayerColor === 'red'  // player is always RED; bot is BLUE
+        : (mode === 'online' && role === activePlayerColor);
 
   const renderSetupBanner = () => {
     if (phase === 'setup-defender' || phase === 'challenge-setup') {
@@ -771,7 +775,9 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
       let btnClass = 'blue';
 
       if (phase === 'toss') {
-        if (mode === 'local') {
+        if (mode === 'spectate') {
+          canRoll = false;
+        } else if (mode === 'local') {
           canRoll = tossRolls.red === null || (isRedRolled && tossRolls.blue === null);
           btnText = tossRolls.red === null ? 'RED: ROLL DICE' : 'BLUE: ROLL DICE';
           btnClass = tossRolls.red === null ? 'red' : 'blue';
@@ -899,9 +905,11 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
     // 3. CHALLENGE DECLARATION
     if (phase === 'challenge-declaration') {
       const attColor = roleRed === 'attacker' ? 'red' : 'blue';
-      const isAttackerLocal = (mode === 'local')
-        ? true
-        : (mode === 'bot' ? (attColor === 'red') : (attColor === role));
+      const isAttackerLocal = (mode === 'spectate')
+        ? false
+        : (mode === 'local')
+          ? true
+          : (mode === 'bot' ? (attColor === 'red') : (attColor === role));
 
       return (
         <div className="modal-overlay">
@@ -950,7 +958,9 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
       let btnClass = 'blue';
 
       if (phase === 'challenge-toss') {
-        if (mode === 'local') {
+        if (mode === 'spectate') {
+          canRoll = false;
+        } else if (mode === 'local') {
           canRoll = challengeTossRolls.red === null || (isRedRolled && challengeTossRolls.blue === null);
           btnText = challengeTossRolls.red === null ? 'RED: ROLL DICE' : 'BLUE: ROLL DICE';
           btnClass = challengeTossRolls.red === null ? 'red' : 'blue';

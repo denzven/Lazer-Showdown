@@ -3,7 +3,7 @@ import {
   getInitialState,
   applySandboxAction
 } from '../core/GameState';
-import { getBotSetupAction, getBotPlayAction, generateThreatMap, getBoardAnalysis, generatePossibilityWeb } from '../core/BotEngine';
+import { getBotSetupAction, getBotPlayAction, getBotChallengeAction, generateThreatMap, getBoardAnalysis, generatePossibilityWeb } from '../core/BotEngine';
 
 function getBotActionDelay(difficulty, action, gameState, humanPaceAvg) {
   let baseDelay = 300;
@@ -35,7 +35,7 @@ function getBotActionDelay(difficulty, action, gameState, humanPaceAvg) {
   return Math.max(200, Math.min(3000, pacedDelay + decisionWeight + roundFactor));
 }
 
-export function useGame(network, mode, difficulty, customBoardData = null) {
+export function useGame(network, mode, difficulty, customBoardData = null, spectateConfig = null) {
   const [gameState, setGameState] = useState(() => getInitialState(customBoardData, mode));
   const [history, setHistory] = useState({ past: [], future: [] });
 
@@ -180,7 +180,7 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
 
     setGameState((curr) => {
       // Determine the acting player based on the active phase
-      const actor = (mode === 'local' || mode === 'bot' || mode === 'tutorial') 
+      const actor = (mode === 'local' || mode === 'bot' || mode === 'tutorial' || mode === 'spectate') 
         ? (action.player || (() => {
             if (curr.phase === 'toss') {
               const redNeedsToAct = curr.tossRolls.red === null || curr.tossRolls.red === 'rolling';
@@ -269,70 +269,117 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
   }, [status, role, sendPayload, mode]);
 
   useEffect(() => {
-    if ((mode !== 'bot' && mode !== 'tutorial') || gameState.winner) return;
+    if ((mode !== 'bot' && mode !== 'tutorial' && mode !== 'spectate') || gameState.winner) return;
 
-    const botPlayer = 'blue';
-    const isBotAttacker = gameState.roleBlue === 'attacker';
-    const isBotDefender = gameState.roleBlue === 'defender';
+    const redBotStrategy = mode === 'spectate' ? (spectateConfig?.redBot || 'easy') : null;
+    const blueBotStrategy = mode === 'spectate' ? (spectateConfig?.blueBot || 'hard') : (mode === 'bot' || mode === 'tutorial' ? difficulty : null);
+
+    const getBotStrategyForColor = (color) => {
+      return color === 'red' ? redBotStrategy : blueBotStrategy;
+    };
+
+    const redRole = gameState.roleRed;
+    const blueRole = gameState.roleBlue;
+
+    const colorOfRole = (role) => {
+      if (redRole === role) return 'red';
+      if (blueRole === role) return 'blue';
+      return null;
+    };
+
+    let activeBotColor = null;
+    let activeBotStrategy = null;
+
+    // Determine whose action is required:
+    if (gameState.phase === 'setup-defender' || gameState.phase === 'challenge-setup') {
+      const activeColor = colorOfRole('defender');
+      if (activeColor && getBotStrategyForColor(activeColor)) {
+        activeBotColor = activeColor;
+        activeBotStrategy = getBotStrategyForColor(activeColor);
+      }
+    } else if (gameState.phase === 'setup-attacker') {
+      const activeColor = colorOfRole('attacker');
+      if (activeColor && getBotStrategyForColor(activeColor)) {
+        activeBotColor = activeColor;
+        activeBotStrategy = getBotStrategyForColor(activeColor);
+      }
+    } else if (gameState.phase === 'playing') {
+      const activeColor = colorOfRole(gameState.turnPlayer);
+      if (activeColor && getBotStrategyForColor(activeColor)) {
+        activeBotColor = activeColor;
+        activeBotStrategy = getBotStrategyForColor(activeColor);
+      }
+    } else if (gameState.phase === 'challenge-declaration') {
+      const activeColor = colorOfRole('attacker');
+      if (activeColor && getBotStrategyForColor(activeColor)) {
+        activeBotColor = activeColor;
+        activeBotStrategy = getBotStrategyForColor(activeColor);
+      }
+    } else if (gameState.phase === 'role-selection') {
+      const winner = gameState.tossWinner;
+      if (winner && getBotStrategyForColor(winner)) {
+        activeBotColor = winner;
+        activeBotStrategy = getBotStrategyForColor(winner);
+      }
+    } else if (gameState.phase === 'toss') {
+      const isRedFinished = gameState.tossRolls.red !== null && gameState.tossRolls.red !== 'rolling';
+      if (gameState.tossRolls.red === null && getBotStrategyForColor('red')) {
+        activeBotColor = 'red';
+        activeBotStrategy = getBotStrategyForColor('red');
+      } else if (isRedFinished && gameState.tossRolls.blue === null && getBotStrategyForColor('blue')) {
+        activeBotColor = 'blue';
+        activeBotStrategy = getBotStrategyForColor('blue');
+      }
+    } else if (gameState.phase === 'challenge-toss') {
+      const isRedFinished = gameState.challengeTossRolls.red !== null && gameState.challengeTossRolls.red !== 'rolling';
+      if (gameState.challengeTossRolls.red === null && getBotStrategyForColor('red')) {
+        activeBotColor = 'red';
+        activeBotStrategy = getBotStrategyForColor('red');
+      } else if (isRedFinished && gameState.challengeTossRolls.blue === null && getBotStrategyForColor('blue')) {
+        activeBotColor = 'blue';
+        activeBotStrategy = getBotStrategyForColor('blue');
+      }
+    }
+
+    if (!activeBotColor) return;
 
     // A. Setup Placements
-    if (gameState.phase === 'setup-defender' && isBotDefender) {
+    if (gameState.phase === 'setup-defender' || gameState.phase === 'challenge-setup' || gameState.phase === 'setup-attacker') {
       const timer = setTimeout(() => {
-        const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer, difficulty);
-        if (action) executeAction({ ...action, player: botPlayer });
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-
-    if (gameState.phase === 'setup-attacker' && isBotAttacker) {
-      const timer = setTimeout(() => {
-        const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer, difficulty);
-        if (action) executeAction({ ...action, player: botPlayer });
-      }, 300);
-      return () => clearTimeout(timer);
-    }
-
-    if (gameState.phase === 'challenge-setup' && isBotDefender) {
-      const timer = setTimeout(() => {
-        const action = getBotSetupAction(gameState.board, gameState.phase, botPlayer, difficulty, gameState.challengedPiece);
-        if (action) executeAction({ ...action, player: botPlayer });
+        const action = getBotSetupAction(gameState.board, gameState.phase, activeBotColor, activeBotStrategy, gameState.challengedPiece);
+        if (action) executeAction({ ...action, player: activeBotColor });
       }, 300);
       return () => clearTimeout(timer);
     }
 
     // B. Gameplay turn
-    const isBotActiveTurn = gameState.phase === 'playing' && (
-      (gameState.turnPlayer === 'attacker' && isBotAttacker) ||
-      (gameState.turnPlayer === 'defender' && isBotDefender)
-    );
-
-    if (isBotActiveTurn) {
+    if (gameState.phase === 'playing') {
       // Step 1: Roll dice if not rolled yet
       if (!gameState.hasRolledDice && !gameState.dice.isRolling) {
         const timer = setTimeout(() => {
-          executeAction({ type: 'start-roll', player: botPlayer });
+          executeAction({ type: 'start-roll', player: activeBotColor });
           setTimeout(() => {
             const v1 = Math.floor(Math.random() * 6) + 1;
             const v2 = Math.floor(Math.random() * 6) + 1;
-            executeAction({ type: 'end-roll', values: [v1, v2], player: botPlayer });
+            executeAction({ type: 'end-roll', values: [v1, v2], player: activeBotColor });
           }, 200);
         }, 300);
         return () => clearTimeout(timer);
       }
 
-      // Step 2: Perform actions step-by-step with dynamic decision-weighted pacing
+      // Step 2: Perform actions step-by-step
       if (gameState.hasRolledDice && gameState.actionPoints > 0 && !gameState.dice.isRolling) {
-        const botRole = isBotAttacker ? 'attacker' : 'defender';
+        const botRole = activeBotColor === colorOfRole('attacker') ? 'attacker' : 'defender';
         
-        getBotPlayAction(gameState.board, botRole, gameState.actionPoints, difficulty, gameState, botPlayer).then(action => {
+        getBotPlayAction(gameState.board, botRole, gameState.actionPoints, activeBotStrategy, gameState, activeBotColor).then(action => {
           if (action) {
-            const delay = getBotActionDelay(difficulty, action, gameState, humanMoveTimeAvg.current);
+            const delay = getBotActionDelay(activeBotStrategy, action, gameState, humanMoveTimeAvg.current);
             botTimeoutRef.current = setTimeout(() => {
-              executeAction({ ...action, player: botPlayer });
+              executeAction({ ...action, player: activeBotColor });
             }, delay);
           } else {
             botTimeoutRef.current = setTimeout(() => {
-              executeAction({ type: 'end-turn', player: botPlayer });
+              executeAction({ type: 'end-turn', player: activeBotColor });
             }, 300);
           }
         });
@@ -345,14 +392,14 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
       // Step 3: End turn if no AP left
       if (gameState.hasRolledDice && gameState.actionPoints === 0 && !gameState.dice.isRolling) {
         const timer = setTimeout(() => {
-          executeAction({ type: 'end-turn', player: botPlayer });
+          executeAction({ type: 'end-turn', player: activeBotColor });
         }, 300);
         return () => clearTimeout(timer);
       }
     }
 
     // C. Challenge Declaration
-    if (gameState.phase === 'challenge-declaration' && isBotAttacker) {
+    if (gameState.phase === 'challenge-declaration') {
       const timer = setTimeout(() => {
         // In tutorial mode, bot only challenges once — if it lost the toss it just ends the set
         if (mode === 'tutorial') {
@@ -360,48 +407,19 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
             botChallengeAttempted.current = true;
             const captured = gameState.capturedPieces || [];
             const target = captured.includes('block-50') ? 'block-50' : captured.includes('block-30') ? 'block-30' : (captured[0] || 'block-50');
-            executeAction({ type: 'declare-challenge', declare: true, pieceType: target, player: botPlayer });
+            executeAction({ type: 'declare-challenge', declare: true, pieceType: target, player: activeBotColor });
           } else {
-            // Already tried once — end the set
-            executeAction({ type: 'declare-challenge', declare: false, player: botPlayer });
+            executeAction({ type: 'declare-challenge', declare: false, player: activeBotColor });
           }
           return;
         }
 
-        const roll = Math.random();
-        let declare = true;
-
-        if (difficulty === 'easy' && roll < 0.4) {
-          declare = false; // 40% chance easy bot skips challenge
-        } else if (difficulty === 'medium' && roll < 0.15) {
-          declare = false; // 15% chance medium bot skips
-        }
-
-        if (!declare) {
-          executeAction({ type: 'declare-challenge', declare: false, player: botPlayer });
-          return;
-        }
-
-        const captured = gameState.capturedPieces;
-        let target = 'block-50';
-
-        if (difficulty === 'easy') {
-          // Easy bot challenges a random captured piece
-          target = captured[Math.floor(Math.random() * captured.length)];
-        } else if (difficulty === 'medium') {
-          // Medium bot has a 30% chance to make a suboptimal challenge (not 50)
-          if (roll > 0.7) {
-             const subOptimal = captured.filter(c => c !== 'block-50');
-             target = subOptimal.length > 0 ? subOptimal[Math.floor(Math.random() * subOptimal.length)] : captured[0];
-          } else {
-             target = captured.includes('block-50') ? 'block-50' : captured.includes('block-30') ? 'block-30' : 'block-20';
-          }
+        const action = getBotChallengeAction(gameState.board, gameState, activeBotColor, activeBotStrategy);
+        if (action) {
+          executeAction({ ...action, player: activeBotColor });
         } else {
-          // Hard bot always targets the best piece
-          target = captured.includes('block-50') ? 'block-50' : captured.includes('block-30') ? 'block-30' : 'block-20';
+          executeAction({ type: 'declare-challenge', declare: false, player: activeBotColor });
         }
-
-        executeAction({ type: 'declare-challenge', declare: true, pieceType: target, player: botPlayer });
       }, 400);
       return () => clearTimeout(timer);
     }
@@ -409,12 +427,22 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
     // D. Challenge Toss Roll
     if (gameState.phase === 'challenge-toss') {
       const isRedFinished = gameState.challengeTossRolls.red !== null && gameState.challengeTossRolls.red !== 'rolling';
-      if (isRedFinished && gameState.challengeTossRolls.blue === null) {
+      
+      if (activeBotColor === 'red') {
         const timer = setTimeout(() => {
-          executeAction({ type: 'challenge-start-roll', player: botPlayer });
+          executeAction({ type: 'challenge-start-roll', player: 'red' });
+          setTimeout(() => {
+            const val = Math.floor(Math.random() * 6) + 1;
+            executeAction({ type: 'challenge-roll', value: val, player: 'red' });
+          }, 200);
+        }, 300);
+        return () => clearTimeout(timer);
+      } else if (activeBotColor === 'blue') {
+        const timer = setTimeout(() => {
+          executeAction({ type: 'challenge-start-roll', player: 'blue' });
           setTimeout(() => {
             const blueVal = mode === 'tutorial' ? (Math.random() < 0.8 ? 1 : 2) : (Math.floor(Math.random() * 6) + 1);
-            executeAction({ type: 'challenge-roll', value: blueVal, player: botPlayer });
+            executeAction({ type: 'challenge-roll', value: blueVal, player: 'blue' });
           }, 200);
         }, 300);
         return () => clearTimeout(timer);
@@ -424,12 +452,22 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
     // E. Initial Toss Roll
     if (gameState.phase === 'toss') {
       const isRedFinished = gameState.tossRolls.red !== null && gameState.tossRolls.red !== 'rolling';
-      if (isRedFinished && gameState.tossRolls.blue === null) {
+      
+      if (activeBotColor === 'red') {
         const timer = setTimeout(() => {
-          executeAction({ type: 'toss-start-roll', player: botPlayer });
+          executeAction({ type: 'toss-start-roll', player: 'red' });
+          setTimeout(() => {
+            const val = Math.floor(Math.random() * 6) + 1;
+            executeAction({ type: 'toss-roll', value: val, player: 'red' });
+          }, 200);
+        }, 300);
+        return () => clearTimeout(timer);
+      } else if (activeBotColor === 'blue') {
+        const timer = setTimeout(() => {
+          executeAction({ type: 'toss-start-roll', player: 'blue' });
           setTimeout(() => {
             const blueVal = mode === 'tutorial' ? (Math.random() < 0.8 ? 1 : 2) : (Math.floor(Math.random() * 6) + 1);
-            executeAction({ type: 'toss-roll', value: blueVal, player: botPlayer });
+            executeAction({ type: 'toss-roll', value: blueVal, player: 'blue' });
           }, 200);
         }, 300);
         return () => clearTimeout(timer);
@@ -437,17 +475,17 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
     }
 
     // F. Role Selection
-    if (gameState.phase === 'role-selection' && gameState.tossWinner === 'blue') {
+    if (gameState.phase === 'role-selection') {
       const timer = setTimeout(() => {
         let selectedRole = 'attacker';
-        if (difficulty === 'easy') {
+        if (activeBotStrategy === 'easy') {
           selectedRole = Math.random() < 0.5 ? 'attacker' : 'defender';
-        } else if (difficulty === 'medium') {
+        } else if (activeBotStrategy === 'medium') {
           selectedRole = 'defender';
         } else {
           selectedRole = 'attacker';
         }
-        executeAction({ type: 'toss-select-role', role: selectedRole, player: botPlayer });
+        executeAction({ type: 'toss-select-role', role: selectedRole, player: activeBotColor });
       }, 300);
       return () => clearTimeout(timer);
     }
@@ -463,7 +501,10 @@ export function useGame(network, mode, difficulty, customBoardData = null) {
     gameState.challengeTossRolls, 
     gameState.tossRolls, 
     gameState.tossWinner, 
+    gameState.roleRed,
+    gameState.roleBlue,
     difficulty, 
+    spectateConfig,
     executeAction
   ]);
 

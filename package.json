@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist",
-    "train": "node scripts/train_ga.js"
+    "train": "node scripts/train_ga.js",
+    "tournament": "node scripts/simulate_tournament.js"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",

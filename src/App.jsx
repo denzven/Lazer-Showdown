@@ -8,6 +8,7 @@ import { Globe, Users, Cpu, ChevronDown, Share2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import './index.css';
 import InstallPWA from './components/InstallPWA';
+import DevsCorner from './components/DevsCorner';
 
 const loreModules = import.meta.glob(['./lore/*.md', './lore/*.txt'], { query: '?raw', import: 'default', eager: true });
 const loreFiles = Object.keys(loreModules).sort().map(key => loreModules[key]);
@@ -73,6 +74,7 @@ function App() {
     return params.get('room') ? 'online' : 'main-menu';
   }); // 'main-menu', 'mode-select', 'online', 'local', 'bot', 'setup-bot', 'rules', 'credits', 'lore'
   const [difficulty, setDifficulty] = useState('medium'); // 'easy', 'medium', 'hard'
+  const [spectateConfig, setSpectateConfig] = useState({ redBot: 'easy', blueBot: 'hard' });
   const [lorePage, setLorePage] = useState(0);
   const [selectedBoardName, setSelectedBoardName] = useState('default');
   const [boardDropdownOpen, setBoardDropdownOpen] = useState(false);
@@ -137,20 +139,40 @@ function App() {
     sendPayload: () => {} // No-op locally
   };
 
+  const getBotNameWithStrategy = (diff) => {
+    if (diff === 'easy') return 'Zlorooklp (EASY)';
+    if (diff === 'medium') return 'Lizbishmir (MEDIUM)';
+    if (diff === 'hard') return 'Shahlzrmir (HARD)';
+    if (diff === 'ga') return 'GA-Bot (TUNED)';
+    return `Bot (${diff.substring(0, 8)})`;
+  };
+
+  const mockSpectateNetwork = {
+    status: 'connected',
+    role: 'red',
+    playerName: getBotNameWithStrategy(spectateConfig.redBot),
+    opponentName: getBotNameWithStrategy(spectateConfig.blueBot),
+    isOpponentAfk: false,
+    disconnect: () => setMode('devs-corner'), // Return devs-corner on exit
+    sendPayload: () => {} // No-op
+  };
+
   const activeNetwork = mode === 'local' || mode === 'tutorial'
     ? mockLocalNetwork 
     : mode === 'bot' 
       ? mockBotNetwork 
-      : network;
+      : mode === 'spectate'
+        ? mockSpectateNetwork
+        : network;
 
   const selectedBoardData = selectedBoardName === 'default' 
     ? null 
     : customBoards.find(b => b.name === selectedBoardName)?.data;
 
-  const game = useGame(activeNetwork, mode, difficulty, selectedBoardData);
+  const game = useGame(activeNetwork, mode, difficulty, selectedBoardData, spectateConfig);
 
-  // Show grid if connected in online, local, bot, or tutorial mode
-  const showGameLayout = mode === 'local' || mode === 'bot' || mode === 'tutorial' || (mode === 'online' && network.status === 'connected');
+  // Show grid if connected in online, local, bot, tutorial, or spectate mode
+  const showGameLayout = mode === 'local' || mode === 'bot' || mode === 'tutorial' || mode === 'spectate' || (mode === 'online' && network.status === 'connected');
 
   return (
     <>
@@ -383,7 +405,7 @@ function App() {
                     if (navigator.share) {
                       navigator.share({ title: 'Lazer Showdown', text: 'Thanks for playing Lazer Showdown! Check it out here:', url: link }).catch(console.error);
                     } else {
-                      navigator.clipboard.writeText('Thanks for playing Lazer Showdown! Check it out here: \\n' + link);
+                      navigator.clipboard.writeText('Thanks for playing Lazer Showdown! Check it out here: \n' + link);
                       alert('Link copied to clipboard! Thanks for playing!');
                     }
                   }}
@@ -391,6 +413,14 @@ function App() {
                   <Share2 size={18} /> SHARE
                 </button>
               </div>
+
+              <button 
+                className="cyber-button"
+                style={{ width: '100%', marginTop: '10px', borderColor: '#39ff14', color: '#39ff14', padding: '12px' }}
+                onClick={() => setMode('devs-corner')}
+              >
+                🚀 DEVELOPER'S CORNER
+              </button>
 
               <p style={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#b15cff', marginTop: '5px' }}>
                 Made with Love by DZVN 💜
@@ -401,6 +431,16 @@ function App() {
             </button>
           </div>
         </div>
+      ) : mode === 'devs-corner' ? (
+        <DevsCorner 
+          onBack={() => setMode('credits')}
+          customBoards={customBoards}
+          onStartSpectate={(redBot, blueBot) => {
+            setSpectateConfig({ redBot, blueBot });
+            game.clearWorkspace();
+            setMode('spectate');
+          }}
+        />
       ) : mode === 'mode-select' ? (
         /* Cyberpunk Mode Selection Page */
         <div className="lobby-container">

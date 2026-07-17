@@ -64,7 +64,7 @@ export function getBoardState(board) {
   return { pointPieces, lazerPos, lazerDir, emptyCells };
 }
 
-function getPossibleActions(board, role) {
+export function getPossibleActions(board, role) {
   const actions = [];
   const { emptyCells, lazerPos, lazerDir, pointPieces } = getBoardState(board);
 
@@ -92,7 +92,7 @@ function getPossibleActions(board, role) {
   return actions;
 }
 
-function applyLightweightAction(board, action) {
+export function applyLightweightAction(board, action) {
   // Phase 2b: use slice() instead of spread — functionally identical but makes mutation
   // safety explicit and avoids the latent hazard of spread-based shallow copies.
   const newBoard = board.map(row => row.slice());
@@ -232,7 +232,7 @@ export function getPrimaryTarget(board) {
  * @param {number} [threshold=0.25] Threat level at or below which a cell is "safe"
  * @returns {number} Minimum steps to a safe cell, capped at 10
  */
-function computeSafetySteps(board, startR, startC, threatMap, threshold = 0.25) {
+export function computeSafetySteps(board, startR, startC, threatMap, threshold = 0.25) {
   if (threatMap[startR][startC].total <= threshold) return 0;
 
   const dirs = [[-1, 0], [1, 0], [0, -1], [0, 1]];
@@ -273,7 +273,7 @@ function computeSafetySteps(board, startR, startC, threatMap, threshold = 0.25) 
  *
  * @returns {Set<string>} Set of "row,col" keys for valid firing positions
  */
-function getReverseFiringCells(board, targetR, targetC) {
+export function getReverseFiringCells(board, targetR, targetC) {
   const cells = new Set();
   for (const rot of [0, 90, 180, 270]) {
     const trace = traceLaserBeam(board, { r: targetR, c: targetC }, rot);
@@ -294,7 +294,7 @@ function getReverseFiringCells(board, targetR, targetC) {
  * Unlike Manhattan distance (used in getPrimaryTarget), BFS respects board
  * obstacles (mirrors, other pieces), giving a provably optimal move count.
  */
-function bfsToNearestFiringCell(board, lazerPos, firingCells) {
+export function bfsToNearestFiringCell(board, lazerPos, firingCells) {
   const startKey = `${lazerPos.r},${lazerPos.c}`;
   // Already at a firing cell (laser's own cell is never null, so this is rare,
   // but guard against it for correctness)
@@ -946,6 +946,13 @@ export const EasyStrategy = {
     }
 
     return bestAction || actions[Math.floor(Math.random() * actions.length)];
+  },
+  getChallengeAction: (board, gameState, playerColor) => {
+    const captured = gameState.capturedPieces || [];
+    if (captured.length === 0) return { type: 'declare-challenge', declare: false };
+    if (Math.random() < 0.4) return { type: 'declare-challenge', declare: false };
+    const target = captured[Math.floor(Math.random() * captured.length)];
+    return { type: 'declare-challenge', declare: true, pieceType: target };
   }
 };
 
@@ -977,6 +984,20 @@ export const MediumStrategy = {
       }
     }
     return null;
+  },
+  getChallengeAction: (board, gameState, playerColor) => {
+    const captured = gameState.capturedPieces || [];
+    if (captured.length === 0) return { type: 'declare-challenge', declare: false };
+    const roll = Math.random();
+    if (roll < 0.15) return { type: 'declare-challenge', declare: false };
+    let target = 'block-50';
+    if (roll > 0.7) {
+      const subOptimal = captured.filter(c => c !== 'block-50');
+      target = subOptimal.length > 0 ? subOptimal[Math.floor(Math.random() * subOptimal.length)] : captured[0];
+    } else {
+      target = captured.includes('block-50') ? 'block-50' : captured.includes('block-30') ? 'block-30' : 'block-20';
+    }
+    return { type: 'declare-challenge', declare: true, pieceType: target };
   }
 };
 
@@ -1006,6 +1027,16 @@ export const HardStrategy = {
     const { bestAction, bestScore } = findBestActionSequence(board, role, depth, evalFn, cautiousness);
     if (bestAction && bestScore >= currentScore) return bestAction;
     return null; // Triggers 'end-turn' in useGame.js
+  },
+  getChallengeAction: (board, gameState, playerColor) => {
+    const captured = gameState.capturedPieces || [];
+    if (captured.length === 0) return { type: 'declare-challenge', declare: false };
+    const attColor = gameState.roleRed === 'attacker' ? 'red' : 'blue';
+    if (playerColor !== attColor) return { type: 'declare-challenge', declare: false };
+    const attackerScore = playerColor === 'red' ? gameState.scores.red : gameState.scores.blue;
+    const defenderScore = playerColor === 'red' ? gameState.scores.blue : gameState.scores.red;
+    const rec = getChallengeRecommendation(captured, gameState.round, gameState.actionPoints, attackerScore, defenderScore, gameState.set);
+    return { type: 'declare-challenge', declare: rec.recommend, pieceType: rec.suggestedPiece };
   }
 };
 
@@ -1696,5 +1727,11 @@ export const GAStrategy = {
   getSetupAction: (board, phase, playerColor, challengedPiece) => {
     // GA bot uses the Hard strategy for placement/setup as a strong baseline
     return HardStrategy.getSetupAction(board, phase, playerColor, challengedPiece);
+  },
+  getChallengeAction: (board, gameState, playerColor) => {
+    return HardStrategy.getChallengeAction(board, gameState, playerColor);
   }
 };
+
+export const CUSTOM_STRATEGIES = {};
+

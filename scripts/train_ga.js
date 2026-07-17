@@ -56,6 +56,10 @@ function getOpponentPlayAction(board, role, actionPoints, botPlayer, state) {
   if (botPlayer === 'easy') return EasyStrategy.getPlayAction(board, role, actionPoints, state, botPlayer);
   if (botPlayer === 'medium') return MediumStrategy.getPlayAction(board, role, actionPoints, state, botPlayer);
   if (botPlayer === 'hard') return HardStrategy.getPlayAction(board, role, actionPoints, state, botPlayer);
+  if (botPlayer === 'default') {
+    const { bestAction } = findBestActionSequenceExpectiminimax(board, role, actionPoints, 1.0, DEFAULT_WEIGHTS, 1);
+    return bestAction;
+  }
   return null;
 }
 
@@ -103,7 +107,7 @@ function simulateGaGame(boardData, oppType, gaWeights) {
 
     if (state.phase === 'setup-defender' || state.phase === 'challenge-setup' || state.phase === 'setup-attacker') {
       // Use standard Hard setup logic for GA bot to save time
-      let action = getBotSetupAction(state.board, state.phase, activeColor, isGaTurn ? 'hard' : oppType, state.challengedPiece);
+      let action = getBotSetupAction(state.board, state.phase, activeColor, isGaTurn ? 'hard' : (oppType === 'default' ? 'hard' : oppType), state.challengedPiece);
       if (action) state = applySandboxAction(state.board, action, activeColor.toLowerCase(), state);
       else state = applySandboxAction(state.board, { type: 'confirm-setup' }, activeColor.toLowerCase(), state);
       if (state.error) {
@@ -164,8 +168,31 @@ function simulateGaGame(boardData, oppType, gaWeights) {
   }
 
   const gaWon = state.winner === gaColor;
+  const opponentWon = state.winner === oppColor;
+  const isDraw = state.winner === 'draw' || (!gaWon && !opponentWon);
   const gaScore = state.scores?.[gaColor] || 0;
-  return { gaWon, gaScore, turns };
+  return { gaWon, opponentWon, isDraw, gaScore, turns };
+}
+
+// Run a validation test between the trained best weights and default weights
+function testAgainstDefault(bestDna, numGames = 10) {
+  let gaWins = 0;
+  let defaultWins = 0;
+  let draws = 0;
+  const boards = customBoards.length > 0 ? customBoards : [null];
+  
+  for (let i = 0; i < numGames; i++) {
+    const boardData = boards[i % boards.length];
+    const res = simulateGaGame(boardData, 'default', bestDna);
+    if (res.gaWon) {
+      gaWins++;
+    } else if (res.opponentWon) {
+      defaultWins++;
+    } else {
+      draws++;
+    }
+  }
+  return { gaWins, defaultWins, draws };
 }
 
 // Generate random DNA based on defaults
@@ -370,6 +397,31 @@ async function runGA() {
     const snapshotStr = bestDnaKeys.map(k => `${k}: ${bestBot.dna[k].toFixed(2)}`).join(', ');
     console.log(`  🧬  Top DNA Sample: { ${snapshotStr} ... }\n`);
 
+    // Save checkpoint of the best bot from this generation
+    const exportPath = path.resolve('./src/core/ga_weights.json');
+    try {
+      fs.writeFileSync(exportPath, JSON.stringify(bestBot.dna, null, 2));
+      console.log(`  💾  Checkpoint weights saved to ${exportPath}`);
+    } catch (e) {
+      console.error(`  ⚠️  Failed to save checkpoint:`, e.message);
+    }
+
+    // Run validation test against default Expectiminimax
+    const numTestGames = 10;
+    process.stdout.write(`  ⚔️  Testing Checkpoint vs Default Expectiminimax (${numTestGames} games)... `);
+    const testResult = testAgainstDefault(bestBot.dna, numTestGames);
+    const winRate = ((testResult.gaWins / numTestGames) * 100).toFixed(1);
+    console.log(`Done!`);
+    console.log(`     GA Bot Wins: \x1b[32m${testResult.gaWins}\x1b[0m | Default Bot Wins: \x1b[31m${testResult.defaultWins}\x1b[0m | Draws: ${testResult.draws}`);
+    console.log(`     Win Rate: \x1b[33m${winRate}%\x1b[0m`);
+    if (testResult.gaWins > testResult.defaultWins) {
+      console.log(`     🏆 Status: GA Bot is OUTPERFORMING default Expectiminimax!\n`);
+    } else if (testResult.gaWins < testResult.defaultWins) {
+      console.log(`     ⚠️ Status: GA Bot is underperforming compared to default Expectiminimax.\n`);
+    } else {
+      console.log(`     🤝 Status: GA Bot is evenly matched with default Expectiminimax.\n`);
+    }
+
     if (gen < maxGens) {
       const elitesCount = Math.max(1, Math.floor(popSize * ELITE_PERCENT));
       const elites = scores.slice(0, elitesCount).map(s => s.dna);
@@ -385,10 +437,7 @@ async function runGA() {
       
       population = newPopulation;
     } else {
-      // Export final weights
-      const exportPath = path.resolve('./src/core/ga_weights.json');
-      fs.writeFileSync(exportPath, JSON.stringify(bestBot.dna, null, 2));
-      console.log(`\n✅ Final Optimal Weights Exported to ${exportPath}`);
+      console.log(`\n✅ GA Training Complete! Final optimal weights saved to ${exportPath}`);
     }
   }
 }
