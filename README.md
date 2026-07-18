@@ -374,4 +374,6 @@ This is a private project. If you have been invited to contribute:
 
 **Made with ⚡ and a healthy respect for laser physics.**
 
+*Made with Love by DZVN 💜 with Google Antigravity 🤖*
+
 </div>
