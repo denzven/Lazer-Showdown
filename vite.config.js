@@ -67,7 +67,7 @@ export default defineConfig({
   define: {
     __COMMIT_HASH__: JSON.stringify(commitHash)
   },
-  base: './', // Generates relative asset paths for GitHub Pages
+  base: '/Lazer-Showdown/', // Absolute base path for GitHub Pages to fix Service Worker registration
   plugins: [
     react(),
     mkcert(),
@@ -85,8 +85,8 @@ export default defineConfig({
         display: 'standalone',
         display_override: ['window-controls-overlay', 'standalone', 'minimal-ui'],
         orientation: 'any',
-        start_url: './',
-        scope: './',
+        start_url: '/Lazer-Showdown/',
+        scope: '/Lazer-Showdown/',
         lang: 'en-US',
         dir: 'ltr',
         categories: ['games', 'entertainment', 'board', 'strategy'],
