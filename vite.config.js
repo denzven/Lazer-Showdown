@@ -150,7 +150,63 @@ export default defineConfig({
             platform: "webapp",
             url: "https://denzven.github.io/Lazer-Showdown/manifest.webmanifest"
           }
-        ]
+        ],
+        screenshots: [
+          {
+            src: 'screenshots/menu.png',
+            sizes: '1920x1080',
+            type: 'image/png',
+            form_factor: 'wide',
+            label: 'Main Menu'
+          },
+          {
+            src: 'screenshots/gameplay_att.png',
+            sizes: '1920x1080',
+            type: 'image/png',
+            form_factor: 'wide',
+            label: 'Strategic Gameplay'
+          },
+          {
+            src: 'screenshots/bot_dev.png',
+            sizes: '1920x1080',
+            type: 'image/png',
+            form_factor: 'wide',
+            label: 'Bot Developer Hub'
+          },
+          {
+            src: 'screenshots/board_editor.png',
+            sizes: '1920x1080',
+            type: 'image/png',
+            form_factor: 'wide',
+            label: 'Custom Board Editor'
+          },
+          {
+            src: 'screenshots/mob_gamemodes.jpeg',
+            sizes: '722x1600',
+            type: 'image/jpeg',
+            form_factor: 'narrow',
+            label: 'Mobile Game Modes'
+          },
+          {
+            src: 'screenshots/mob_gameplay_att.jpeg',
+            sizes: '722x1600',
+            type: 'image/jpeg',
+            form_factor: 'narrow',
+            label: 'Mobile Gameplay'
+          }
+        ],
+        edge_side_panel: {
+          preferred_width: 480
+        },
+        protocol_handlers: [
+          {
+            protocol: 'web+lazer',
+            url: '/Lazer-Showdown/?match=%s'
+          }
+        ],
+        launch_handler: {
+          client_mode: 'focus-existing'
+        }
       },
       strategies: 'injectManifest',
       srcDir: 'src',
