@@ -73,6 +73,7 @@ export default defineConfig({
     mkcert(),
     dojoPlugin(),
     VitePWA({
+      injectRegister: false,
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'favicon-32x32.png', 'favicon-16x16.png', 'apple-touch-icon-180x180.png'],
       manifest: {
