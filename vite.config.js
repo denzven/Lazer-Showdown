@@ -153,6 +153,7 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,json,md}'],
+        maximumFileSizeToCacheInBytes: 15000000, // 15 MB to handle large lore images
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/api\.github\.com\/.*/i,
