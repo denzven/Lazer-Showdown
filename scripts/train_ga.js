@@ -48,7 +48,7 @@ const rollDie = () => Math.floor(Math.random() * 6) + 1;
 // GA Bot strategy wrapper
 function getGaPlayAction(board, role, actionPoints, cautiousness, weights) {
   // Use Expectiminimax for the GA bot
-  const { bestAction } = findBestActionSequenceExpectiminimax(board, role, actionPoints, cautiousness, weights, 1);
+  const { action: bestAction } = findBestActionSequenceExpectiminimax(board, role, actionPoints, cautiousness, weights, 1);
   return bestAction;
 }
 
@@ -57,7 +57,7 @@ function getOpponentPlayAction(board, role, actionPoints, botPlayer, state) {
   if (botPlayer === 'medium') return MediumStrategy.getPlayAction(board, role, actionPoints, state, botPlayer);
   if (botPlayer === 'hard') return HardStrategy.getPlayAction(board, role, actionPoints, state, botPlayer);
   if (botPlayer === 'default') {
-    const { bestAction } = findBestActionSequenceExpectiminimax(board, role, actionPoints, 1.0, DEFAULT_WEIGHTS, 1);
+    const { action: bestAction } = findBestActionSequenceExpectiminimax(board, role, actionPoints, 1.0, DEFAULT_WEIGHTS, 1);
     return bestAction;
   }
   return null;
@@ -290,7 +290,8 @@ function runTasksInParallel(tasks, numWorkers) {
 // Run the Tournament
 async function runGA() {
   const testMode = process.argv.includes('--test');
-  const useSeed = process.argv.includes('--seed');
+  const fresh = process.argv.includes('--fresh');
+  const useSeed = !fresh;
   const maxGens = testMode ? 2 : GENERATIONS;
   const popSize = testMode ? 10 : POPULATION_SIZE;
 
@@ -315,6 +316,8 @@ async function runGA() {
     } else {
       console.log(`\n⚠️ ga_weights.json not found, using DEFAULT_WEIGHTS.`);
     }
+  } else {
+    console.log(`\n✨ Starting fresh with DEFAULT_WEIGHTS (ignoring existing ga_weights.json)`);
   }
 
   console.log(`🚀 Starting GA Training - ${maxGens} Generations, ${popSize} Bots`);
