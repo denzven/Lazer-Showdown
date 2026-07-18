@@ -11,7 +11,11 @@
     "predeploy": "npm run build",
     "deploy": "gh-pages -d dist",
     "train": "node scripts/train_ga.js",
-    "tournament": "node scripts/simulate_tournament.js"
+    "tournament": "node scripts/simulate_tournament.js",
+    "tauri": "tauri",
+    "tauri:build:desktop": "tauri build",
+    "tauri:build:android": "tauri android build --apk",
+    "release:local": "npm run build && npm run tauri:build:desktop && npm run tauri:build:android && node scripts/gather_releases.js"
   },
   "dependencies": {
     "canvas-confetti": "^1.9.4",
@@ -24,6 +28,8 @@
     "react-markdown": "^10.1.0"
   },
   "devDependencies": {
+    "@tauri-apps/api": "^2.11.1",
+    "@tauri-apps/cli": "^2.11.4",
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vite-pwa/assets-generator": "^1.0.2",
