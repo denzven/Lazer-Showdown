@@ -151,20 +151,12 @@ export default defineConfig({
           }
         ]
       },
-      workbox: {
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.js',
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,json,md}'],
-        maximumFileSizeToCacheInBytes: 15000000, // 15 MB to handle large lore images
-        runtimeCaching: [
-          {
-            urlPattern: /^https:\/\/api\.github\.com\/.*/i,
-            handler: 'NetworkFirst',
-            options: {
-              cacheName: 'github-api-cache',
-              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 },
-              cacheableResponse: { statuses: [0, 200] }
-            }
-          }
-        ]
+        maximumFileSizeToCacheInBytes: 15000000 // 15 MB to handle large lore images
       },
       devOptions: {
         enabled: true,

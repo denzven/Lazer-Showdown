@@ -133,8 +133,28 @@ function App() {
     // Check on startup
     checkGitHubUpdate();
     
-    // Check periodically every 5 minutes
+    // Check periodically every 5 minutes (while app is open)
     const intervalId = setInterval(checkGitHubUpdate, 1000 * 60 * 5);
+    
+    // Register Periodic Background Sync for when app is closed (if supported)
+    const registerPeriodicSync = async () => {
+      if ('serviceWorker' in navigator && 'periodicSync' in ServiceWorkerRegistration.prototype) {
+        try {
+          const status = await navigator.permissions.query({ name: 'periodic-background-sync' });
+          if (status.state === 'granted') {
+            const registration = await navigator.serviceWorker.ready;
+            await registration.periodicSync.register('check-updates', {
+              minInterval: 24 * 60 * 60 * 1000 // 1 day
+            });
+            console.log("Periodic background sync registered.");
+          }
+        } catch (e) {
+          console.error("Failed to register periodic sync", e);
+        }
+      }
+    };
+    registerPeriodicSync();
+
     return () => clearInterval(intervalId);
   }, []);
 
