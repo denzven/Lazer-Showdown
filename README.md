@@ -1,5 +1,6 @@
 <div align="center">
-<img src="public/Banner.png" alt="Lazer Showdown Banner" width="100%" />
+<img src="public/Banner.png" alt="Lazer Showdown Banner" href="https://denzven.github.io/Lazer-Showdown/" width="100%" />
+     
 **A futuristic 1v1 laser-reflection strategy board game.**
 *Born on the battlefield of Planet Ser. Played across the galaxy.*
 
