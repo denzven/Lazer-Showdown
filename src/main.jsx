@@ -2,10 +2,6 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
-import { registerSW } from 'virtual:pwa-register'
-
-// Explicitly register the service worker
-registerSW({ immediate: true })
 
 // Import and initialize mobile touch drag-and-drop polyfill
 import { polyfill } from 'mobile-drag-drop';

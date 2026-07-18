@@ -73,7 +73,7 @@ export default defineConfig({
     mkcert(),
     dojoPlugin(),
     VitePWA({
-      injectRegister: false,
+      injectRegister: 'script',
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'favicon-32x32.png', 'favicon-16x16.png', 'apple-touch-icon-180x180.png'],
       manifest: {
@@ -156,6 +156,8 @@ export default defineConfig({
       srcDir: 'src',
       filename: 'sw.js',
       injectManifest: {
+        rollupFormat: 'iife',
+        minify: false,
         globPatterns: ['**/*.{js,css,html,ico,png,svg,json,md}'],
         maximumFileSizeToCacheInBytes: 15000000 // 15 MB to handle large lore images
       },
