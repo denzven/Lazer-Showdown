@@ -103,6 +103,40 @@ function App() {
   const [devsCornerActiveTab, setDevsCornerActiveTab] = useState('contract'); // 'contract', 'guide', 'simulator', 'spectate'
   const network = useNetwork();
 
+  // Auto-update from GitHub
+  useEffect(() => {
+    const checkGitHubUpdate = async () => {
+      if (!navigator.onLine) return;
+      try {
+        const response = await fetch('https://api.github.com/repos/denzven/Lazer-Showdown/commits/main');
+        if (response.ok) {
+          const data = await response.json();
+          const latestCommit = data.sha;
+          // __COMMIT_HASH__ is injected by vite.config.js during build
+          if (typeof __COMMIT_HASH__ !== 'undefined' && __COMMIT_HASH__ && latestCommit && !latestCommit.startsWith(__COMMIT_HASH__)) {
+            console.log("App is out of date. Updating from GitHub...");
+            if ('serviceWorker' in navigator) {
+              const registrations = await navigator.serviceWorker.getRegistrations();
+              for (let registration of registrations) {
+                await registration.update();
+              }
+            }
+            window.location.reload();
+          }
+        }
+      } catch (e) {
+        console.error("Failed to check for updates from GitHub:", e);
+      }
+    };
+    
+    // Check on startup
+    checkGitHubUpdate();
+    
+    // Check periodically every 5 minutes
+    const intervalId = setInterval(checkGitHubUpdate, 1000 * 60 * 5);
+    return () => clearInterval(intervalId);
+  }, []);
+
   const validateCustomBoardJson = (data) => {
     if (!Array.isArray(data)) {
       throw new Error("Invalid format: Root of JSON must be an array of mirror objects.");

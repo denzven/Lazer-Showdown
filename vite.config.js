@@ -4,6 +4,14 @@ import mkcert from 'vite-plugin-mkcert'
 import { VitePWA } from 'vite-plugin-pwa'
 import fs from 'fs'
 import path from 'path'
+import { execSync } from 'child_process'
+
+let commitHash = '';
+try {
+  commitHash = execSync('git rev-parse HEAD').toString().trim();
+} catch (e) {
+  console.warn("Could not get git commit hash", e);
+}
 
 function dojoPlugin() {
   return {
@@ -56,6 +64,9 @@ function dojoPlugin() {
 
 // https://vite.dev/config/
 export default defineConfig({
+  define: {
+    __COMMIT_HASH__: JSON.stringify(commitHash)
+  },
   base: './', // Generates relative asset paths for GitHub Pages
   plugins: [
     react(),
@@ -65,34 +76,71 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'favicon-32x32.png', 'favicon-16x16.png', 'apple-touch-icon-180x180.png'],
       manifest: {
+        id: '/?source=pwa',
         name: 'Lazer Showdown WebRTC',
         short_name: 'LazerShowdown',
         description: 'Play Lazer Showdown: A futuristic, real-time peer-to-peer WebRTC laser reflection strategy board game.',
         theme_color: '#07080e',
         background_color: '#07080e',
         display: 'standalone',
+        display_override: ['window-controls-overlay', 'standalone', 'minimal-ui'],
         orientation: 'any',
+        start_url: './',
+        scope: './',
+        lang: 'en-US',
+        dir: 'ltr',
+        categories: ['games', 'entertainment', 'board', 'strategy'],
+        iarc_rating_id: 'e84b0728-71af-4c31-97af-500ef4608c02', // Placeholder UUID for IARC
         icons: [
+          { src: 'pwa-64x64.png', sizes: '64x64', type: 'image/png' },
+          { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },
+          { src: 'pwa-512x512.png', sizes: '512x512', type: 'image/png' },
+          { src: 'maskable-icon-512x512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' }
+        ],
+        shortcuts: [
           {
-            src: 'pwa-64x64.png',
-            sizes: '64x64',
-            type: 'image/png'
+            name: "Play Local",
+            short_name: "Local",
+            description: "Start a local pass-and-play game",
+            url: "/#/local",
+            icons: [{ src: "pwa-192x192.png", sizes: "192x192" }]
           },
           {
-            src: 'pwa-192x192.png',
-            sizes: '192x192',
-            type: 'image/png'
-          },
+            name: "Play Bot",
+            short_name: "Bot",
+            description: "Play against AI",
+            url: "/#/bot",
+            icons: [{ src: "pwa-192x192.png", sizes: "192x192" }]
+          }
+        ],
+        widgets: [
           {
-            src: 'pwa-512x512.png',
-            sizes: '512x512',
-            type: 'image/png'
-          },
+            name: "Lazer Showdown Match",
+            description: "View recent match stats or quick join",
+            tag: "lazer-widget",
+            ms_ac_template: "assets/widget-template.json",
+            data: "assets/widget-data.json",
+            type: "application/json"
+          }
+        ],
+        related_applications: [
           {
-            src: 'maskable-icon-512x512.png',
-            sizes: '512x512',
-            type: 'image/png',
-            purpose: 'maskable'
+            platform: "webapp",
+            url: "https://denzven.github.io/Lazer-Showdown/manifest.webmanifest"
+          }
+        ]
+      },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,ico,png,svg,json,md}'],
+        runtimeCaching: [
+          {
+            urlPattern: /^https:\/\/api\.github\.com\/.*/i,
+            handler: 'NetworkFirst',
+            options: {
+              cacheName: 'github-api-cache',
+              expiration: { maxEntries: 10, maxAgeSeconds: 60 * 60 * 24 },
+              cacheableResponse: { statuses: [0, 200] }
+            }
           }
         ]
       },
