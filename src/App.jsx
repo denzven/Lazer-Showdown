@@ -8,6 +8,7 @@ import { Globe, Users, Cpu, ChevronDown, Share2, Upload } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import './index.css';
 import InstallPWA from './components/InstallPWA';
+import NotificationPrompt from './components/NotificationPrompt';
 import DevsCorner from './components/DevsCorner';
 import { generateExpectiminimaxThreatMap } from './core/BotHelpers';
 import { getInitialBoard } from './core/Ruleset';
@@ -623,7 +624,11 @@ function App() {
 
   return (
     <>
+      {/* Global Overlays */}
       <InstallPWA show={mode === 'main-menu'} />
+      <NotificationPrompt show={mode === 'main-menu'} />
+
+      {/* Main Menu View */}
       {showGameLayout ? (
         mode === 'tutorial' ? (
           <TutorialLayout network={activeNetwork} originalGame={game} onExit={() => setMode('how-to-play')} />

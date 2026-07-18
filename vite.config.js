@@ -99,6 +99,13 @@ export default defineConfig({
         ],
         shortcuts: [
           {
+            name: "Play Bot",
+            short_name: "Bot Match",
+            description: "Play against an AI bot",
+            url: "/#/bot",
+            icons: [{ src: "pwa-192x192.png", sizes: "192x192" }]
+          },
+          {
             name: "Play Local",
             short_name: "Local",
             description: "Start a local pass-and-play game",
@@ -106,10 +113,24 @@ export default defineConfig({
             icons: [{ src: "pwa-192x192.png", sizes: "192x192" }]
           },
           {
-            name: "Play Bot",
-            short_name: "Bot",
-            description: "Play against AI",
-            url: "/#/bot",
+            name: "Play Online",
+            short_name: "Online",
+            description: "Play against a friend online",
+            url: "/#/online",
+            icons: [{ src: "pwa-192x192.png", sizes: "192x192" }]
+          },
+          {
+            name: "Devs Corner",
+            short_name: "Devs Corner",
+            description: "Explore the developer tools",
+            url: "/#/devs-corner",
+            icons: [{ src: "pwa-192x192.png", sizes: "192x192" }]
+          },
+          {
+            name: "Lore",
+            short_name: "Lore",
+            description: "Read the Lazer Showdown lore",
+            url: "/#/lore",
             icons: [{ src: "pwa-192x192.png", sizes: "192x192" }]
           }
         ],
