@@ -36,11 +36,11 @@ if (fs.existsSync(boardsDir)) {
 const POPULATION_SIZE = 100;
 const GENERATIONS = 50;
 const MAX_TURNS = 3000; // Realistic cap for event loops
-const ELITE_PERCENT = 0.5;
+const ELITE_PERCENT = 0.05; // 5% elitism
 const MUTATION_RATE = 0.5;
 const MUTATION_STRENGTH = 0.2; // Max +/- 20% mutation
 
-const BASELINE_OPPONENTS = ['easy', 'medium', 'hard'];
+const BASELINE_OPPONENTS = ['easy', 'medium', 'hard', 'default'];
 
 // Helper to roll dice
 const rollDie = () => Math.floor(Math.random() * 6) + 1;
@@ -57,19 +57,21 @@ function getOpponentPlayAction(board, role, actionPoints, botPlayer, state) {
   if (botPlayer === 'medium') return MediumStrategy.getPlayAction(board, role, actionPoints, state, botPlayer);
   if (botPlayer === 'hard') return HardStrategy.getPlayAction(board, role, actionPoints, state, botPlayer);
   if (botPlayer === 'default') {
-    const { action: bestAction } = findBestActionSequenceExpectiminimax(board, role, actionPoints, 1.0, DEFAULT_WEIGHTS, 1);
+    const { action: bestAction } = findBestActionSequenceExpectiminimax(board, role, actionPoints, 1.0, DEFAULT_WEIGHTS.average_tied, 1); // using a default gear for baseline
     return bestAction;
   }
   return null;
 }
 
 // Plays a headless game between GA bot and a baseline opponent
-function simulateGaGame(boardData, oppType, gaWeights) {
+function simulateGaGame(boardData, oppType, gaWeights, taskId = null) {
   let state = getInitialState(boardData);
   const gaColor = Math.random() > 0.5 ? 'red' : 'blue';
   const oppColor = gaColor === 'red' ? 'blue' : 'red';
   
   let turns = 0;
+  let totalDiceRolls = 0;
+  let numDiceRolls = 0;
   
   while (!state.winner && turns < MAX_TURNS) {
     turns++;
@@ -119,7 +121,13 @@ function simulateGaGame(boardData, oppType, gaWeights) {
 
     if (state.phase === 'playing') {
       if (!state.hasRolledDice) {
-        state = applySandboxAction(state.board, { type: 'end-roll', values: [rollDie(), rollDie()] }, activeColor.toLowerCase(), state);
+        const r1 = rollDie();
+        const r2 = rollDie();
+        if (isGaTurn) {
+           totalDiceRolls += (r1 + r2);
+           numDiceRolls++;
+        }
+        state = applySandboxAction(state.board, { type: 'end-roll', values: [r1, r2] }, activeColor.toLowerCase(), state);
         continue;
       }
       
@@ -127,7 +135,21 @@ function simulateGaGame(boardData, oppType, gaWeights) {
       // Get Action only if they have AP
       if (state.actionPoints > 0) {
         if (isGaTurn) {
-           action = getGaPlayAction(state.board, activeRole, state.actionPoints, 1.0, gaWeights); // using cautiousness 1.0
+           // Gear Shifting Logic
+           const currentLuckAvg = numDiceRolls > 0 ? (totalDiceRolls / numDiceRolls) : 7.0;
+           let luckTier = 'average';
+           if (currentLuckAvg < 6.0) luckTier = 'unlucky';
+           else if (currentLuckAvg > 8.0) luckTier = 'lucky';
+           
+           const gaScore = state.scores?.[gaColor] || 0;
+           const oppScore = state.scores?.[oppColor] || 0;
+           let scoreTier = 'tied';
+           if (gaScore > oppScore) scoreTier = 'winning';
+           else if (gaScore < oppScore) scoreTier = 'losing';
+           
+           const gearName = `${luckTier}_${scoreTier}`;
+           const gearWeights = gaWeights[gearName] || Object.values(gaWeights)[0]; // Fallback just in case
+           action = getGaPlayAction(state.board, activeRole, state.actionPoints, 1.0, gearWeights);
         } else {
            action = getOpponentPlayAction(state.board, activeRole, state.actionPoints, oppType, state);
         }
@@ -171,7 +193,10 @@ function simulateGaGame(boardData, oppType, gaWeights) {
   const opponentWon = state.winner === oppColor;
   const isDraw = state.winner === 'draw' || (!gaWon && !opponentWon);
   const gaScore = state.scores?.[gaColor] || 0;
-  return { gaWon, opponentWon, isDraw, gaScore, turns };
+  
+  const gaRole = state.roleRed === 'attacker' ? (gaColor === 'red' ? 'attacker' : 'defender') : (gaColor === 'red' ? 'defender' : 'attacker');
+
+  return { taskId, gaWon, opponentWon, isDraw, gaScore, turns, totalDiceRolls, numDiceRolls, gaRole };
 }
 
 // Run a validation test between the trained best weights and default weights
@@ -195,34 +220,67 @@ function testAgainstDefault(bestDna, numGames = 10) {
   return { gaWins, defaultWins, draws };
 }
 
+function normalizeWeights(dna) {
+  const normalized = {};
+  for (const gear of Object.keys(dna)) {
+    let sum = 0;
+    for (const key of Object.keys(dna[gear])) {
+      sum += Math.abs(dna[gear][key]);
+    }
+    const scale = sum === 0 ? 1 : (100000 / sum);
+    normalized[gear] = {};
+    for (const key of Object.keys(dna[gear])) {
+      normalized[gear][key] = dna[gear][key] * scale;
+    }
+  }
+  return normalized;
+}
+
 // Generate random DNA based on defaults
 function createRandomDNA(baseWeights = DEFAULT_WEIGHTS) {
-  const dna = { ...baseWeights };
-  for (const key of Object.keys(dna)) {
-    // Randomize initial weight between 0.5x and 1.5x
-    dna[key] = dna[key] * (0.5 + Math.random());
+  const dna = {};
+  for (const gear of Object.keys(baseWeights)) {
+    dna[gear] = {};
+    for (const key of Object.keys(baseWeights[gear])) {
+      // Randomize initial weight between 0.5x and 1.5x
+      dna[gear][key] = baseWeights[gear][key] * (0.5 + Math.random());
+    }
   }
-  return dna;
+  return normalizeWeights(dna);
 }
 
 // Breed two parents
 function crossoverAndMutate(parentA, parentB) {
   const child = {};
-  for (const key of Object.keys(DEFAULT_WEIGHTS)) {
-    // 50/50 from A or B
-    child[key] = Math.random() > 0.5 ? parentA[key] : parentB[key];
-    
-    // Mutation
-    if (Math.random() < MUTATION_RATE) {
-      const shift = 1 + (Math.random() * 2 - 1) * MUTATION_STRENGTH; // +/- 20%
-      child[key] = child[key] * shift;
+  for (const gear of Object.keys(DEFAULT_WEIGHTS)) {
+    child[gear] = {};
+    for (const key of Object.keys(DEFAULT_WEIGHTS[gear])) {
+      // 50/50 from A or B
+      child[gear][key] = Math.random() > 0.5 ? parentA[gear][key] : parentB[gear][key];
+      
+      // Mutation
+      if (Math.random() < MUTATION_RATE) {
+        const shift = 1 + (Math.random() * 2 - 1) * MUTATION_STRENGTH; // +/- 20%
+        child[gear][key] = child[gear][key] * shift;
+      }
     }
   }
-  return child;
+  return normalizeWeights(child);
+}
+
+function tournamentSelection(populationScores, k = 3) {
+  let best = null;
+  for(let i = 0; i < k; i++) {
+     const candidate = populationScores[Math.floor(Math.random() * populationScores.length)];
+     if (!best || candidate.fitness > best.fitness) {
+         best = candidate;
+     }
+  }
+  return best.dna;
 }
 
 // Parallel Task Runner using Worker Threads
-function runTasksInParallel(tasks, numWorkers) {
+function runTasksInParallel(tasks, numWorkers, onResult) {
   const fileUrl = new URL(import.meta.url);
   const activeWorkerTasks = new Map();
   let taskIndex = 0;
@@ -240,6 +298,7 @@ function runTasksInParallel(tasks, numWorkers) {
         process.stdout.write(`.`);
       }
       results.push(result);
+      if (onResult) onResult(result);
 
       if (taskIndex < tasks.length) {
         const nextTask = tasks[taskIndex++];
@@ -303,48 +362,107 @@ async function runGA() {
     if (!isNaN(parsedThreads)) numWorkers = parsedThreads;
   }
 
+  let globalBestFitness = -Infinity;
+  let globalBestWinRate = -1;
+  let startGen = 1;
   let baseWeights = DEFAULT_WEIGHTS;
-  if (useSeed) {
-    const weightsPath = path.resolve('./src/core/ga_weights.json');
-    if (fs.existsSync(weightsPath)) {
+
+  const statePath = path.resolve('./src/core/ga_training_state.json');
+  const popPath = path.resolve('./src/core/ga_population.json');
+  const bestPath = path.resolve('./src/core/ga_best_weights.json');
+  const historyPath = path.resolve('./src/core/ga_history.csv');
+  const partialPath = path.resolve('./src/core/ga_partial_results.jsonl');
+
+  let population = [];
+
+  if (useSeed && fs.existsSync(popPath) && fs.existsSync(statePath)) {
       try {
-        baseWeights = JSON.parse(fs.readFileSync(weightsPath, 'utf8'));
-        console.log(`🌱 Seeding initial population with current weights from ${weightsPath}`);
+          population = JSON.parse(fs.readFileSync(popPath, 'utf8'));
+          const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+          startGen = state.currentGeneration + 1;
+          globalBestFitness = state.globalBestFitness || -Infinity;
+          globalBestWinRate = state.globalBestWinRate || -1;
+          console.log(`🌱 Resuming training from generation ${startGen} with saved population.`);
       } catch (e) {
-        console.log(`\n⚠️ Failed to load ${weightsPath}, using DEFAULT_WEIGHTS.`);
+          console.log(`\n⚠️ Failed to load checkpoints, starting fresh.`);
       }
-    } else {
-      console.log(`\n⚠️ ga_weights.json not found, using DEFAULT_WEIGHTS.`);
-    }
-  } else {
-    console.log(`\n✨ Starting fresh with DEFAULT_WEIGHTS (ignoring existing ga_weights.json)`);
+  } else if (useSeed && fs.existsSync(bestPath)) {
+      try {
+         baseWeights = JSON.parse(fs.readFileSync(bestPath, 'utf8'));
+         console.log(`🌱 Seeding initial population with weights from ${bestPath}`);
+      } catch (e) {
+         console.log(`\n⚠️ Failed to load ${bestPath}, using DEFAULT_WEIGHTS.`);
+      }
+  }
+
+  if (population.length === 0) {
+      console.log(`✨ Starting fresh with new population.`);
+      population = Array(popSize).fill(0).map(() => createRandomDNA(baseWeights));
+      if (!fs.existsSync(historyPath)) {
+         fs.writeFileSync(historyPath, "Generation,AvgFitness,BestFitness,WinRateVsDefault,AvgDiceRollSum\n");
+      }
   }
 
   console.log(`🚀 Starting GA Training - ${maxGens} Generations, ${popSize} Bots`);
   console.log(`💻 Utilizing ${numWorkers} parallel CPU worker threads...`);
 
-  let population = Array(popSize).fill(0).map(() => createRandomDNA(baseWeights));
-
   const activeBoards = testMode ? [null] : customBoards;
-  const activeOpps = testMode ? ['easy'] : BASELINE_OPPONENTS;
+  const activeOpps = testMode ? ['easy', 'default'] : BASELINE_OPPONENTS;
 
-  for (let gen = 1; gen <= maxGens; gen++) {
+  for (let gen = startGen; gen <= maxGens; gen++) {
     console.log(`\n[Generation ${gen}] Simulating ${popSize * activeBoards.length * activeOpps.length} games...`);
     const startTime = Date.now();
     
     // Prepare independent simulation tasks
-    const tasks = [];
+    const allTasks = [];
     for (let i = 0; i < popSize; i++) {
       const dna = population[i];
-      for (const boardData of activeBoards) {
+      for (let b = 0; b < activeBoards.length; b++) {
+        const boardData = activeBoards[b];
         for (const opp of activeOpps) {
-          tasks.push({ dna, boardData, oppType: opp, index: i });
+          const taskId = `${i}_${b}_${opp}`;
+          allTasks.push({ taskId, dna, boardData, oppType: opp, index: i });
         }
       }
     }
 
+    const completedTasksMap = new Map();
+    if (fs.existsSync(partialPath)) {
+      try {
+        const lines = fs.readFileSync(partialPath, 'utf8').split('\n').filter(Boolean);
+        for (const line of lines) {
+          const data = JSON.parse(line);
+          if (data.generation === gen) {
+            completedTasksMap.set(data.result.taskId, data.result);
+          }
+        }
+      } catch(e) {}
+    }
+    
+    const tasksToRun = [];
+    const results = [];
+    for (const task of allTasks) {
+       if (completedTasksMap.has(task.taskId)) {
+           results.push(completedTasksMap.get(task.taskId));
+       } else {
+           tasksToRun.push(task);
+       }
+    }
+
+    if (completedTasksMap.size > 0) {
+       console.log(`  ♻️  Resuming from checkpoint. Skipping ${completedTasksMap.size} completed games.`);
+    }
+
     process.stdout.write(`Evaluating Population: [`);
-    const results = await runTasksInParallel(tasks, numWorkers);
+    
+    const onResult = (result) => {
+       try {
+         fs.appendFileSync(partialPath, JSON.stringify({ generation: gen, result }) + '\n');
+       } catch (e) {}
+    };
+
+    const newResults = await runTasksInParallel(tasksToRun, numWorkers, onResult);
+    results.push(...newResults);
     process.stdout.write(`] Done!\n`);
 
     // Aggregate bot stats
@@ -353,28 +471,63 @@ async function runGA() {
       totalWins: 0,
       totalPoints: 0,
       totalTurns: 0,
-      winBreakdown: { easy: 0, medium: 0, hard: 0 }
+      winBreakdown: { easy: 0, medium: 0, hard: 0, default: 0 },
+      games: []
     }));
 
     for (const res of results) {
       const stat = botStats[res.index];
       if (res.gaWon) {
         stat.totalWins++;
-        stat.winBreakdown[res.opp]++;
+        if (stat.winBreakdown[res.opp] !== undefined) stat.winBreakdown[res.opp]++;
       }
       stat.totalPoints += res.gaScore;
       stat.totalTurns += res.turns;
+      stat.games.push(res);
     }
 
     const scores = botStats.map(stat => {
-      const avgTurns = stat.totalTurns / (activeBoards.length * activeOpps.length);
-      const fitness = (stat.totalWins * 1000) + stat.totalPoints - (avgTurns * 10);
+      let fitness = 0;
+      let totalAvgDice = 0;
+      let totalDiceRollsSum = 0;
+      let numGamesWithDice = 0;
+      
+      for (const game of stat.games) {
+         let gameFitness = 0;
+         if (game.gaWon) {
+            gameFitness += 1000;
+         } else if (game.isDraw) {
+            gameFitness += 300;
+         }
+         gameFitness += game.gaScore;
+         
+         const turnPenalty = game.gaRole === 'attacker' ? 10 : 2;
+         gameFitness -= (game.turns * turnPenalty);
+         
+         if (game.numDiceRolls > 0) {
+             const avgRoll = game.totalDiceRolls / game.numDiceRolls;
+             totalDiceRollsSum += avgRoll;
+             numGamesWithDice++;
+             // Expected sum of 2d6 is 7.0
+             // Unlucky (low rolls) wins should get a huge bonus multiplier
+             if (game.gaWon) {
+                 const luckMultiplier = 7.0 / avgRoll;
+                 gameFitness *= luckMultiplier;
+             }
+         }
+         fitness += gameFitness;
+      }
+      
+      const avgTurns = stat.totalTurns / stat.games.length;
+      const avgDiceRollSum = numGamesWithDice > 0 ? (totalDiceRollsSum / numGamesWithDice) : 7.0;
+
       return {
         dna: stat.dna,
         fitness,
         wins: stat.totalWins,
         winBreakdown: stat.winBreakdown,
-        avgTurns
+        avgTurns,
+        avgDiceRollSum
       };
     });
 
@@ -390,39 +543,61 @@ async function runGA() {
     console.log(`  📊  Population Average Fitness: ${Math.round(avgPopFitness)}`);
     console.log(`  🏆  Best Individual Fitness: \x1b[32m${Math.round(bestBot.fitness)}\x1b[0m`);
     console.log(`  ⚔️  Best Bot Overall Win Rate: \x1b[33m${((bestBot.wins / totalGames) * 100).toFixed(1)}%\x1b[0m`);
-    console.log(`      - vs Easy:   ${bestBot.winBreakdown.easy}/${activeBoards.length}`);
-    console.log(`      - vs Medium: ${bestBot.winBreakdown.medium}/${activeBoards.length}`);
-    console.log(`      - vs Hard:   ${bestBot.winBreakdown.hard}/${activeBoards.length}`);
+    console.log(`      - vs Easy:    ${bestBot.winBreakdown.easy}/${activeBoards.length}`);
+    console.log(`      - vs Medium:  ${bestBot.winBreakdown.medium}/${activeBoards.length}`);
+    console.log(`      - vs Hard:    ${bestBot.winBreakdown.hard}/${activeBoards.length}`);
+    console.log(`      - vs Default: ${bestBot.winBreakdown.default}/${activeBoards.length}`);
     console.log(`  ⚡  Avg Turns: ${bestBot.avgTurns.toFixed(1)}`);
     
     // Format DNA differences dynamically
-    const bestDnaKeys = ['attWinBonus', 'attCenterControlBonus', 'defThreatPenaltyMultiplier', 'defSurvivalMultiplier', 'attMobilityBonus'];
-    const snapshotStr = bestDnaKeys.map(k => `${k}: ${bestBot.dna[k].toFixed(2)}`).join(', ');
-    console.log(`  🧬  Top DNA Sample: { ${snapshotStr} ... }\n`);
-
-    // Save checkpoint of the best bot from this generation
-    const exportPath = path.resolve('./src/core/ga_weights.json');
-    try {
-      fs.writeFileSync(exportPath, JSON.stringify(bestBot.dna, null, 2));
-      console.log(`  💾  Checkpoint weights saved to ${exportPath}`);
-    } catch (e) {
-      console.error(`  ⚠️  Failed to save checkpoint:`, e.message);
-    }
+    const sampleGear = 'average_tied';
+    const bestDnaKeys = ['attWinBonus', 'attCenterControlBonus', 'defThreatPenaltyMultiplier', 'defSurvivalMultiplier'];
+    const snapshotStr = bestDnaKeys.map(k => `${k}: ${bestBot.dna[sampleGear][k].toFixed(2)}`).join(', ');
+    console.log(`  🧬  Top DNA Sample (${sampleGear}): { ${snapshotStr} ... }`);
+    console.log(`  🎲  Avg Dice Roll Sum: ${bestBot.avgDiceRollSum.toFixed(2)}\n`);
 
     // Run validation test against default Expectiminimax
     const numTestGames = 10;
     process.stdout.write(`  ⚔️  Testing Checkpoint vs Default Expectiminimax (${numTestGames} games)... `);
     const testResult = testAgainstDefault(bestBot.dna, numTestGames);
-    const winRate = ((testResult.gaWins / numTestGames) * 100).toFixed(1);
+    const winRate = (testResult.gaWins / numTestGames) * 100;
     console.log(`Done!`);
     console.log(`     GA Bot Wins: \x1b[32m${testResult.gaWins}\x1b[0m | Default Bot Wins: \x1b[31m${testResult.defaultWins}\x1b[0m | Draws: ${testResult.draws}`);
-    console.log(`     Win Rate: \x1b[33m${winRate}%\x1b[0m`);
+    console.log(`     Win Rate: \x1b[33m${winRate.toFixed(1)}%\x1b[0m`);
+    
     if (testResult.gaWins > testResult.defaultWins) {
       console.log(`     🏆 Status: GA Bot is OUTPERFORMING default Expectiminimax!\n`);
     } else if (testResult.gaWins < testResult.defaultWins) {
       console.log(`     ⚠️ Status: GA Bot is underperforming compared to default Expectiminimax.\n`);
     } else {
       console.log(`     🤝 Status: GA Bot is evenly matched with default Expectiminimax.\n`);
+    }
+
+    // CSV logging
+    try {
+        fs.appendFileSync(historyPath, `${gen},${Math.round(avgPopFitness)},${Math.round(bestBot.fitness)},${winRate.toFixed(1)},${bestBot.avgDiceRollSum.toFixed(2)}\n`);
+    } catch(e) {}
+
+    // Save continuous learning state
+    fs.writeFileSync(popPath, JSON.stringify(population, null, 2));
+    fs.writeFileSync(statePath, JSON.stringify({
+        currentGeneration: gen,
+        globalBestFitness: Math.max(globalBestFitness, bestBot.fitness),
+        globalBestWinRate: Math.max(globalBestWinRate, winRate)
+    }, null, 2));
+    console.log(`  💾  Checkpoints saved to ga_population.json & ga_training_state.json`);
+    
+    // Clear partial results since the generation is fully complete
+    if (fs.existsSync(partialPath)) {
+        fs.unlinkSync(partialPath);
+    }
+
+    // Update best weights if validation is better
+    if (winRate > globalBestWinRate || (winRate === globalBestWinRate && bestBot.fitness > globalBestFitness)) {
+        globalBestWinRate = winRate;
+        globalBestFitness = bestBot.fitness;
+        fs.writeFileSync(bestPath, JSON.stringify(bestBot.dna, null, 2));
+        console.log(`  🌟  NEW ALL-TIME BEST! Weights saved to ${bestPath}`);
     }
 
     if (gen < maxGens) {
@@ -433,14 +608,14 @@ async function runGA() {
       
       // Breed the rest
       while (newPopulation.length < popSize) {
-        const parentA = elites[Math.floor(Math.random() * elites.length)];
-        const parentB = elites[Math.floor(Math.random() * elites.length)];
+        const parentA = tournamentSelection(scores, 3);
+        const parentB = tournamentSelection(scores, 3);
         newPopulation.push(crossoverAndMutate(parentA, parentB));
       }
       
       population = newPopulation;
     } else {
-      console.log(`\n✅ GA Training Complete! Final optimal weights saved to ${exportPath}`);
+      console.log(`\n✅ GA Training Complete!`);
     }
   }
 }
@@ -452,8 +627,8 @@ if (isMainThread) {
   // Worker process message handler
   parentPort.on('message', (task) => {
     try {
-      const { boardData, oppType, dna } = task;
-      const result = simulateGaGame(boardData, oppType, dna);
+      const { taskId, boardData, oppType, dna } = task;
+      const result = simulateGaGame(boardData, oppType, dna, taskId);
       parentPort.postMessage(result);
     } catch (err) {
       console.error("\n❌ Worker Exception:", err.message, err.stack);

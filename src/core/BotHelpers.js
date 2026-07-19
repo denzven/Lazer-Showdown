@@ -17,8 +17,7 @@ export {
 // Threat map memoization cache
 let _threatMapCache = { key: null, map: null };
 
-// Default evaluation weights for bots
-export const DEFAULT_WEIGHTS = {
+const BASE_WEIGHTS = {
   // Attacker Weights
   attCapture50Bonus: 50000,
   attCapture30Bonus: 30000,
@@ -42,6 +41,19 @@ export const DEFAULT_WEIGHTS = {
   defMobilityBonus: 5,
   defCenterControlPenalty: 10,
   defSafetyStepPenaltyMultiplier: 0.12,
+};
+
+// Default evaluation weights for bots (9-Gear Adaptive DNA)
+export const DEFAULT_WEIGHTS = {
+  unlucky_losing: { ...BASE_WEIGHTS },
+  unlucky_tied: { ...BASE_WEIGHTS },
+  unlucky_winning: { ...BASE_WEIGHTS },
+  average_losing: { ...BASE_WEIGHTS },
+  average_tied: { ...BASE_WEIGHTS },
+  average_winning: { ...BASE_WEIGHTS },
+  lucky_losing: { ...BASE_WEIGHTS },
+  lucky_tied: { ...BASE_WEIGHTS },
+  lucky_winning: { ...BASE_WEIGHTS },
 };
 
 // Core Helper: Extract board information
