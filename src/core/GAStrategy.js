@@ -4,7 +4,7 @@ import {
   genericSetupAction,
   getChallengeRecommendation
 } from './BotHelpers.js';
-import gaWeights from './ga_weights.json' with { type: 'json' };
+import gaWeights from './ga/ga_best_weights.json' with { type: 'json' };
 
 export const GAStrategy = {
   /**
@@ -13,7 +13,32 @@ export const GAStrategy = {
    */
   getPlayAction: (board, role, actionPoints, gameState, botPlayer) => {
     const cautiousness = getCautiousness(gameState, botPlayer);
-    const { action: bestAction } = findBestActionSequenceExpectiminimax(board, role, actionPoints, cautiousness, gaWeights, 1);
+
+    // Calculate Luck Tier
+    let luckTier = 'average';
+    if (gameState.diceStats && gameState.diceStats[botPlayer]) {
+        const stats = gameState.diceStats[botPlayer];
+        if (stats.count > 0) {
+            const avg = stats.total / stats.count;
+            if (avg <= 5.0) luckTier = 'unlucky';
+            else if (avg >= 9.0) luckTier = 'lucky';
+        }
+    }
+
+    // Calculate Score Tier
+    const botScore = gameState.scores[botPlayer] || 0;
+    const oppColor = botPlayer === 'red' ? 'blue' : 'red';
+    const oppScore = gameState.scores[oppColor] || 0;
+
+    let scoreTier = 'tied';
+    if (botScore > oppScore) scoreTier = 'winning';
+    else if (botScore < oppScore) scoreTier = 'losing';
+
+    // Select specific gear weights
+    const gearName = `${luckTier}_${scoreTier}`;
+    const gearWeights = gaWeights[gearName] || Object.values(gaWeights)[0] || gaWeights;
+
+    const { action: bestAction } = findBestActionSequenceExpectiminimax(board, role, actionPoints, cautiousness, gearWeights, 1);
     return bestAction;
   },
 

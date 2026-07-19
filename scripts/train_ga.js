@@ -367,11 +367,13 @@ async function runGA() {
   let startGen = 1;
   let baseWeights = DEFAULT_WEIGHTS;
 
-  const statePath = path.resolve('./src/core/ga_training_state.json');
-  const popPath = path.resolve('./src/core/ga_population.json');
-  const bestPath = path.resolve('./src/core/ga_best_weights.json');
-  const historyPath = path.resolve('./src/core/ga_history.csv');
-  const partialPath = path.resolve('./src/core/ga_partial_results.jsonl');
+  const gaDir = path.resolve('./src/core/ga');
+  if (!fs.existsSync(gaDir)) fs.mkdirSync(gaDir, { recursive: true });
+  const statePath = path.join(gaDir, 'ga_training_state.json');
+  const popPath = path.join(gaDir, 'ga_population.json');
+  const bestPath = path.join(gaDir, 'ga_best_weights.json');
+  const historyPath = path.join(gaDir, 'ga_history.csv');
+  const partialPath = path.join(gaDir, 'ga_partial_results.jsonl');
 
   let population = [];
 

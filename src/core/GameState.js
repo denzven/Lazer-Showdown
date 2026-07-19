@@ -54,7 +54,8 @@ function endSetState(board, currentSet, scores, roleRed, dice, context) {
       challengeTossRolls: { red: null, blue: null },
       turnStats: { lazerMove: 0, lazerRotate: 0, lazerFire: 0, pieceMove: 0, pieceMoveBreakdown: { 'block-20': 0, 'block-30': 0, 'block-50': 0 }, wastedAP: 0 },
       logs: ['Set 1 complete. Swapping roles for Set 2!', `New Attacker: ${attPlayer}, Defender: ${defPlayer}. Defender placing point pieces.`],
-      customBoardData: context?.customBoardData || null
+      customBoardData: context?.customBoardData || null,
+      diceStats: context?.diceStats || { red: { total: 0, count: 0 }, blue: { total: 0, count: 0 } }
     };
   } else {
     const redScore = scores.red;
@@ -81,7 +82,8 @@ function endSetState(board, currentSet, scores, roleRed, dice, context) {
       tossWinner: null,
       challengeTossRolls: { red: null, blue: null },
       turnStats: { lazerMove: 0, lazerRotate: 0, lazerFire: 0, pieceMove: 0, pieceMoveBreakdown: { 'block-20': 0, 'block-30': 0, 'block-50': 0 }, wastedAP: 0 },
-      customBoardData: context?.customBoardData || null
+      customBoardData: context?.customBoardData || null,
+      diceStats: context?.diceStats || { red: { total: 0, count: 0 }, blue: { total: 0, count: 0 } }
     };
   }
 }
@@ -123,6 +125,7 @@ export function applySandboxAction(board, action, player, context = {}) {
   let nextDice = context.dice ? { ...context.dice } : { values: [1, 1], isRolling: false, lastRoller: null };
   let nextTurnStats = context.turnStats ? JSON.parse(JSON.stringify(context.turnStats)) : { lazerMove: 0, lazerRotate: 0, lazerFire: 0, pieceMove: 0, pieceMoveBreakdown: { 'block-20': 0, 'block-30': 0, 'block-50': 0 }, wastedAP: 0 };
   let nextCustomBoardData = context.customBoardData || null;
+  let nextDiceStats = context.diceStats ? JSON.parse(JSON.stringify(context.diceStats)) : { red: { total: 0, count: 0 }, blue: { total: 0, count: 0 } };
 
   const attackerPlayer = roleRed === 'attacker' ? 'red' : 'blue';
   const defenderPlayer = roleRed === 'defender' ? 'red' : 'blue';
@@ -263,6 +266,11 @@ export function applySandboxAction(board, action, player, context = {}) {
 
     nextActionPoints = nextDice.values[0] + nextDice.values[1];
     nextHasRolledDice = true;
+    
+    if (player === 'red' || player === 'blue') {
+      nextDiceStats[player].total += nextActionPoints;
+      nextDiceStats[player].count += 1;
+    }
     
     // Reset turn stats for the new turn
     nextTurnStats = { lazerMove: 0, lazerRotate: 0, lazerFire: 0, pieceMove: 0, pieceMoveBreakdown: { 'block-20': 0, 'block-30': 0, 'block-50': 0 }, wastedAP: 0 };
@@ -524,6 +532,7 @@ export function applySandboxAction(board, action, player, context = {}) {
         nextTossRolls = setOutcome.tossRolls;
         nextTossWinner = setOutcome.tossWinner;
         nextChallengeTossRolls = setOutcome.challengeTossRolls;
+        nextDiceStats = setOutcome.diceStats;
         logsList.push(...setOutcome.logs);
       }
     }
@@ -551,6 +560,7 @@ export function applySandboxAction(board, action, player, context = {}) {
       nextTossWinner = setOutcome.tossWinner;
       nextChallengeTossRolls = setOutcome.challengeTossRolls;
       nextTurnStats = setOutcome.turnStats;
+      nextDiceStats = setOutcome.diceStats;
       logsList.push(...setOutcome.logs);
     } else {
       nextChallengeActive = true;
@@ -657,6 +667,7 @@ export function applySandboxAction(board, action, player, context = {}) {
       lazerHitMessage: lazerHitMessage || (sideEffects.customData ? sideEffects.customData.lazerHitMessage : null)
     },
     customBoardData: nextCustomBoardData,
+    diceStats: nextDiceStats,
     logs: logsList,
     error: null
   };
@@ -699,6 +710,7 @@ export function getInitialState(customBoardData = null, mode = null) {
     challengeTossRolls: { red: null, blue: null },
     turnStats: { lazerMove: 0, lazerRotate: 0, lazerFire: 0, pieceMove: 0, pieceMoveBreakdown: { 'block-20': 0, 'block-30': 0, 'block-50': 0 }, wastedAP: 0 },
     customBoardData: customBoardData,
-    boardHeatmap: boardHeatmap
+    boardHeatmap: boardHeatmap,
+    diceStats: { red: { total: 0, count: 0 }, blue: { total: 0, count: 0 } }
   };
 }
