@@ -2,10 +2,7 @@
  * BotStrategies.js — Re-export portal facade aggregating all strategy engines and helpers (Phase 4b)
  */
 
-import { EasyStrategy } from './EasyStrategy.js';
-import { MediumStrategy } from './MediumStrategy.js';
-import { HardStrategy } from './HardStrategy.js';
-import { GAStrategy } from './GAStrategy.js';
+import { BUILTIN_BOTS, BUILTIN_STRATEGIES } from './BotLoader.js';
 import {
   DEFAULT_WEIGHTS,
   getBoardState,
@@ -46,12 +43,11 @@ import {
 
 // Custom dynamic strategy registry
 export const CUSTOM_STRATEGIES = {};
+export const CUSTOM_BOTS_METADATA = {};
 
 export {
-  EasyStrategy,
-  MediumStrategy,
-  HardStrategy,
-  GAStrategy,
+  BUILTIN_BOTS,
+  BUILTIN_STRATEGIES,
   DEFAULT_WEIGHTS,
   getBoardState,
   getPossibleActions,

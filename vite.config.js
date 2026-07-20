@@ -65,7 +65,8 @@ function dojoPlugin() {
 // https://vite.dev/config/
 export default defineConfig({
   define: {
-    __COMMIT_HASH__: JSON.stringify(commitHash)
+    __COMMIT_HASH__: JSON.stringify(commitHash),
+    'process.env': {}
   },
   base: '/Lazer-Showdown/', // Absolute base path for GitHub Pages to fix Service Worker registration
   plugins: [
@@ -73,7 +74,7 @@ export default defineConfig({
     mkcert(),
     dojoPlugin(),
     VitePWA({
-      injectRegister: 'script',
+      injectRegister: 'auto',
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'favicon-32x32.png', 'favicon-16x16.png', 'apple-touch-icon-180x180.png'],
       manifest: {

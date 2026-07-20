@@ -8,7 +8,7 @@
  *  - If the Worker fails or is unavailable, a synchronous fallback is used transparently.
  */
 
-import { EasyStrategy, MediumStrategy, HardStrategy, GAStrategy, CUSTOM_STRATEGIES, generateThreatMap, generateExpectiminimaxThreatMap, getBoardAnalysis, generatePossibilityWeb } from './BotStrategies.js';
+import { BUILTIN_STRATEGIES, CUSTOM_STRATEGIES, generateThreatMap, generateExpectiminimaxThreatMap, getBoardAnalysis, generatePossibilityWeb } from './BotStrategies.js';
 
 // --- WEB WORKER SINGLETON ---
 // Created once, reused for the entire session. Destroyed and recreated on fatal errors.
@@ -72,10 +72,9 @@ function dispatchToWorker(type, payload) {
 // --- SYNCHRONOUS FALLBACK HELPERS ---
 
 function syncPlayAction(board, role, actionPoints, difficulty, gameState, botPlayer) {
-  if (difficulty === 'easy')   return EasyStrategy.getPlayAction(board, role, actionPoints, gameState, botPlayer);
-  if (difficulty === 'medium') return MediumStrategy.getPlayAction(board, role, actionPoints, gameState, botPlayer);
-  if (difficulty === 'hard')   return HardStrategy.getPlayAction(board, role, actionPoints, gameState, botPlayer);
-  if (difficulty === 'ga')     return GAStrategy.getPlayAction(board, role, actionPoints, gameState, botPlayer);
+  if (BUILTIN_STRATEGIES[difficulty]) {
+    return BUILTIN_STRATEGIES[difficulty].getPlayAction(board, role, actionPoints, gameState, botPlayer);
+  }
   if (CUSTOM_STRATEGIES[difficulty]) {
     return CUSTOM_STRATEGIES[difficulty].getPlayAction(board, role, actionPoints, gameState, botPlayer);
   }
@@ -91,10 +90,9 @@ function syncPlayAction(board, role, actionPoints, difficulty, gameState, botPla
  * Phase 1f fix: Easy correctly uses EasyStrategy (was incorrectly using HardStrategy on L7).
  */
 export function getBotSetupAction(board, phase, playerColor, difficulty = 'medium', challengedPiece = null, boardHeatmap = null) {
-  if (difficulty === 'easy')   return EasyStrategy.getSetupAction(board, phase, playerColor, challengedPiece, boardHeatmap);
-  if (difficulty === 'medium') return MediumStrategy.getSetupAction(board, phase, playerColor, challengedPiece, boardHeatmap);
-  if (difficulty === 'hard')   return HardStrategy.getSetupAction(board, phase, playerColor, challengedPiece, boardHeatmap);
-  if (difficulty === 'ga')     return GAStrategy.getSetupAction(board, phase, playerColor, challengedPiece, boardHeatmap);
+  if (BUILTIN_STRATEGIES[difficulty]) {
+    return BUILTIN_STRATEGIES[difficulty].getSetupAction(board, phase, playerColor, challengedPiece, boardHeatmap);
+  }
   if (CUSTOM_STRATEGIES[difficulty]) {
     return CUSTOM_STRATEGIES[difficulty].getSetupAction(board, phase, playerColor, challengedPiece, boardHeatmap);
   }
@@ -112,7 +110,7 @@ export async function getBotPlayAction(board, role, actionPoints, difficulty = '
   if (actionPoints <= 0) return null;
 
   // Bypass Web Worker for dynamically registered custom bots
-  if (!['easy', 'medium', 'hard', 'ga'].includes(difficulty)) {
+  if (!BUILTIN_STRATEGIES[difficulty]) {
     return syncPlayAction(board, role, actionPoints, difficulty, gameState, botPlayer);
   }
 
@@ -152,10 +150,9 @@ export async function getBotEngineLinesAsync(board, role, actionPoints, difficul
 }
 
 export function getBotChallengeAction(board, gameState, botPlayer, difficulty) {
-  if (difficulty === 'easy')   return EasyStrategy.getChallengeAction ? EasyStrategy.getChallengeAction(board, gameState, botPlayer) : null;
-  if (difficulty === 'medium') return MediumStrategy.getChallengeAction ? MediumStrategy.getChallengeAction(board, gameState, botPlayer) : null;
-  if (difficulty === 'hard')   return HardStrategy.getChallengeAction ? HardStrategy.getChallengeAction(board, gameState, botPlayer) : null;
-  if (difficulty === 'ga')     return GAStrategy.getChallengeAction ? GAStrategy.getChallengeAction(board, gameState, botPlayer) : null;
+  if (BUILTIN_STRATEGIES[difficulty]) {
+    return BUILTIN_STRATEGIES[difficulty].getChallengeAction ? BUILTIN_STRATEGIES[difficulty].getChallengeAction(board, gameState, botPlayer) : null;
+  }
   if (CUSTOM_STRATEGIES[difficulty]) {
     return CUSTOM_STRATEGIES[difficulty].getChallengeAction ? CUSTOM_STRATEGIES[difficulty].getChallengeAction(board, gameState, botPlayer) : null;
   }

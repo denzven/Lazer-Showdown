@@ -1,5 +1,6 @@
 import React from 'react';
 import Cell from './Cell';
+import Piece from './Piece';
 
 export default function Grid({
   board,
@@ -24,6 +25,7 @@ export default function Grid({
   threatMap = null,
   possibilityWeb = null,
   highlightedCell = null,
+  botHighlights = null,
   tutorialHighlight = null,
   tutorialHighlights = null
 }) {
@@ -70,11 +72,15 @@ export default function Grid({
         // Multi-step movement along path if cell is reachable
         const target = reachableCells.find(cell => cell.r === r && cell.c === c);
         if (target) {
-          let currentFrom = { r: selectedCell.r, c: selectedCell.c };
-          for (const step of target.path) {
-            moveBlock(currentFrom.r, currentFrom.c, step.r, step.c);
-            currentFrom = step;
-          }
+          const executePath = async () => {
+            let currentFrom = { r: selectedCell.r, c: selectedCell.c };
+            for (const step of target.path) {
+              moveBlock(currentFrom.r, currentFrom.c, step.r, step.c);
+              currentFrom = step;
+              await new Promise(res => setTimeout(res, 250));
+            }
+          };
+          executePath();
         }
         setSelectedCell(null);
       }
@@ -116,11 +122,15 @@ export default function Grid({
           // Multi-step movement along path if target is reachable
           const target = reachableCells.find(cell => cell.r === r && cell.c === c);
           if (target) {
-            let currentFrom = { r: data.r, c: data.c };
-            for (const step of target.path) {
-              moveBlock(currentFrom.r, currentFrom.c, step.r, step.c);
-              currentFrom = step;
-            }
+            const executePath = async () => {
+              let currentFrom = { r: data.r, c: data.c };
+              for (const step of target.path) {
+                moveBlock(currentFrom.r, currentFrom.c, step.r, step.c);
+                currentFrom = step;
+                await new Promise(res => setTimeout(res, 250));
+              }
+            };
+            executePath();
           }
         }
       } else {
@@ -153,6 +163,15 @@ export default function Grid({
   };
 
   const laserColor = roleRed === 'attacker' ? 'var(--neon-red)' : 'var(--neon-blue)';
+
+  const movablePieces = [];
+  board.forEach((row, r) => {
+    row.forEach((block, c) => {
+      if (block && block.type !== 'mirror') {
+        movablePieces.push({ block, r, c });
+      }
+    });
+  });
 
   return (
     <div className="board-container glass-panel">
@@ -200,6 +219,7 @@ export default function Grid({
             {/* Outer Thick Glowing Beam */}
             {showLaserBeam && lazerPos && laserPath.length > 0 && (
               <polyline
+                className="laser-beam-anim"
                 points={[lazerPos, ...laserPath].map(pt => `${pt.c * 100 + 50},${pt.r * 100 + 50}`).join(' ')}
                 fill="none"
                 stroke={laserColor}
@@ -213,6 +233,7 @@ export default function Grid({
             {/* Core Bright Beam Line */}
             {showLaserBeam && lazerPos && laserPath.length > 0 && (
               <polyline
+              className="laser-beam-anim"
               points={[lazerPos, ...laserPath].map(pt => `${pt.c * 100 + 50},${pt.r * 100 + 50}`).join(' ')}
               fill="none"
               stroke="#ffffff"
@@ -234,6 +255,7 @@ export default function Grid({
                                   (tutorialHighlights && tutorialHighlights.some(h => h.r === r && h.c === c));
 
             const threatObj = threatMap ? threatMap[r][c] : null;
+            const cellBotHighlights = botHighlights ? botHighlights.filter(bh => bh.r === r && bh.c === c) : [];
 
             const displayBlock = block;
 
@@ -255,10 +277,27 @@ export default function Grid({
                 isReachable={!!reachableInfo}
                 reachableDist={reachableInfo ? reachableInfo.dist : 0}
                 threatObj={threatObj}
+                botHighlights={cellBotHighlights}
               />
             );
           })
         )}
+
+        {/* Absolute Pieces Overlay for Smooth Animation */}
+        {movablePieces.map((p) => {
+          const key = `${p.block.player}-${p.block.type}${p.block.isGhost ? '-ghost' : ''}`;
+          return (
+            <Piece 
+              key={key} 
+              block={p.block} 
+              r={p.r} 
+              c={p.c} 
+              onClick={() => handleCellClick(p.r, p.c)}
+              onDragOver={handleDragOver}
+              onDrop={(e) => handleDrop(e, p.r, p.c)}
+            />
+          );
+        })}
       </div>
     </div>
   );

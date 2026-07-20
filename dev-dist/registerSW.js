@@ -1,1 +1,1 @@
-if('serviceWorker' in navigator) navigator.serviceWorker.register('/dev-sw.js?dev-sw', { scope: '/', type: 'classic' })
+if('serviceWorker' in navigator) navigator.serviceWorker.register('/Lazer-Showdown/dev-sw.js?dev-sw', { scope: '/Lazer-Showdown/', type: 'module' })

@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { BellRing } from 'lucide-react';
+import { BellRing, X } from 'lucide-react';
 
 export default function NotificationPrompt({ show = true }) {
   const [permission, setPermission] = useState('default');
+  const [isDismissed, setIsDismissed] = useState(false);
 
   useEffect(() => {
     if ('Notification' in window) {
@@ -42,7 +43,7 @@ export default function NotificationPrompt({ show = true }) {
   };
 
   // Only show if we haven't asked yet and the browser supports it
-  if (!show || permission === 'denied' || permission === 'granted' || !('Notification' in window)) return null;
+  if (!show || isDismissed || permission === 'denied' || permission === 'granted' || !('Notification' in window)) return null;
 
   return (
     <div style={{
@@ -69,6 +70,23 @@ export default function NotificationPrompt({ show = true }) {
         style={{ padding: '6px 12px', fontSize: '0.75rem', display: 'flex', alignItems: 'center', gap: '6px', borderColor: 'var(--neon-green)', color: 'var(--neon-green)' }}
       >
         <BellRing size={14} /> ENABLE
+      </button>
+      <button
+        onClick={() => setIsDismissed(true)}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          color: 'white',
+          cursor: 'pointer',
+          padding: '4px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: 0.7
+        }}
+        title="Dismiss"
+      >
+        <X size={16} />
       </button>
     </div>
   );

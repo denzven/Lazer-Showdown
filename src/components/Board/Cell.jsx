@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { RotateCw, Trash2 } from 'lucide-react';
 import { BLOCK_TYPES } from '../../core/Ruleset';
 
@@ -17,9 +17,17 @@ export default function Cell({
   isReachable = false,
   reachableDist = 0,
   threatObj = null,
-  isHighlighted = false
+  isHighlighted = false,
+  botHighlights = []
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
+  const [lastThreatObj, setLastThreatObj] = useState(null);
+
+  useEffect(() => {
+    if (threatObj && threatObj.total > 0 && !block) {
+      setLastThreatObj(threatObj);
+    }
+  }, [threatObj, block]);
 
   const getBlockStyles = () => {
     if (!block || block.type === 'mirror') return {};
@@ -121,52 +129,7 @@ export default function Cell({
       );
     }
 
-    const { coreColor, borderColor, borderGlow, text, opacity, badge } = getBlockStyles();
-
-    return (
-      <div
-        className="piece-wrapper"
-        style={{ transform: `rotate(${block.rotation}deg)`, opacity }}
-      >
-        <svg viewBox="0 0 40 40" className="piece-icon">
-          <rect
-            x="6"
-            y="6"
-            width="28"
-            height="28"
-            rx="6"
-            fill="none"
-            stroke={borderColor}
-            strokeWidth="3.5"
-            filter={`drop-shadow(0 0 4px ${borderGlow})`}
-          />
-          {block.type === BLOCK_TYPES.BLOCK_LAZER ? (
-            <>
-              <circle cx="20" cy="20" r="5" fill="none" stroke={coreColor} strokeWidth="2" />
-              <line x1="20" y1="15" x2="20" y2="7" stroke={coreColor} strokeWidth="2.5" />
-              <polygon points="20,4 16,9 24,9" fill={coreColor} />
-            </>
-          ) : (
-            <>
-              <rect x="11" y="11" width="18" height="18" rx="3" fill={coreColor} opacity="0.15" />
-              <text
-                x="50%"
-                y="55%"
-                dominantBaseline="middle"
-                textAnchor="middle"
-                fill={coreColor}
-                fontSize="15"
-                fontWeight="900"
-                fontFamily="monospace"
-                letterSpacing="0px"
-              >
-                {text}
-              </text>
-            </>
-          )}
-        </svg>
-      </div>
-    );
+    return null;
   };
 
   const isEven = (r + c) % 2 === 0;
@@ -217,9 +180,10 @@ export default function Cell({
 
       {/* Threat Map Overlay */}
       {(() => {
-
-        const threatTotal = threatObj ? threatObj.total : 0;
-        if (!threatObj || threatTotal === 0 || block) return null;
+        const activeThreat = (threatObj && threatObj.total > 0 && !block) ? threatObj : lastThreatObj;
+        if (!activeThreat) return null;
+        
+        const isVisible = !!(threatObj && threatObj.total > 0 && !block);
 
         const colors = {
           'TL': '0, 255, 255',    // Cyan
@@ -234,13 +198,15 @@ export default function Cell({
         };
 
         return (
-          <div style={{
+          <div key={`threat-${r}-${c}`} style={{
             position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
             pointerEvents: 'none', zIndex: 1, display: 'flex',
             alignItems: 'center', justifyContent: 'center',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            opacity: isVisible ? 1 : 0,
+            transition: 'opacity 0.4s ease-out'
           }}>
-            {Object.entries(threatObj.sources).map(([source, prob]) => (
+            {Object.entries(activeThreat.sources).map(([source, prob]) => (
               <div key={source} style={{
                 position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
                 backgroundColor: `rgba(${colors[source] || '255,255,255'}, ${prob * 0.45})`,
@@ -248,7 +214,7 @@ export default function Cell({
               }} />
             ))}
             <span style={{ color: 'white', fontSize: '0.65rem', fontWeight: 'bold', opacity: 0.9, zIndex: 2, textShadow: '0 0 4px black' }}>
-              {threatTotal.toFixed(6)}
+              {activeThreat.total.toFixed(6)}
             </span>
           </div>
         );
@@ -258,22 +224,22 @@ export default function Cell({
       {/* Reachable overlay displaying Action Point cost */}
       {isReachable && (
         <div 
-          className="reachable-dot"
+          className="reachable-dot animate-pop-in"
           style={{ 
             position: 'absolute', 
-            width: '24px', 
-            height: '24px', 
+            width: '40px', 
+            height: '40px', 
             borderRadius: '50%', 
-            background: 'rgba(57, 255, 20, 0.15)', 
-            border: '1.5px dashed #39ff14', 
-            color: '#39ff14', 
+            background: 'rgba(57, 255, 20, 0.08)', 
+            border: '1.5px dashed rgba(57, 255, 20, 0.5)', 
+            color: 'rgba(57, 255, 20, 0.8)', 
             display: 'flex', 
             alignItems: 'center', 
             justifyContent: 'center', 
-            fontSize: '9px', 
+            fontSize: '14px', 
             fontWeight: 'bold', 
             pointerEvents: 'none', 
-            boxShadow: '0 0 6px rgba(57, 255, 20, 0.3)',
+            boxShadow: '0 0 6px rgba(57, 255, 20, 0.15)',
             zIndex: 5
           }}
         >
@@ -288,6 +254,27 @@ export default function Cell({
           boxShadow: '0 0 15px #00f0ff, inset 0 0 15px #00f0ff',
           animation: 'afkPulse 1.5s infinite', zIndex: 10, pointerEvents: 'none'
         }} />
+      )}
+      
+      {/* Bot Minds Highlights */}
+      {botHighlights && botHighlights.length > 0 && (
+        <div style={{ 
+          position: 'absolute', top: 2, right: 2, 
+          display: 'flex', flexDirection: 'column', gap: '2px', 
+          zIndex: 15, pointerEvents: 'none' 
+        }}>
+          {botHighlights.map((bh, idx) => (
+            <div key={idx} style={{ 
+              background: bh.color, color: '#000', 
+              fontSize: '0.45rem', padding: '1px 3px', 
+              borderRadius: '2px', fontWeight: 'bold', 
+              border: '1px solid rgba(0,0,0,0.5)', 
+              boxShadow: '0 1px 2px rgba(0,0,0,0.5)' 
+            }}>
+              {bh.label}
+            </div>
+          ))}
+        </div>
       )}
     </div>
   );

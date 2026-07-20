@@ -1,594 +1,482 @@
 import React, { useState, useEffect } from 'react';
-import { X, Activity, Dices, Clock, Minus, Maximize2, Target } from 'lucide-react';
-import { formatActionText } from '../core/BotStrategies';
+import { X, Minus, Maximize2, ChevronDown, ChevronRight } from 'lucide-react';
+import { Rnd } from 'react-rnd';
+import { 
+  evaluateBoardAttacker, 
+  evaluateBoardDefender, 
+  getDefenderCautiousness,
+  DEFAULT_WEIGHTS,
+  formatActionText,
+  getEngineLines,
+  applyLightweightAction,
+  getBoardState
+} from '../core/BotHelpers';
+import { getBotSetupAction } from '../core/BotEngine';
+import { traceLaserBeam, BLOCK_TYPES } from '../core/Ruleset';
 
 export default function AnalysisPanel({ 
-  data, history, dice, threatMap, lazerPos, engineLines, pieceThreats, 
-  showHeatmap, showGhostRays, 
-  showPieceThreats, 
-  startOfTurnThreats, onClose, reviewIndex, stepForward, stepBackward, 
-  moveClassification, maxHistoryIndex,
-  onHighlightMove, phase, challengeRecommendation,
-  isAnalyzing = false
+  gameState,
+  reviewIndex,
+  maxHistoryIndex,
+  stepForward,
+  stepBackward,
+  engineLines: currentEngineLines,
+  onHighlightMove,
+  onBotMindsUpdate,
+  onSimulationUpdate,
+  isAnalyzing = false,
+  onClose
 }) {
+  const board = gameState?.board;
   const [isMinimized, setIsMinimized] = useState(false);
-  const [position, setPosition] = useState({ x: 20, y: typeof window !== 'undefined' ? window.innerHeight - 450 : 20 });
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const [panelState, setPanelState] = useState({
+    x: 20,
+    y: typeof window !== 'undefined' ? window.innerHeight - 550 : 20,
+    width: 380,
+    height: 650
+  });
+  const [botMinds, setBotMinds] = useState({ attacker: null, defender: null });
+  const [currentRole, setCurrentRole] = useState('attacker');
+  const [viewingRole, setViewingRole] = useState('attacker');
+  const [isSimulating, setIsSimulating] = useState(false);
+  const [isMindsExpanded, setIsMindsExpanded] = useState(true);
+
+  // Keep Layout's highlights in sync with the currently viewed role
+  useEffect(() => {
+    if (botMinds && botMinds[viewingRole]) {
+      onBotMindsUpdate?.(botMinds[viewingRole]);
+    }
+  }, [botMinds, viewingRole, onBotMindsUpdate]);
 
   useEffect(() => {
-    const handleMouseMove = (e) => {
-      if (isDragging) {
-        setPosition({
-          x: e.clientX - dragOffset.x,
-          y: e.clientY - dragOffset.y
-        });
-      }
-    };
-    const handleMouseUp = () => setIsDragging(false);
+    if (!gameState || !board) return;
+    
+    // Determine whose turn it is in the active state
+    let role = gameState.turnPlayer;
+    if (gameState.phase === 'setup-attacker') role = 'attacker';
+    if (gameState.phase === 'setup-defender' || gameState.phase === 'challenge-setup') role = 'defender';
+    // Fallback if turnPlayer was somehow red/blue (legacy handling)
+    if (role === 'red') role = gameState.roleRed;
+    if (role === 'blue') role = gameState.roleBlue;
 
-    if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging, dragOffset]);
+    setCurrentRole(role);
+    setViewingRole(role); // Default to current player's role
+    
+    // Evaluate across difficulties asynchronously to avoid locking UI
+    let isMounted = true;
+    setTimeout(() => {
+      if (!isMounted) return;
+      const difficulties = ['easy', 'medium', 'hard', 'ga'];
+      const minds = { attacker: {}, defender: {} };
+      
+      for (const r of ['attacker', 'defender']) {
+        for (const diff of difficulties) {
+          const diffToUse = diff === 'ga' ? 'hard' : diff; // GA usually maps to hard in engine eval
+          
+          if (gameState.phase.startsWith('setup-')) {
+            // Setup phase
+            if (r !== role) {
+              minds[r][diff] = null; // Only the active player places during their setup turn
+            } else {
+              const playerColor = role === gameState.roleRed ? 'red' : 'blue';
+              
+              // Predict the entire setup sequence for the remaining pieces
+              const setupSequence = [];
+              let currentSetupBoard = board.map(row => row.slice());
+              
+              for (let i = 0; i < 5; i++) {
+                const setupAction = getBotSetupAction(currentSetupBoard, gameState.phase, playerColor, diffToUse);
+                if (!setupAction || setupAction.type === 'confirm-setup') break;
+                setupSequence.push(setupAction);
+                currentSetupBoard = applyLightweightAction(currentSetupBoard, setupAction);
+              }
 
-  if (!data) return null;
-
-  const { totalScore, attackerMathScore, defenderMathScore, cautiousness, difficulty, role, advancedMetrics } = data;
-  const { values = [1, 1], lastRoller } = dice || {};
-
-  let totalStartThreat = 0;
-  let totalCurrentThreat = 0;
-  let threatDelta = 0;
-
-  if (startOfTurnThreats && pieceThreats) {
-    const calcThreat = (arr) => arr.reduce((acc, t) => acc + (t.threatLevel * parseInt(t.type.replace('block-', ''))), 0);
-    totalStartThreat = calcThreat(startOfTurnThreats);
-    totalCurrentThreat = calcThreat(pieceThreats);
-    threatDelta = totalCurrentThreat - totalStartThreat;
-  }
-
-  const formatHeuristicScore = (score) => {
-    if (score === undefined || score === null) return '0';
-    const sign = score > 0 ? '+' : '';
-    const abs = Math.abs(score);
-    if (abs >= 1000) return `${sign}${(score / 1000).toFixed(1)}k`;
-    return `${sign}${Math.round(score)}`;
-  };
-
-  const getBarWidth = (score) => {
-    const maxVal = 5000;
-    let percentage = (Math.abs(score) / maxVal) * 100;
-    return `${Math.min(percentage, 50)}%`;
-  };
-
-  const barColor = totalScore >= 0 ? '#39ff14' : '#ff003c';
-
-  const handleMouseDown = (e) => {
-    setIsDragging(true);
-    const clientX = e.clientX || (e.touches && e.touches[0].clientX);
-    const clientY = e.clientY || (e.touches && e.touches[0].clientY);
-    setDragOffset({
-      x: clientX - position.x,
-      y: clientY - position.y
-    });
-  };
-
-  const handleTouchMove = (e) => {
-    if (isDragging) {
-      setPosition({
-        x: e.touches[0].clientX - dragOffset.x,
-        y: e.touches[0].clientY - dragOffset.y
-      });
-    }
-  };
-
-  const handleTouchEnd = () => setIsDragging(false);
-
-  const getThreatBreakdown = () => {
-    if (!threatMap) return null;
-    const totals = {};
-    let grandTotal = 0;
-
-    for (let r = 0; r < 8; r++) {
-      for (let c = 0; c < 8; c++) {
-        const cell = threatMap[r][c];
-        if (cell && cell.sources) {
-          Object.entries(cell.sources).forEach(([source, prob]) => {
-            if (!totals[source]) totals[source] = 0;
-            totals[source] += prob;
-            grandTotal += prob;
-          });
+              if (setupSequence.length > 0) {
+                 minds[r][diff] = {
+                   sequence: setupSequence,
+                   score: 0,
+                   name: 'Setup Placements'
+                 };
+              } else {
+                 minds[r][diff] = null;
+              }
+            }
+          } else {
+            // Playing phase
+            const lines = getEngineLines(board, r, diffToUse, gameState);
+            minds[r][diff] = lines.length > 0 ? lines[0] : null; // Top line
+          }
         }
       }
+      
+      setBotMinds(minds);
+    }, 50);
+
+    return () => { isMounted = false; };
+  }, [gameState, board]);
+
+
+
+  const handleSimulate = async (sequence) => {
+    if (isSimulating) return;
+    setIsSimulating(true);
+    let currentBoard = board.map(row => row.slice());
+    
+    // Clear initial bot minds highlight by passing an empty array or letting Layout filter 
+    // We don't necessarily need to clear botHighlights as the simulation is a separate concern
+
+    for (const action of sequence) {
+      if (action.type === 'laser-press') {
+         const { lazerPos, lazerDir } = getBoardState(currentBoard);
+         if (lazerPos) {
+           const trace = traceLaserBeam(currentBoard, lazerPos, lazerDir);
+           onSimulationUpdate?.(currentBoard, { path: trace.path, pos: lazerPos, color: trace.laserColor || '#ff003c' });
+           await new Promise(r => setTimeout(r, 800)); // Show beam
+           currentBoard = applyLightweightAction(currentBoard, action); // Apply capture
+           onSimulationUpdate?.(currentBoard, null); // Hide beam
+           await new Promise(r => setTimeout(r, 400));
+         }
+      } else {
+         currentBoard = applyLightweightAction(currentBoard, action);
+         onSimulationUpdate?.(currentBoard, null);
+         await new Promise(r => setTimeout(r, 600)); // Wait between moves
+      }
     }
-
-    if (grandTotal === 0) return null;
-
-    const sources = !lazerPos ? [
-      { id: 'TL', label: 'Top-Left Corner', color: '#00ffff' },
-      { id: 'TR', label: 'Top-Right Corner', color: '#ff00ff' },
-      { id: 'BL', label: 'Bottom-Left Corner', color: '#ffff00' },
-      { id: 'BR', label: 'Bottom-Right Corner', color: '#00ff00' }
-    ] : [
-      { id: '0', label: 'Right (0°)', color: '#00ffff' },
-      { id: '90', label: 'Down (90°)', color: '#ff00ff' },
-      { id: '180', label: 'Left (180°)', color: '#ffff00' },
-      { id: '270', label: 'Up (270°)', color: '#00ff00' }
-    ];
-
-    return (
-      <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-        <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-          <Activity size={10} /> SUPERPOSITIONAL THREAT BREAKDOWN
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-          {sources.map(src => {
-            const val = totals[src.id] || 0;
-            const fraction = (val / grandTotal).toFixed(6);
-            return (
-              <div key={src.id} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <div style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: src.color, boxShadow: `0 0 6px ${src.color}` }} />
-                  <span style={{ color: 'var(--text-muted)' }}>{src.label}</span>
-                </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                  <div style={{ width: '60px', height: '4px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '2px', overflow: 'hidden' }}>
-                    <div style={{ width: `${Math.round((val / grandTotal) * 100)}%`, height: '100%', backgroundColor: src.color }} />
-                  </div>
-                  <span style={{ fontWeight: 'bold', width: '55px', textAlign: 'right' }}>{fraction}</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-    );
+    
+    // Hold final state for 1.2 seconds, then clear
+    await new Promise(r => setTimeout(r, 1200));
+    onSimulationUpdate?.(null, null);
+    setIsSimulating(false);
   };
 
-  if (isMinimized) {
-    return (
-      <div 
-        style={{ 
-          position: 'fixed', 
-          left: position.x, 
-          top: position.y, 
-          zIndex: 1000,
-          width: '280px',
-          boxShadow: '0 0 15px rgba(0, 0, 0, 0.8)',
-          cursor: isDragging ? 'grabbing' : 'auto'
-        }}
-        className="glass-panel"
-      >
-        <div 
-          onMouseDown={handleMouseDown}
-          style={{ padding: '10px 15px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'grab', userSelect: 'none' }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            {isAnalyzing ? (
-               <div style={{ width: '16px', height: '16px', border: '2px solid var(--neon-blue)', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-            ) : (
-               <Activity size={16} color="var(--neon-blue)" />
-            )}
-            <span className="font-display" style={{ fontSize: '0.9rem', color: 'var(--neon-blue)' }}>ENGINE</span>
-          </div>
+  const getAdvantage = (scores) => {
+    return (scores.red / 5000) - (scores.blue / 300);
+  };
 
-          <div style={{ flex: 1, margin: '0 15px', height: '6px', backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: '3px', overflow: 'hidden', position: 'relative' }}>
-            <div style={{ position: 'absolute', top: 0, bottom: 0, left: totalScore < 0 ? 'auto' : '50%', right: totalScore < 0 ? '50%' : 'auto', width: getBarWidth(totalScore), backgroundColor: barColor, transition: 'width 0.3s ease' }} />
-            <div style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: '1px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
-          </div>
+  if (!board) return null;
 
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button onClick={() => setIsMinimized(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0 }}>
-              <Maximize2 size={16} />
-            </button>
-            <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--neon-red)', cursor: 'pointer', padding: 0 }}>
-              <X size={16} />
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  // Evaluate the board
+  const cautiousness = getDefenderCautiousness(board);
+  const attackerScore = evaluateBoardAttacker(board, cautiousness, DEFAULT_WEIGHTS.average_tied);
+  const defenderScore = evaluateBoardDefender(board, cautiousness, DEFAULT_WEIGHTS.average_tied);
+  
+  // Calculate advantage (Attacker score scale is roughly 5000, Defender is roughly 300)
+  const rawAdvantage = (attackerScore / 5000) - (defenderScore / 300);
+  const advantage = Math.max(-10, Math.min(10, rawAdvantage));
+  
+  const barColor = advantage >= 0 ? '#ff003c' : '#39ff14'; // Red = Attacker, Green = Defender
+  
+  let interpretation = "Balanced Position";
+  if (advantage > 6) interpretation = "Attacker is dominating";
+  else if (advantage > 2) interpretation = "Attacker has a strong advantage";
+  else if (advantage > 0.5) interpretation = "Attacker is slightly better";
+  else if (advantage < -6) interpretation = "Defender is dominating";
+  else if (advantage < -2) interpretation = "Defender has a strong advantage";
+  else if (advantage < -0.5) interpretation = "Defender is slightly better";
 
   return (
-    <div 
-      style={{ 
-        position: 'fixed', 
-        left: position.x, 
-        top: position.y, 
-        zIndex: 1000,
-        width: '320px',
-        padding: '0', 
-        overflow: 'hidden', 
-        boxShadow: '0 0 20px rgba(0, 0, 0, 0.5)'
+    <Rnd
+      size={isMinimized ? { width: 250, height: 'auto' } : { width: panelState.width, height: panelState.height }}
+      position={{ x: panelState.x, y: panelState.y }}
+      onDragStop={(e, d) => setPanelState(prev => ({ ...prev, x: d.x, y: d.y }))}
+      onResizeStop={(e, direction, ref, delta, position) => {
+        setPanelState({
+          width: parseInt(ref.style.width),
+          height: parseInt(ref.style.height),
+          ...position,
+        });
       }}
-      className="glass-panel"
+      minWidth={isMinimized ? 250 : 320}
+      minHeight={isMinimized ? 'auto' : 400}
+      maxWidth={window.innerWidth - 20}
+      maxHeight={window.innerHeight - 20}
+      disableDragging={false}
+      enableResizing={!isMinimized}
+      dragHandleClassName="analysis-panel-header"
+      className={`analysis-panel-container ${isMinimized ? 'minimized' : 'expanded'}`}
+      style={{
+        backgroundColor: 'rgba(4, 8, 20, 0.95)',
+        border: '1px solid var(--neon-blue)',
+        borderRadius: '8px',
+        boxShadow: '0 0 20px rgba(0, 240, 255, 0.2)',
+        color: '#fff',
+        zIndex: 9999,
+        position: 'fixed',
+        fontFamily: 'monospace',
+        boxSizing: 'border-box',
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden'
+      }}
     >
+      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', boxSizing: 'border-box' }}>
       {/* Header (Draggable) */}
-      <div 
-        onMouseDown={handleMouseDown}
-        onTouchStart={handleMouseDown}
-        style={{ backgroundColor: 'rgba(0, 0, 0, 0.5)', padding: '12px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: isDragging ? 'grabbing' : 'grab', userSelect: 'none' }}
+      <div
+        className="analysis-panel-header"
+        style={{
+          padding: '10px 16px',
+          background: 'linear-gradient(90deg, rgba(0, 240, 255, 0.1), transparent)',
+          borderBottom: '1px solid rgba(0, 240, 255, 0.2)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          cursor: 'grab'
+        }}
       >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {isAnalyzing ? (
-            <div style={{ width: '16px', height: '16px', border: '2px solid var(--neon-blue)', borderTop: '2px solid transparent', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-          ) : (
-            <Activity size={18} color="var(--neon-blue)" />
-          )}
-          <span className="font-display" style={{ fontSize: '1.1rem', color: 'var(--neon-blue)' }}>ANALYSIS</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--neon-blue)', fontWeight: 'bold' }}>
+          <span>LIVE ANALYSIS</span>
         </div>
-        
-        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-
-
-          <button onClick={() => setIsMinimized(true)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0 }}>
-            <Minus size={18} />
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button 
+            onClick={(e) => { e.stopPropagation(); setIsMinimized(!isMinimized); }}
+            style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}
+          >
+            {isMinimized ? <Maximize2 size={16} /> : <Minus size={16} />}
           </button>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--neon-red)', cursor: 'pointer', padding: 0 }}>
-            <X size={18} />
+          <button 
+            onClick={(e) => { e.stopPropagation(); onClose?.(); }}
+            style={{ background: 'none', border: 'none', color: 'var(--neon-red)', cursor: 'pointer' }}
+          >
+            <X size={16} />
           </button>
         </div>
       </div>
 
-      {/* Body */}
-      <div 
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '16px', maxHeight: '75vh', overflowY: 'auto' }}>
-        
-        {/* Main Eval */}
-        <div style={{ textAlign: 'center' }}>
-          {reviewIndex !== null && (
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px', backgroundColor: 'rgba(255,255,255,0.05)', padding: '8px', borderRadius: '8px' }}>
-              <button 
-                onClick={stepBackward} 
-                disabled={reviewIndex === 0}
-                style={{ padding: '4px 12px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', cursor: reviewIndex === 0 ? 'not-allowed' : 'pointer', opacity: reviewIndex === 0 ? 0.3 : 1 }}
-              >
-                &larr; Prev
-              </button>
-              <div style={{ fontWeight: 'bold', fontSize: '0.8rem', color: '#00f0ff' }}>
-                REVIEW MODE: Turn {reviewIndex + 1} / {maxHistoryIndex}
+      {!isMinimized && (
+        <div className="analysis-scroll" style={{ padding: '16px', flex: 1, height: 'calc(100% - 40px)', overflowY: 'auto', display: 'block', boxSizing: 'border-box', position: 'relative' }}>
+          
+          {(isAnalyzing || isSimulating) && (
+            <div style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(4,8,20,0.85)', zIndex: 50, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', backdropFilter: 'blur(4px)', borderRadius: '8px' }}>
+              <div style={{ width: '40px', height: '40px', border: '3px solid rgba(0, 240, 255, 0.2)', borderTop: '3px solid var(--neon-blue)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+              <div style={{ marginTop: '16px', color: 'var(--neon-blue)', fontSize: '0.9rem', fontWeight: 'bold', letterSpacing: '2px', textShadow: '0 0 8px var(--neon-blue)' }}>
+                {isSimulating ? 'SIMULATING...' : 'ANALYZING...'}
               </div>
-              <button 
-                onClick={stepForward} 
-                style={{ padding: '4px 12px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', cursor: 'pointer' }}
-              >
-                {reviewIndex === maxHistoryIndex - 1 ? 'Live \u2192' : 'Next \u2192'}
-              </button>
             </div>
           )}
-          <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '8px' }}>
-            Evaluation (GA Minimax Heuristics)
-          </div>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
-            {/* Attacker Eval */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.65rem', color: '#ffcc00', textTransform: 'uppercase' }}>Attacker Eval</span>
-              <div style={{ color: 'var(--neon-blue)', fontSize: '2rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
-                {formatHeuristicScore(attackerMathScore)}
-              </div>
+
+          {/* Advantage Bar */}
+          <div style={{ marginBottom: '24px' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px', fontSize: '0.8rem' }}>
+              <span style={{ color: 'var(--neon-red)' }}>Attacker</span>
+              <span style={{ color: advantage >= 0 ? 'var(--neon-red)' : 'var(--neon-green)', fontWeight: 'bold' }}>
+                {advantage > 0 ? '+' : ''}{Math.abs(advantage).toFixed(2)}
+              </span>
+              <span style={{ color: 'var(--neon-green)' }}>Defender</span>
             </div>
             
-            <div style={{ width: '1px', height: '40px', backgroundColor: 'rgba(255,255,255,0.2)' }} />
-            
-            {/* Defender Eval */}
-            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <span style={{ fontSize: '0.65rem', color: '#39ff14', textTransform: 'uppercase' }}>Defender Eval</span>
-              <div style={{ color: 'var(--neon-blue)', fontSize: '2rem', fontWeight: 'bold', fontFamily: 'monospace', lineHeight: 1 }}>
-                {formatHeuristicScore(defenderMathScore)}
-              </div>
+            <div style={{ height: '8px', background: 'rgba(255,255,255,0.1)', borderRadius: '4px', overflow: 'hidden', position: 'relative' }}>
+              {/* Center line */}
+              <div style={{ position: 'absolute', left: '50%', top: 0, bottom: 0, width: '2px', background: 'rgba(255,255,255,0.5)', zIndex: 2 }} />
+              
+              {/* Advantage fill */}
+              <div style={{
+                position: 'absolute',
+                top: 0, bottom: 0,
+                background: barColor,
+                boxShadow: `0 0 10px ${barColor}`,
+                width: `${Math.min(Math.abs(advantage) * 5, 50)}%`,
+                left: advantage >= 0 ? '50%' : undefined,
+                right: advantage < 0 ? '50%' : undefined,
+                transition: 'width 0.3s ease, left 0.3s ease, right 0.3s ease'
+              }} />
+            </div>
+            <div style={{ textAlign: 'center', marginTop: '8px', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>
+              {interpretation}
+            </div>
+          </div>
+
+          {/* Scores Breakdown */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '16px' }}>
+            <div style={{ background: 'rgba(255, 0, 60, 0.05)', border: '1px solid rgba(255, 0, 60, 0.2)', padding: '12px', borderRadius: '8px' }}>
+              <div style={{ color: 'var(--neon-red)', fontSize: '0.75rem', marginBottom: '4px' }}>ATTACKER SCORE</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 'bold' }}>{Math.round(attackerScore)}</div>
+            </div>
+            <div style={{ background: 'rgba(57, 255, 20, 0.05)', border: '1px solid rgba(57, 255, 20, 0.2)', padding: '12px', borderRadius: '8px' }}>
+              <div style={{ color: 'var(--neon-green)', fontSize: '0.75rem', marginBottom: '4px' }}>DEFENDER SCORE</div>
+              <div style={{ fontSize: '1.4rem', fontWeight: 'bold' }}>{Math.round(defenderScore)}</div>
             </div>
           </div>
           
-          {/* Visual Bar */}
-          <div style={{ width: '100%', height: '8px', backgroundColor: 'rgba(255,255,255,0.1)', marginTop: '12px', borderRadius: '4px', overflow: 'hidden', position: 'relative' }}>
-            <div style={{ position: 'absolute', top: 0, bottom: 0, left: totalScore < 0 ? 'auto' : '50%', right: totalScore < 0 ? '50%' : 'auto', width: getBarWidth(totalScore), backgroundColor: barColor, transition: 'width 0.3s ease' }} />
-            <div style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: '2px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
+          <div style={{ background: 'rgba(255, 255, 255, 0.03)', padding: '12px', borderRadius: '8px' }}>
+             <div style={{ color: 'var(--text-secondary)', fontSize: '0.75rem', marginBottom: '4px' }}>DEFENDER CAUTIOUSNESS</div>
+             <div style={{ fontSize: '1rem' }}>{cautiousness.toFixed(2)} / 1.0</div>
           </div>
 
-          {moveClassification && (
-            <div style={{ marginTop: '12px', padding: '6px 12px', borderRadius: '6px', backgroundColor: 'rgba(0,0,0,0.4)', border: `1px solid ${moveClassification.color}`, display: 'inline-block', boxShadow: `0 0 10px ${moveClassification.color}40` }}>
-              <span style={{ color: moveClassification.color, fontWeight: 'bold', fontSize: '0.9rem', textTransform: 'uppercase', letterSpacing: '1px' }}>
-                {moveClassification.label}
-              </span>
+          {/* Bot Minds Section */}
+          <div style={{ 
+            marginTop: '16px',
+            background: 'rgba(0, 0, 0, 0.3)',
+            border: '1px solid rgba(0, 240, 255, 0.3)',
+            boxShadow: 'inset 0 0 10px rgba(0, 240, 255, 0.05)',
+            borderRadius: '8px',
+            overflow: 'hidden',
+            transition: 'all 0.3s ease'
+          }}>
+            <div 
+              style={{ 
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', 
+                padding: '12px', cursor: 'pointer',
+                background: isMindsExpanded ? 'rgba(0, 240, 255, 0.05)' : 'transparent',
+                borderBottom: isMindsExpanded ? '1px solid rgba(0, 240, 255, 0.3)' : 'none'
+              }}
+              onClick={() => setIsMindsExpanded(!isMindsExpanded)}
+            >
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--neon-blue)', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                {isMindsExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+                BOT MINDS (Thought Process)
+              </div>
+            </div>
+
+            {isMindsExpanded && (
+              <div style={{ padding: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '12px' }}>
+                  <div style={{ display: 'flex', gap: '4px', background: 'rgba(255,255,255,0.05)', padding: '2px', borderRadius: '6px' }}>
+                    <button 
+                  onClick={() => setViewingRole('attacker')}
+                  style={{
+                    padding: '4px 8px', fontSize: '0.7rem', borderRadius: '4px', fontWeight: 'bold',
+                    background: viewingRole === 'attacker' ? 'var(--neon-red)' : 'transparent',
+                    color: viewingRole === 'attacker' ? '#000' : '#ccc',
+                    border: 'none', cursor: 'pointer'
+                  }}
+                >
+                  ATTACKER
+                </button>
+                <button 
+                  onClick={() => setViewingRole('defender')}
+                  style={{
+                    padding: '4px 8px', fontSize: '0.7rem', borderRadius: '4px', fontWeight: 'bold',
+                    background: viewingRole === 'defender' ? 'var(--neon-green)' : 'transparent',
+                    color: viewingRole === 'defender' ? '#000' : '#ccc',
+                    border: 'none', cursor: 'pointer'
+                  }}
+                >
+                  DEFENDER
+                </button>
+              </div>
+            </div>
+
+            {botMinds && botMinds[viewingRole] ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {['easy', 'medium', 'hard', 'ga'].map(diff => {
+                  const line = botMinds[viewingRole][diff];
+                  const label = diff.toUpperCase();
+                  if (!line) return (
+                    <div key={diff} style={{ background: 'rgba(0,0,0,0.4)', border: '1px solid rgba(255,255,255,0.1)', padding: '8px', borderRadius: '6px', fontSize: '0.85rem', color: 'gray' }}>
+                      <span style={{ display: 'inline-block', width: '60px', color: 'var(--neon-blue)' }}>{label}</span>
+                      <span>No valid moves found.</span>
+                    </div>
+                  );
+
+                  const advantageStr = line.score > 0 ? `+${line.score.toFixed(1)}` : line.score.toFixed(1);
+                  const evalColor = line.score >= 0 ? 'var(--neon-red)' : 'var(--neon-green)';
+                  const displayRole = viewingRole === 'attacker' ? 'Attacker' : 'Defender';
+                  
+                  return (
+                    <div 
+                      key={diff} 
+                      style={{ 
+                        background: 'rgba(0,0,0,0.4)', 
+                        border: '1px solid rgba(255,255,255,0.1)', 
+                        padding: '12px', 
+                        borderRadius: '6px',
+                        fontSize: '0.85rem',
+                        lineHeight: '1.4'
+                      }}
+                    >
+                      <div style={{ marginBottom: '6px', display: 'flex', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <span style={{ color: 'var(--neon-blue)', fontWeight: 'bold' }}>{label} BOT</span>
+                          <button 
+                            disabled={isSimulating}
+                            onClick={() => handleSimulate(line.sequence)}
+                            style={{ 
+                              background: isSimulating ? 'rgba(255,255,255,0.1)' : 'var(--neon-blue)', 
+                              color: '#000', border: 'none', borderRadius: '4px', padding: '2px 8px', 
+                              fontSize: '0.65rem', fontWeight: 'bold', cursor: isSimulating ? 'not-allowed' : 'pointer' 
+                            }}
+                          >
+                            {isSimulating ? 'SIMULATING...' : '▶ SIMULATE'}
+                          </button>
+                        </div>
+                        <span style={{ color: evalColor, fontWeight: 'bold' }}>Eval: {advantageStr}</span>
+                      </div>
+                      <div style={{ color: '#ccc' }}>
+                        "If I were the {displayRole}, my best plan is to{' '}
+                        {line.sequence.map((action, i) => {
+                          const isLast = i === line.sequence.length - 1;
+                          const connector = i === 0 ? '' : (isLast ? ' and then ' : ', then ');
+                          
+                          let actionText = '';
+                          if (action.type === 'move') {
+                            actionText = `move my piece at (${action.fromR}, ${action.fromC}) to (${action.toR}, ${action.toC})`;
+                          } else if (action.type === 'rotate') {
+                            actionText = `rotate my piece at (${action.r}, ${action.c}) ${action.dir === 'cw' ? 'clockwise' : 'counter-clockwise'}`;
+                          } else if (action.type === 'laser-press') {
+                            actionText = `fire the Lazer`;
+                          } else if (action.type === 'place') {
+                            actionText = `place a piece at (${action.r}, ${action.c})`;
+                          }
+
+                          return (
+                            <React.Fragment key={i}>
+                              {connector}
+                              <span 
+                                style={{ 
+                                  color: '#fff', 
+                                  cursor: 'pointer', 
+                                  borderBottom: '1px dashed rgba(255,255,255,0.5)',
+                                  padding: '0 2px'
+                                }}
+                                onClick={() => {
+                                  if (action.type === 'move') onHighlightMove?.(action.fromR, action.fromC);
+                                  else if (action.type === 'rotate') onHighlightMove?.(action.r, action.c);
+                                }}
+                                title="Click to highlight on board"
+                              >
+                                {actionText}
+                              </span>
+                            </React.Fragment>
+                          );
+                        })}."
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div style={{ fontSize: '0.8rem', color: 'gray' }}>Evaluating bot minds...</div>
+            )}
+              </div>
+            )}
+          </div>
+
+          {/* History Playback */}
+          {(maxHistoryIndex !== undefined && maxHistoryIndex > 0) && (
+            <div style={{ marginTop: '16px', background: 'rgba(0, 240, 255, 0.05)', border: '1px solid rgba(0, 240, 255, 0.2)', padding: '12px', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <button 
+                onClick={stepBackward} 
+                disabled={reviewIndex === 0}
+                style={{ background: 'rgba(0, 240, 255, 0.2)', border: 'none', color: '#fff', padding: '6px 12px', borderRadius: '4px', cursor: reviewIndex === 0 ? 'not-allowed' : 'pointer', opacity: reviewIndex === 0 ? 0.5 : 1 }}
+              >
+                ◀ BACK
+              </button>
+              <div style={{ fontSize: '0.8rem', color: 'var(--neon-blue)', fontWeight: 'bold' }}>
+                TURN {reviewIndex !== null ? reviewIndex + 1 : maxHistoryIndex + 1} / {maxHistoryIndex + 1}
+              </div>
+              <button 
+                onClick={stepForward} 
+                disabled={reviewIndex === null}
+                style={{ background: 'rgba(0, 240, 255, 0.2)', border: 'none', color: '#fff', padding: '6px 12px', borderRadius: '4px', cursor: reviewIndex === null ? 'not-allowed' : 'pointer', opacity: reviewIndex === null ? 0.5 : 1 }}
+              >
+                FWD ▶
+              </button>
             </div>
           )}
+
         </div>
-
-        <div style={{ display: 'flex', gap: '12px' }}>
-          {/* Context Box */}
-          <div style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Activity size={10} /> BOT CONTEXT
-            </div>
-            <div style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Difficulty:</span>
-                <span style={{ color: '#ffcc00', fontWeight: 'bold', textTransform: 'uppercase' }}>{difficulty}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Role:</span>
-                <span style={{ textTransform: 'uppercase' }}>{role}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Cautiousness:</span>
-                <span>{cautiousness.toFixed(2)}x</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Game Stats Box */}
-          <div style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '6px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Clock size={10} /> MATCH STATS
-            </div>
-            <div style={{ fontSize: '0.8rem', display: 'flex', flexDirection: 'column', gap: '4px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}><Dices size={10} style={{display:'inline'}}/> Last Roll:</span>
-                <span>{values[0]} + {values[1]} = {values[0] + values[1]}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Last Roller:</span>
-                <span style={{ textTransform: 'capitalize' }}>{lastRoller || 'None'}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Moves Played:</span>
-                <span>{history?.past?.length || 0}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* ADVANCED METRICS */}
-        {advancedMetrics && (
-          <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Activity size={10} /> ADVANCED POSITION METRICS
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.75rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Mobility (Options):</span>
-                <span>{role === 'attacker' ? advancedMetrics.attackerMobility : advancedMetrics.defenderMobility} moves</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Center Control:</span>
-                <span>{advancedMetrics.centerControl > 0 ? '+' : ''}{Math.round(advancedMetrics.centerControl)}</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Mirror Utilization:</span>
-                <span>{Math.round(advancedMetrics.mirrorUtilization * 100)}%</span>
-              </div>
-              {advancedMetrics.primaryTarget && (
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--text-muted)' }}>Primary Target:</span>
-                  <span style={{ color: advancedMetrics.primaryTarget.isHit ? 'var(--neon-red)' : '#ffcc00' }}>
-                    {advancedMetrics.primaryTarget.type.replace('block-', '')}pt ({advancedMetrics.primaryTarget.isHit ? 'HIT' : `${advancedMetrics.primaryTarget.apToHit} AP`})
-                  </span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* AP UTILIZATION (MATH ONLY) */}
-        {advancedMetrics?.turnStats && phase === 'playing' && (
-          <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Activity size={10} /> AP UTILIZATION (THIS TURN)
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.75rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Lazer Firing:</span>
-                <span style={{ color: advancedMetrics.turnStats.lazerFire > 0 ? 'var(--neon-red)' : '#fff' }}>{advancedMetrics.turnStats.lazerFire} AP</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Lazer Moving:</span>
-                <span>{advancedMetrics.turnStats.lazerMove} AP</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Lazer Turning:</span>
-                <span>{advancedMetrics.turnStats.lazerRotate} AP</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Piece Moving:</span>
-                <span>{advancedMetrics.turnStats.pieceMove} AP</span>
-              </div>
-              {advancedMetrics.turnStats.pieceMove > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', paddingLeft: '12px', gap: '4px', marginTop: '-2px', marginBottom: '2px' }}>
-                  {Object.entries(advancedMetrics.turnStats.pieceMoveBreakdown).map(([type, count]) => count > 0 && (
-                    <div key={type} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.65rem' }}>
-                      <span style={{ color: 'var(--text-muted)' }}>- {type.replace('block-', '')}pt:</span>
-                      <span>{count} AP</span>
-                    </div>
-                  ))}
-                </div>
-              )}
-              {advancedMetrics.turnStats.wastedAP > 0 && (
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                  <span style={{ color: 'var(--neon-red)' }}>Wasted AP:</span>
-                  <span style={{ color: 'var(--neon-red)', fontWeight: 'bold' }}>{advancedMetrics.turnStats.wastedAP} AP</span>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* THREAT DELTA */}
-        {startOfTurnThreats && pieceThreats && phase === 'playing' && (
-          <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Activity size={10} /> THREAT DELTA (THIS TURN)
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.75rem' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Start of Turn Threat:</span>
-                <span>{totalStartThreat.toFixed(1)} pts</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                <span style={{ color: 'var(--text-muted)' }}>Current Threat:</span>
-                <span>{totalCurrentThreat.toFixed(1)} pts</span>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '4px', marginTop: '2px' }}>
-                <span style={{ color: 'var(--text-muted)' }}>
-                  {role === 'attacker' ? 'Threat Applied (Goal: Maximize):' : 'Threat Mitigated (Goal: Minimize):'}
-                </span>
-                <span style={{ color: role === 'attacker' ? (threatDelta > 0 ? '#39ff14' : (threatDelta < 0 ? '#ff003c' : 'var(--text-muted)')) : (threatDelta < 0 ? '#39ff14' : (threatDelta > 0 ? '#ff003c' : 'var(--text-muted)')), fontWeight: 'bold' }}>
-                  {threatDelta > 0 ? '+' : ''}{threatDelta.toFixed(1)} pts
-                </span>
-              </div>
-              {/* Visual Delta Bar */}
-              <div style={{ width: '100%', height: '4px', backgroundColor: 'rgba(255,255,255,0.1)', marginTop: '2px', borderRadius: '2px', overflow: 'hidden', position: 'relative' }}>
-                <div style={{ 
-                  position: 'absolute', top: 0, bottom: 0, 
-                  left: threatDelta < 0 ? 'auto' : '50%', 
-                  right: threatDelta < 0 ? '50%' : 'auto', 
-                  width: `${Math.min(Math.abs(threatDelta), 50)}%`, 
-                  backgroundColor: role === 'attacker' ? (threatDelta > 0 ? '#39ff14' : '#ff003c') : (threatDelta < 0 ? '#39ff14' : '#ff003c'), 
-                  transition: 'width 0.3s ease' 
-                }} />
-                <div style={{ position: 'absolute', top: 0, bottom: 0, left: '50%', width: '1px', backgroundColor: 'rgba(255,255,255,0.5)' }} />
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* SUPERPOSITIONAL THREAT BREAKDOWN */}
-        {getThreatBreakdown()}
-
-        {/* PIECE THREATS */}
-        {showPieceThreats && pieceThreats && pieceThreats.length > 0 && (
-          <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Activity size={10} /> PIECE THREAT LEVELS
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {pieceThreats.map((pt, i) => {
-                let deltaStr = null;
-                let deltaColor = 'var(--text-muted)';
-                if (startOfTurnThreats) {
-                  const startPt = startOfTurnThreats.find(s => s.type === pt.type);
-                  if (startPt) {
-                    const diff = pt.threatLevel - startPt.threatLevel;
-                    if (Math.abs(diff) > 0.000001) {
-                      const diffVal = diff.toFixed(6);
-                      const sign = diff > 0 ? '+' : '';
-                      deltaStr = `${sign}${diffVal}`;
-                      deltaColor = diff > 0 ? 'var(--neon-red)' : '#39ff14'; // Green is good for defender
-                    } else {
-                      deltaStr = '0.000000';
-                    }
-                  }
-                }
-
-                return (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.75rem' }}>
-                    <span style={{ color: 'var(--text-muted)' }}>{pt.type.replace('block-', '')}pt Piece at ({pt.r}, {pt.c})</span>
-                    <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      {deltaStr && (
-                        <span style={{ color: deltaColor, fontSize: '0.65rem', fontWeight: 'bold' }}>
-                          [{deltaStr}]
-                        </span>
-                      )}
-                      <span style={{ fontWeight: 'bold', color: pt.threatLevel > 0.5 ? 'var(--neon-red)' : '#fff' }}>
-                        {pt.threatLevel.toFixed(6)} Danger
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Behavior Warnings */}
-        {data.behaviorWarnings && data.behaviorWarnings.length > 0 && (
-          <div style={{ backgroundColor: 'rgba(255, 0, 60, 0.1)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255, 0, 60, 0.3)' }}>
-            <div style={{ fontSize: '0.65rem', color: 'var(--neon-red)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px', fontWeight: 'bold' }}>
-              <Target size={10} /> BEHAVIOR WARNINGS
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {data.behaviorWarnings.map((warning, i) => (
-                <div key={i} style={{ fontSize: '0.75rem', color: '#ffcc00', lineHeight: 1.3 }}>
-                  <span style={{ fontWeight: 'bold', color: 'var(--neon-red)' }}>{warning.type.toUpperCase()}: </span>
-                  {warning.message}
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* Engine Lines */}
-        {engineLines && engineLines.length > 0 && (
-          <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.05)' }}>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Activity size={10} /> TOP STRATEGIC PLAYS (MATH)
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              {engineLines.map((line, i) => (
-                <div key={i} style={{ display: 'flex', flexDirection: 'column', fontSize: '0.75rem', backgroundColor: 'rgba(255,255,255,0.02)', padding: '6px', borderRadius: '4px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span style={{ fontWeight: 'bold', color: '#ffcc00' }}>
-                      {i + 1}. {line.name || 'Unknown Strategy'}
-                    </span>
-                    <span style={{ fontWeight: 'bold', fontFamily: 'monospace', color: line.score > 0 ? '#39ff14' : 'var(--text-secondary)' }}>
-                      {line.score > 0 ? '+' : ''}{line.score}
-                    </span>
-                  </div>
-                  <div style={{ color: 'var(--text-muted)', fontSize: '0.65rem', display: 'flex', flexWrap: 'wrap', gap: '4px', alignItems: 'center' }}>
-                    {line.sequence && line.sequence.map((act, idx) => {
-                       return (
-                         <React.Fragment key={idx}>
-                           <span>{formatActionText(act)}</span>
-                           {idx < line.sequence.length - 1 && <span style={{ color: 'rgba(255,255,255,0.3)' }}>➔</span>}
-                         </React.Fragment>
-                       );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-
-
-
-        {/* Challenge Recommendation */}
-        {phase === 'challenge-declaration' && challengeRecommendation && (
-          <div style={{ backgroundColor: 'rgba(0,0,0,0.3)', padding: '10px', borderRadius: '8px', border: challengeRecommendation.recommend ? '1px solid #39ff14' : '1px solid var(--text-secondary)' }}>
-            <div style={{ fontSize: '0.65rem', color: 'var(--text-secondary)', marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <Target size={10} /> CHALLENGE ANALYSIS
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <div style={{ fontSize: '0.8rem', fontWeight: 'bold', color: challengeRecommendation.recommend ? '#39ff14' : 'var(--text-secondary)' }}>
-                {challengeRecommendation.recommend ? 'CHALLENGE RECOMMENDED' : 'DO NOT CHALLENGE'} ({challengeRecommendation.probability}%)
-              </div>
-              <div style={{ fontSize: '0.75rem', marginTop: '4px' }}>
-                {challengeRecommendation.reason}
-                {challengeRecommendation.suggestedPiece && (
-                  <div style={{ marginTop: '4px', fontWeight: 'bold' }}>
-                    Suggested Target: {challengeRecommendation.suggestedPiece.replace('block-', '')}pt Piece
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {getThreatBreakdown()}
-        
-        <div style={{ fontSize: '0.7rem', color: 'var(--text-muted)', textAlign: 'center', fontStyle: 'italic', lineHeight: 1.4 }}>
-          * The engine evaluates the game state using a multidimensional vector heuristic, combining physical distance calculations with deep Threat Map raycasting probability logic.
-        </div>
+      )}
       </div>
-    </div>
+    </Rnd>
   );
 }

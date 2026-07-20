@@ -14,7 +14,7 @@
  * Both BotStrategies.js and Ruleset.js are pure JS with zero DOM dependencies — safe for workers.
  */
 
-import { EasyStrategy, MediumStrategy, HardStrategy, GAStrategy, generateThreatMap, generateExpectiminimaxThreatMap } from './BotStrategies.js';
+import { BUILTIN_STRATEGIES, generateThreatMap, generateExpectiminimaxThreatMap } from './BotStrategies.js';
 
 self.onmessage = function (e) {
   const { type, requestId } = e.data;
@@ -24,14 +24,8 @@ self.onmessage = function (e) {
       const { board, role, actionPoints, difficulty, gameState, botPlayer } = e.data;
       let action = null;
 
-      if (difficulty === 'easy') {
-        action = EasyStrategy.getPlayAction(board, role, actionPoints, gameState, botPlayer);
-      } else if (difficulty === 'medium') {
-        action = MediumStrategy.getPlayAction(board, role, actionPoints, gameState, botPlayer);
-      } else if (difficulty === 'hard') {
-        action = HardStrategy.getPlayAction(board, role, actionPoints, gameState, botPlayer);
-      } else if (difficulty === 'ga') {
-        action = GAStrategy.getPlayAction(board, role, actionPoints, gameState, botPlayer);
+      if (BUILTIN_STRATEGIES[difficulty]) {
+        action = BUILTIN_STRATEGIES[difficulty].getPlayAction(board, role, actionPoints, gameState, botPlayer);
       }
 
       self.postMessage({ requestId, result: action });
@@ -52,14 +46,8 @@ self.onmessage = function (e) {
       const { board, phase, playerColor, difficulty, challengedPiece } = e.data;
       let action = null;
 
-      if (difficulty === 'easy') {
-        action = EasyStrategy.getSetupAction(board, phase, playerColor, challengedPiece);
-      } else if (difficulty === 'medium') {
-        action = MediumStrategy.getSetupAction(board, phase, playerColor, challengedPiece);
-      } else if (difficulty === 'hard') {
-        action = HardStrategy.getSetupAction(board, phase, playerColor, challengedPiece);
-      } else if (difficulty === 'ga') {
-        action = GAStrategy.getSetupAction(board, phase, playerColor, challengedPiece);
+      if (BUILTIN_STRATEGIES[difficulty]) {
+        action = BUILTIN_STRATEGIES[difficulty].getSetupAction(board, phase, playerColor, challengedPiece);
       }
 
       self.postMessage({ requestId, result: action });

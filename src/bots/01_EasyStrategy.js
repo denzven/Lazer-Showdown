@@ -1,3 +1,7 @@
+// NAME: "Zlorooklp"
+// AUTHOR: "LazerAI"
+// STRAT: "Easy Heuristic"
+
 import { 
   getBoardState, 
   getPossibleActions, 
@@ -5,7 +9,7 @@ import {
   traceLaserBeam,
   getPieceValue,
   genericSetupAction
-} from './BotHelpers.js';
+} from "../core/BotHelpers.js";
 
 export const EasyStrategy = {
   /**

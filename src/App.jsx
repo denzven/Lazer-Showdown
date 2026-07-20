@@ -4,7 +4,7 @@ import { useGame } from './hooks/useGame';
 import ConnectionScreen from './components/Lobby/ConnectionScreen';
 import Layout from './components/Layout';
 import TutorialLayout from './components/TutorialLayout';
-import { Globe, Users, Cpu, ChevronDown, Share2, Upload } from 'lucide-react';
+import { Globe, Users, Cpu, ChevronDown, Share2, Upload, Camera, ThumbsUp, Briefcase, Gamepad2 } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import './index.css';
 import InstallPWA from './components/InstallPWA';
@@ -12,6 +12,7 @@ import NotificationPrompt from './components/NotificationPrompt';
 import DevsCorner from './components/DevsCorner';
 import { generateExpectiminimaxThreatMap } from './core/BotHelpers';
 import { getInitialBoard } from './core/Ruleset';
+import { BUILTIN_BOTS, CUSTOM_BOTS_METADATA } from './core/BotStrategies';
 const loreModules = import.meta.glob(['./lore/*.md', './lore/*.txt'], { query: '?raw', import: 'default', eager: true });
 const loreFiles = Object.keys(loreModules).sort().map(key => loreModules[key]);
 
@@ -107,6 +108,7 @@ function App() {
   // Auto-update from GitHub
   useEffect(() => {
     const checkGitHubUpdate = async () => {
+      if (import.meta.env.DEV) return;
       if (!navigator.onLine) return;
       try {
         const response = await fetch('https://api.github.com/repos/denzven/Lazer-Showdown/commits/main');
@@ -256,6 +258,8 @@ function App() {
     if (hash === '#/rules') return 'rules';
     if (hash === '#/video-guide') return 'video-guide';
     if (hash === '#/credits') return 'credits';
+    if (hash === '#/credits/socials') return 'credits-socials';
+    if (hash === '#/settings') return 'settings';
     if (hash.startsWith('#/devs-corner')) return 'devs-corner';
     
     // Parse lore page sub-paths
@@ -327,6 +331,8 @@ function App() {
     else if (newMode === 'rules') targetHash = '#/rules';
     else if (newMode === 'video-guide') targetHash = '#/video-guide';
     else if (newMode === 'credits') targetHash = '#/credits';
+    else if (newMode === 'credits-socials') targetHash = '#/credits/socials';
+    else if (newMode === 'settings') targetHash = '#/settings';
     else if (newMode === 'devs-corner') {
       let activeSub = devsCornerSubMode;
       let activeTabStr = devsCornerActiveTab;
@@ -505,6 +511,14 @@ function App() {
         title = "Creator Credits & Devs | Lazer Showdown";
         desc = "Meet the builders behind Lazer Showdown. Powered by React, Vite, WebRTC, and the Gemini AI coding assistant.";
         break;
+      case 'credits-socials':
+        title = "Socials & Community | Lazer Showdown";
+        desc = "Connect with the community! Find our socials for Instagram, Facebook, LinkedIn, Discord and more.";
+        break;
+      case 'settings':
+        title = "Settings | Lazer Showdown";
+        desc = "Configure your Lazer Showdown settings: Audio, Volume, Vibration, Notifications, and Storage.";
+        break;
       case 'devs-corner':
         if (devsCornerSubMode === 'editor') {
           title = "Grid Layout Editor - Design Custom Maps | Lazer Showdown";
@@ -590,9 +604,9 @@ function App() {
   };
 
   const getBotName = (diff) => {
-    if (diff === 'easy') return 'Zlorooklp (EASY)';
-    if (diff === 'medium') return 'Lizbishmir (MEDIUM)';
-    if (diff === 'hard') return 'Shahlzrmir (HARD)';
+    const bot = BUILTIN_BOTS.find(b => b.id === diff);
+    if (bot) return `${bot.name} (${diff.toUpperCase()})`;
+    if (CUSTOM_BOTS_METADATA[diff]) return `${CUSTOM_BOTS_METADATA[diff]} (${diff.toUpperCase()})`;
     return 'Computer';
   };
 
@@ -608,10 +622,9 @@ function App() {
   };
 
   const getBotNameWithStrategy = (diff) => {
-    if (diff === 'easy') return 'Zlorooklp (EASY)';
-    if (diff === 'medium') return 'Lizbishmir (MEDIUM)';
-    if (diff === 'hard') return 'Shahlzrmir (HARD)';
-    if (diff === 'ga') return 'GA-Bot (TUNED)';
+    const bot = BUILTIN_BOTS.find(b => b.id === diff);
+    if (bot) return `${bot.name} (${bot.strat})`;
+    if (CUSTOM_BOTS_METADATA[diff]) return CUSTOM_BOTS_METADATA[diff];
     return `Bot (${diff.substring(0, 8)})`;
   };
 
@@ -669,37 +682,30 @@ function App() {
             </p>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%' }}>
-              <button
-                className="cyber-button blue"
-                onClick={() => { setDifficulty('easy'); setMode('bot', 'easy'); game.clearWorkspace(); }}
-                style={{ padding: '16px', fontSize: '1rem', width: '100%', textTransform: 'uppercase' }}
-              >
-                ZLOROOKLP (EASY)
-              </button>
-              
-              <button
-                className="cyber-button"
-                onClick={() => { setDifficulty('medium'); setMode('bot', 'medium'); game.clearWorkspace(); }}
-                style={{ padding: '16px', fontSize: '1rem', width: '100%', textTransform: 'uppercase', borderColor: '#ffcc00', color: '#ffcc00' }}
-              >
-                LIZBISHMIR (MEDIUM)
-              </button>
-
-              <button
-                className="cyber-button red"
-                onClick={() => { setDifficulty('hard'); setMode('bot', 'hard'); game.clearWorkspace(); }}
-                style={{ padding: '16px', fontSize: '1rem', width: '100%', textTransform: 'uppercase' }}
-              >
-                SHAHLZRMIR (HARD)
-              </button>
-
-              <button
-                className="cyber-button"
-                onClick={() => { setDifficulty('ga'); setMode('bot', 'ga'); game.clearWorkspace(); }}
-                style={{ padding: '16px', fontSize: '1rem', width: '100%', textTransform: 'uppercase', borderColor: '#ff00ff', color: '#ff00ff' }}
-              >
-                AI (EXPECTIMINIMAX)
-              </button>
+              {BUILTIN_BOTS.map((bot, index) => {
+                let colorClass = 'cyber-button';
+                let inlineStyle = { padding: '16px', fontSize: '1rem', width: '100%', textTransform: 'uppercase' };
+                if (index === 0) colorClass += ' blue';
+                else if (index === 1) {
+                  inlineStyle.borderColor = '#ffcc00';
+                  inlineStyle.color = '#ffcc00';
+                }
+                else if (index === 2) colorClass += ' red';
+                else if (index >= 3) {
+                  inlineStyle.borderColor = '#ff00ff';
+                  inlineStyle.color = '#ff00ff';
+                }
+                return (
+                  <button
+                    key={bot.id}
+                    className={colorClass}
+                    onClick={() => { setDifficulty(bot.id); setMode('bot', bot.id); game.clearWorkspace(); }}
+                    style={inlineStyle}
+                  >
+                    {bot.name} ({bot.strat})
+                  </button>
+                );
+              })}
 
               <button
                 className="cyber-button"
@@ -709,6 +715,53 @@ function App() {
                 BACK TO OPTIONS
               </button>
             </div>
+          </div>
+        </div>
+      ) : mode === 'settings' ? (
+        <div className="lobby-container">
+          <div className="lobby-box glass-panel" style={{ maxWidth: '600px', width: '100%', padding: '40px 30px' }}>
+            <h1 className="lobby-title font-display" style={{ fontSize: '2rem', marginBottom: '10px' }}>SETTINGS</h1>
+            <p className="lobby-subtitle" style={{ marginBottom: '30px' }}>
+              Configure your game experience
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', textAlign: 'left' }}>
+              
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px', backgroundColor: 'rgba(0, 240, 255, 0.05)', border: '1px solid rgba(0, 240, 255, 0.2)', borderRadius: '8px' }}>
+                <div>
+                  <div style={{ fontWeight: 'bold', color: 'var(--neon-blue)', marginBottom: '4px' }}>VOLUME & AUDIO</div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Master volume for music and SFX</div>
+                </div>
+                <button className="cyber-button" onClick={() => window.alert('Coming soon!')} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>CONFIGURE</button>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px', backgroundColor: 'rgba(0, 240, 255, 0.05)', border: '1px solid rgba(0, 240, 255, 0.2)', borderRadius: '8px' }}>
+                <div>
+                  <div style={{ fontWeight: 'bold', color: 'var(--neon-blue)', marginBottom: '4px' }}>HAPTICS & VIBRATION</div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Device vibration feedback</div>
+                </div>
+                <button className="cyber-button" onClick={() => window.alert('Coming soon!')} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>TOGGLE</button>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px', backgroundColor: 'rgba(0, 240, 255, 0.05)', border: '1px solid rgba(0, 240, 255, 0.2)', borderRadius: '8px' }}>
+                <div>
+                  <div style={{ fontWeight: 'bold', color: 'var(--neon-blue)', marginBottom: '4px' }}>NOTIFICATIONS</div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Push alerts and updates</div>
+                </div>
+                <button className="cyber-button" onClick={() => window.alert('Coming soon!')} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>MANAGE</button>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '15px', backgroundColor: 'rgba(0, 240, 255, 0.05)', border: '1px solid rgba(0, 240, 255, 0.2)', borderRadius: '8px' }}>
+                <div>
+                  <div style={{ fontWeight: 'bold', color: 'var(--neon-blue)', marginBottom: '4px' }}>PERMISSIONS & STORAGE</div>
+                  <div style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>Clear cache and manage data</div>
+                </div>
+                <button className="cyber-button red" onClick={() => window.alert('Coming soon!')} style={{ padding: '8px 16px', fontSize: '0.85rem' }}>CLEAR</button>
+              </div>
+
+            </div>
+            <button className="cyber-button" onClick={() => setMode('main-menu')} style={{ padding: '12px', fontSize: '0.9rem', width: '100%', marginTop: '30px', borderColor: 'var(--text-secondary)' }}>
+              BACK TO MAIN MENU
+            </button>
           </div>
         </div>
       ) : mode === 'how-to-play' ? (
@@ -1002,13 +1055,49 @@ function App() {
 
 
 
-              <p style={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#b15cff', marginTop: '5px' }}>
+              <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', marginTop: '20px' }}>
+                <button 
+                  className="cyber-button" 
+                  onClick={() => setMode('credits-socials')} 
+                  style={{ padding: '12px', flex: 1, letterSpacing: '0.1em', borderColor: '#ff00ff', color: '#ff00ff' }}
+                >
+                  SOCIALS
+                </button>
+              </div>
+
+              <p style={{ fontSize: '0.95rem', fontWeight: 'bold', color: '#b15cff', marginTop: '15px' }}>
                 Made with Love by DZVN 💜
               </p>
             </div>
             <button className="cyber-button" onClick={() => setMode('main-menu')} style={{ width: '100%' }}>
               BACK
             </button>
+          </div>
+        </div>
+      ) : mode === 'credits-socials' ? (
+        <div className="lobby-container">
+          <div className="lobby-box glass-panel" style={{ maxWidth: '400px' }}>
+            <h1 className="lobby-title font-display">SOCIALS</h1>
+            <p className="lobby-subtitle" style={{ marginBottom: '30px' }}>
+              Connect with our community
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
+              <button className="cyber-button" onClick={() => window.alert('Instagram link coming soon!')} style={{ padding: '16px', fontSize: '1rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', borderColor: '#E1306C', color: '#E1306C' }}>
+                <Camera size={20} /> INSTAGRAM
+              </button>
+              <button className="cyber-button" onClick={() => window.alert('Facebook link coming soon!')} style={{ padding: '16px', fontSize: '1rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', borderColor: '#1877F2', color: '#1877F2' }}>
+                <ThumbsUp size={20} /> FACEBOOK
+              </button>
+              <button className="cyber-button" onClick={() => window.alert('LinkedIn link coming soon!')} style={{ padding: '16px', fontSize: '1rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', borderColor: '#0A66C2', color: '#0A66C2' }}>
+                <Briefcase size={20} /> LINKEDIN
+              </button>
+              <button className="cyber-button" onClick={() => window.alert('Discord link coming soon!')} style={{ padding: '16px', fontSize: '1rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', borderColor: '#5865F2', color: '#5865F2' }}>
+                <Gamepad2 size={20} /> DISCORD
+              </button>
+              <button className="cyber-button" onClick={() => setMode('credits')} style={{ padding: '12px', fontSize: '0.9rem', width: '100%', marginTop: '16px', borderColor: 'var(--text-secondary)' }}>
+                BACK TO CREDITS
+              </button>
+            </div>
           </div>
         </div>
       ) : mode === 'devs-corner' ? (
@@ -1304,15 +1393,11 @@ function App() {
                 CREDITS
               </button>
               <button 
-                className="cyber-button red" 
-                onClick={() => {
-                  if (window.confirm('Are you sure you want to exit?')) {
-                    window.close();
-                  }
-                }} 
-                style={{ padding: '14px', letterSpacing: '0.1em' }}
+                className="cyber-button" 
+                onClick={() => setMode('settings')} 
+                style={{ padding: '14px', letterSpacing: '0.1em', borderColor: '#ff00ff', color: '#ff00ff' }}
               >
-                EXIT
+                SETTINGS
               </button>
             </div>
           </div>

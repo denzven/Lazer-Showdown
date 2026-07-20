@@ -6,13 +6,13 @@ import {
 import { getBotSetupAction, getBotPlayAction, getBotChallengeAction, generateThreatMap, getBoardAnalysis, generatePossibilityWeb } from '../core/BotEngine';
 
 function getBotActionDelay(difficulty, action, gameState, humanPaceAvg) {
-  let baseDelay = 300;
-  if (difficulty === 'easy') baseDelay = 250;
-  else if (difficulty === 'medium') baseDelay = 550;
-  else if (difficulty === 'hard') baseDelay = 850;
-  else if (difficulty === 'ga') baseDelay = 700;
+  let baseDelay = 500;
+  if (difficulty === 'easy') baseDelay = 400;
+  else if (difficulty === 'medium') baseDelay = 700;
+  else if (difficulty === 'hard') baseDelay = 950;
+  else if (difficulty === 'ga') baseDelay = 800;
 
-  const paceFactor = Math.max(0.6, Math.min(1.6, humanPaceAvg / 1000));
+  const paceFactor = Math.max(0.7, Math.min(1.6, humanPaceAvg / 1000));
   let pacedDelay = baseDelay * paceFactor;
 
   let decisionWeight = 0;

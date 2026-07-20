@@ -7,7 +7,7 @@ import {
 import ReactMarkdown from 'react-markdown';
 import botsDocRaw from '../../../docs/BOTS.md?raw';
 import { 
-  EasyStrategy, MediumStrategy, HardStrategy, GAStrategy, CUSTOM_STRATEGIES,
+  BUILTIN_BOTS, BUILTIN_STRATEGIES, CUSTOM_STRATEGIES, CUSTOM_BOTS_METADATA,
   getBoardState, getPossibleActions, applyLightweightAction, getPieceThreatLevels,
   generateThreatMap, computeSafetySteps, bfsToNearestFiringCell, getReverseFiringCells,
   getChallengeRecommendation
@@ -16,7 +16,11 @@ import { BLOCK_TYPES, traceLaserBeam, validatePlacement, validateMovement } from
 import { getInitialState, applySandboxAction } from '../../core/GameState';
 import { getBotSetupAction } from '../../core/BotEngine';
 
-const SAMPLE_BOT_CODE = `// Example simple custom bot (MyBot.js)
+const SAMPLE_BOT_CODE = `// NAME: "My Custom Bot"
+// AUTHOR: "Developer"
+// STRAT: "Random Evaluation"
+//
+// Example simple custom bot (MyBot.js)
 //
 // 💡 DESIGNING YOUR BOT STRATEGY:
 // Write your custom strategy here. You can construct look-ahead algorithms, heuristic 
@@ -490,13 +494,10 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
   const [promptCopied, setPromptCopied] = useState(false);
   
   // Headless Tournament States
-  const [selectedBots, setSelectedBots] = useState({
-    easy: true,
-    medium: true,
-    hard: true,
-    ga: true,
-    customA: false,
-    customB: false
+  const [selectedBots, setSelectedBots] = useState(() => {
+    const initialState = { customA: false, customB: false };
+    BUILTIN_BOTS.forEach(b => initialState[b.id] = true);
+    return initialState;
   });
   const [gameCount, setGameCount] = useState(10);
   const [isSimulating, setIsSimulating] = useState(false);
@@ -505,8 +506,8 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
   const [leaderboard, setLeaderboard] = useState([]);
   
   // Spectating Config
-  const [specRed, setSpecRed] = useState('easy');
-  const [specBlue, setSpecBlue] = useState('hard');
+  const [specRed, setSpecRed] = useState(BUILTIN_BOTS[0]?.id || 'easy');
+  const [specBlue, setSpecBlue] = useState(BUILTIN_BOTS.length > 2 ? BUILTIN_BOTS[2].id : (BUILTIN_BOTS[1]?.id || 'hard'));
   const [specBoard, setSpecBoard] = useState('default');
   const spectatorBoardInputRef = useRef(null);
   const [spectatorBoardError, setSpectatorBoardError] = useState(null);
@@ -653,7 +654,23 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
         throw new Error(`Missing required exports: ${missing.join(', ')}`);
       }
 
-      const botName = file.name.replace('.js', '').substring(0, 15);
+      const nameMatch = content.match(/\/\/\s*NAME:\s*"(.*?)"/);
+      const authorMatch = content.match(/\/\/\s*AUTHOR:\s*"(.*?)"/);
+      const stratMatch = content.match(/\/\/\s*STRAT:\s*"(.*?)"/);
+      
+      const missingTags = [];
+      if (!nameMatch) missingTags.push('// NAME: "..."');
+      if (!authorMatch) missingTags.push('// AUTHOR: "..."');
+      if (!stratMatch) missingTags.push('// STRAT: "..."');
+      
+      if (missingTags.length > 0) {
+        throw new Error(`Missing required metadata tags at the top of the file: ${missingTags.join(', ')}`);
+      }
+
+      const parsedName = nameMatch[1];
+      const parsedStrat = stratMatch[1];
+      
+      const botName = `${parsedName} (${parsedStrat})`;
       const strategyId = `custom_${slot}_${Date.now()}`;
 
       // Write into the strategies registry without fallback defaults
@@ -662,6 +679,8 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
         getSetupAction: module.getSetupAction,
         getChallengeAction: module.getChallengeAction
       };
+      
+      CUSTOM_BOTS_METADATA[strategyId] = botName;
 
       setCustomBots(prev => ({
         ...prev,
@@ -698,28 +717,19 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
     const MAX_TURNS = 1000;
     
     const getBotPlay = (stratId, board, role, ap, s) => {
-      if (stratId === 'easy') return EasyStrategy.getPlayAction(board, role, ap, s, 'easy');
-      if (stratId === 'medium') return MediumStrategy.getPlayAction(board, role, ap, s, 'medium');
-      if (stratId === 'hard') return HardStrategy.getPlayAction(board, role, ap, s, 'hard');
-      if (stratId === 'ga') return GAStrategy.getPlayAction(board, role, ap, s, 'ga');
+      if (BUILTIN_STRATEGIES[stratId]) return BUILTIN_STRATEGIES[stratId].getPlayAction(board, role, ap, s, stratId);
       if (CUSTOM_STRATEGIES[stratId]) return CUSTOM_STRATEGIES[stratId].getPlayAction(board, role, ap, s, stratId);
       return null;
     };
     
     const getBotSetup = (stratId, board, phase, color, chal) => {
-      if (stratId === 'easy') return EasyStrategy.getSetupAction(board, phase, color, chal);
-      if (stratId === 'medium') return MediumStrategy.getSetupAction(board, phase, color, chal);
-      if (stratId === 'hard') return HardStrategy.getSetupAction(board, phase, color, chal);
-      if (stratId === 'ga') return GAStrategy.getSetupAction(board, phase, color, chal);
+      if (BUILTIN_STRATEGIES[stratId]) return BUILTIN_STRATEGIES[stratId].getSetupAction(board, phase, color, chal);
       if (CUSTOM_STRATEGIES[stratId]) return CUSTOM_STRATEGIES[stratId].getSetupAction(board, phase, color, chal);
       return null;
     };
 
     const getBotChallenge = (stratId, board, s, color) => {
-      if (stratId === 'easy') return EasyStrategy.getChallengeAction ? EasyStrategy.getChallengeAction(board, s, color) : null;
-      if (stratId === 'medium') return MediumStrategy.getChallengeAction ? MediumStrategy.getChallengeAction(board, s, color) : null;
-      if (stratId === 'hard') return HardStrategy.getChallengeAction ? HardStrategy.getChallengeAction(board, s, color) : null;
-      if (stratId === 'ga') return GAStrategy.getChallengeAction ? GAStrategy.getChallengeAction(board, s, color) : null;
+      if (BUILTIN_STRATEGIES[stratId]) return BUILTIN_STRATEGIES[stratId].getChallengeAction ? BUILTIN_STRATEGIES[stratId].getChallengeAction(board, s, color) : null;
       if (CUSTOM_STRATEGIES[stratId]) return CUSTOM_STRATEGIES[stratId].getChallengeAction ? CUSTOM_STRATEGIES[stratId].getChallengeAction(board, s, color) : null;
       return null;
     };
@@ -817,12 +827,11 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
   const startHeadlessTournament = () => {
     // Collect checked bots
     const botsToRun = [];
-    if (selectedBots.easy) botsToRun.push({ id: 'easy', name: 'Zlorooklp (Easy)' });
-    if (selectedBots.medium) botsToRun.push({ id: 'medium', name: 'Lizbishmir (Medium)' });
-    if (selectedBots.hard) botsToRun.push({ id: 'hard', name: 'Shahlzrmir (Hard)' });
-    if (selectedBots.ga) botsToRun.push({ id: 'ga', name: 'GA-Bot (Tuned)' });
-    if (selectedBots.customA && customBots.a) botsToRun.push({ id: customBots.a.id, name: `${customBots.a.name} (Custom A)` });
-    if (selectedBots.customB && customBots.b) botsToRun.push({ id: customBots.b.id, name: `${customBots.b.name} (Custom B)` });
+    BUILTIN_BOTS.forEach(b => {
+      if (selectedBots[b.id]) botsToRun.push({ id: b.id, name: `${b.name} (${b.strat})` });
+    });
+    if (selectedBots.customA && customBots.a) botsToRun.push({ id: customBots.a.id, name: `[A] ${customBots.a.name}` });
+    if (selectedBots.customB && customBots.b) botsToRun.push({ id: customBots.b.id, name: `[B] ${customBots.b.name}` });
 
     if (botsToRun.length < 2) {
       setError('Select at least 2 bots to hold a tournament.');
@@ -929,14 +938,9 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
   };
 
   const getSelectableBots = () => {
-    const list = [
-      { id: 'easy', name: 'Zlorooklp (Easy)' },
-      { id: 'medium', name: 'Lizbishmir (Medium)' },
-      { id: 'hard', name: 'Shahlzrmir (Hard)' },
-      { id: 'ga', name: 'GA-Bot (Tuned)' }
-    ];
-    if (customBots.a) list.push({ id: customBots.a.id, name: `${customBots.a.name} (Custom A)` });
-    if (customBots.b) list.push({ id: customBots.b.id, name: `${customBots.b.name} (Custom B)` });
+    const list = BUILTIN_BOTS.map(b => ({ id: b.id, name: `${b.name} (${b.strat})` }));
+    if (customBots.a) list.push({ id: customBots.a.id, name: `[Custom A] ${customBots.a.name}` });
+    if (customBots.b) list.push({ id: customBots.b.id, name: `[Custom B] ${customBots.b.name}` });
     return list;
   };
 
@@ -1186,26 +1190,14 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
               <div className="glass-panel" style={{ flex: 1.5, minWidth: '300px', padding: '20px' }}>
                 <h3 style={{ color: 'var(--text-primary)', fontSize: '1rem', marginBottom: '12px' }}>1. CHOOSE PARTICIPANTS</h3>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-                  <CustomCheckbox 
-                    checked={selectedBots.easy} 
-                    onChange={(e) => setSelectedBots(curr => ({ ...curr, easy: e.target.checked }))} 
-                    label="Zlorooklp (Easy Heuristic)" 
-                  />
-                  <CustomCheckbox 
-                    checked={selectedBots.medium} 
-                    onChange={(e) => setSelectedBots(curr => ({ ...curr, medium: e.target.checked }))} 
-                    label="Lizbishmir (Medium Evaluator)" 
-                  />
-                  <CustomCheckbox 
-                    checked={selectedBots.hard} 
-                    onChange={(e) => setSelectedBots(curr => ({ ...curr, hard: e.target.checked }))} 
-                    label="Shahlzrmir (Hard Depth-3)" 
-                  />
-                  <CustomCheckbox 
-                    checked={selectedBots.ga} 
-                    onChange={(e) => setSelectedBots(curr => ({ ...curr, ga: e.target.checked }))} 
-                    label="GA-Bot (Tuned Expectiminimax)" 
-                  />
+                  {BUILTIN_BOTS.map(bot => (
+                    <CustomCheckbox 
+                      key={bot.id}
+                      checked={selectedBots[bot.id]} 
+                      onChange={(e) => setSelectedBots(curr => ({ ...curr, [bot.id]: e.target.checked }))} 
+                      label={`${bot.name} (${bot.strat})`} 
+                    />
+                  ))}
                   <CustomCheckbox 
                     checked={selectedBots.customA} 
                     disabled={!customBots.a}
@@ -1411,6 +1403,7 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
               onClick={() => onStartSpectate(specRed, specBlue, specBoard)}
               style={{ padding: '16px 36px', fontSize: '1.1rem', fontWeight: 'bold', letterSpacing: '1px', marginTop: '10px', animation: 'afkPulse 1.5s infinite' }}
             >
+              <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Play size={20} /> START SPECTATING MATCH</span>
             </button>
           </div>
         )}

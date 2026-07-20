@@ -7,14 +7,22 @@ global.window = {};
 import { getInitialState, applySandboxAction } from '../src/core/GameState.js';
 import { getBotSetupAction } from '../src/core/BotEngine.js';
 import { 
-  EasyStrategy, 
-  MediumStrategy, 
-  HardStrategy, 
-  GAStrategy,
+  BUILTIN_STRATEGIES,
   DEFAULT_WEIGHTS,
   findBestActionSequenceExpectiminimax,
   getChallengeRecommendation
 } from '../src/core/BotStrategies.js';
+
+import { EasyStrategy } from '../src/bots/01_EasyStrategy.js';
+import { MediumStrategy } from '../src/bots/02_MediumStrategy.js';
+import { HardStrategy } from '../src/bots/03_HardStrategy.js';
+import { GAStrategy } from '../src/bots/04_GAStrategy.js';
+
+// Inject into BUILTIN_STRATEGIES for Node.js environment since Vite's import.meta.glob is unsupported
+BUILTIN_STRATEGIES['easy'] = EasyStrategy;
+BUILTIN_STRATEGIES['medium'] = MediumStrategy;
+BUILTIN_STRATEGIES['hard'] = HardStrategy;
+BUILTIN_STRATEGIES['ga'] = GAStrategy;
 
 // Parse CLI Arguments
 const args = process.argv.slice(2);
@@ -49,18 +57,18 @@ const rollDie = () => Math.floor(Math.random() * 6) + 1;
 
 // General function to get a play action for a strategy by its key/id
 function getStrategyPlayAction(strategyId, board, role, actionPoints, state) {
-  if (strategyId === 'easy') return EasyStrategy.getPlayAction(board, role, actionPoints, state, 'easy');
-  if (strategyId === 'medium') return MediumStrategy.getPlayAction(board, role, actionPoints, state, 'medium');
-  if (strategyId === 'hard') return HardStrategy.getPlayAction(board, role, actionPoints, state, 'hard');
-  if (strategyId === 'ga') return GAStrategy.getPlayAction(board, role, actionPoints, state, 'ga');
+  const strategy = BUILTIN_STRATEGIES[strategyId];
+  if (strategy && strategy.getPlayAction) {
+    return strategy.getPlayAction(board, role, actionPoints, state, strategyId);
+  }
   return null;
 }
 
 function getStrategyChallengeAction(strategyId, board, state, playerColor) {
-  if (strategyId === 'easy') return EasyStrategy.getChallengeAction ? EasyStrategy.getChallengeAction(board, state, playerColor) : null;
-  if (strategyId === 'medium') return MediumStrategy.getChallengeAction ? MediumStrategy.getChallengeAction(board, state, playerColor) : null;
-  if (strategyId === 'hard') return HardStrategy.getChallengeAction ? HardStrategy.getChallengeAction(board, state, playerColor) : null;
-  if (strategyId === 'ga') return GAStrategy.getChallengeAction ? GAStrategy.getChallengeAction(board, state, playerColor) : null;
+  const strategy = BUILTIN_STRATEGIES[strategyId];
+  if (strategy && strategy.getChallengeAction) {
+    return strategy.getChallengeAction(board, state, playerColor);
+  }
   return null;
 }
 
@@ -126,12 +134,22 @@ function simulateMatch(boardData, strategyIdA, strategyIdB, roleA) {
     
     // Placement / Setup
     if (state.phase === 'setup-defender' || state.phase === 'challenge-setup' || state.phase === 'setup-attacker') {
-      // Reuse the default placement behavior
-      let action = getBotSetupAction(state.board, state.phase, activeColor, activeStrategy, state.challengedPiece);
-      if (action) {
-        state = applySandboxAction(state.board, action, activeColor.toLowerCase(), state);
+      const strategy = BUILTIN_STRATEGIES[activeStrategy];
+      if (strategy && strategy.getSetupAction) {
+        let action = strategy.getSetupAction(state.board, state.phase, activeColor, state.challengedPiece);
+        if (action) {
+          state = applySandboxAction(state.board, action, activeColor.toLowerCase(), state);
+        } else {
+          state = applySandboxAction(state.board, { type: 'confirm-setup' }, activeColor.toLowerCase(), state);
+        }
       } else {
-        state = applySandboxAction(state.board, { type: 'confirm-setup' }, activeColor.toLowerCase(), state);
+        // Fallback to default setup if the strategy doesn't implement setup
+        let action = getBotSetupAction(state.board, state.phase, activeColor, activeStrategy, state.challengedPiece);
+        if (action) {
+          state = applySandboxAction(state.board, action, activeColor.toLowerCase(), state);
+        } else {
+          state = applySandboxAction(state.board, { type: 'confirm-setup' }, activeColor.toLowerCase(), state);
+        }
       }
       continue;
     }

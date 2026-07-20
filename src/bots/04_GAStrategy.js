@@ -1,10 +1,14 @@
+// NAME: "GA-Bot"
+// AUTHOR: "LazerAI"
+// STRAT: "Tuned Expectiminimax"
+
 import { 
   getCautiousness,
   findBestActionSequenceExpectiminimax,
   genericSetupAction,
   getChallengeRecommendation
-} from './BotHelpers.js';
-import gaWeights from './ga/ga_best_weights.json' with { type: 'json' };
+} from "../core/BotHelpers.js";
+import gaWeights from "../core/ga/ga_best_weights.json" with { type: "json" };
 
 export const GAStrategy = {
   /**

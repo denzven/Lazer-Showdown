@@ -1,3 +1,7 @@
+// NAME: "Shahlzrmir"
+// AUTHOR: "LazerAI"
+// STRAT: "Hard Depth-3"
+
 import { 
   genericSetupAction,
   getDefenderCautiousness,
@@ -7,7 +11,7 @@ import {
   planReverseAttack,
   findBestActionSequence,
   getChallengeRecommendation
-} from './BotHelpers.js';
+} from "../core/BotHelpers.js";
 
 export const HardStrategy = {
   /**

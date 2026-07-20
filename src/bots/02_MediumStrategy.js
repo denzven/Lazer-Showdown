@@ -1,3 +1,7 @@
+// NAME: "Lizbishmir"
+// AUTHOR: "LazerAI"
+// STRAT: "Medium Evaluator"
+
 import { 
   genericSetupAction,
   getDefenderCautiousness,
@@ -7,7 +11,7 @@ import {
   findBestActionSequence,
   calculateMobility,
   applyLightweightAction
-} from './BotHelpers.js';
+} from "../core/BotHelpers.js";
 
 export const MediumStrategy = {
   /**

@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
-import { Download } from 'lucide-react';
+import { Download, X } from 'lucide-react';
 
 export default function InstallPWA({ show = true }) {
   const [supportsPWA, setSupportsPWA] = useState(false);
   const [promptInstall, setPromptInstall] = useState(null);
   const [isIOS, setIsIOS] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
+  const [isDismissed, setIsDismissed] = useState(false);
 
   useEffect(() => {
     // Check if already installed
@@ -47,7 +48,7 @@ export default function InstallPWA({ show = true }) {
     }
   };
 
-  if (isStandalone) return null;
+  if (isStandalone || isDismissed) return null;
 
   if (!supportsPWA && !isIOS) return null;
 
@@ -85,6 +86,23 @@ export default function InstallPWA({ show = true }) {
           <Download size={14} /> INSTALL
         </button>
       )}
+      <button
+        onClick={() => setIsDismissed(true)}
+        style={{
+          background: 'transparent',
+          border: 'none',
+          color: 'white',
+          cursor: 'pointer',
+          padding: '4px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          opacity: 0.7
+        }}
+        title="Dismiss"
+      >
+        <X size={16} />
+      </button>
     </div>
   );
 }

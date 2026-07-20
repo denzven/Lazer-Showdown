@@ -9,13 +9,22 @@ global.window = {};
 import { getInitialState, applySandboxAction } from '../src/core/GameState.js';
 import { getBotSetupAction } from '../src/core/BotEngine.js';
 import { 
-  EasyStrategy, 
-  MediumStrategy, 
-  HardStrategy, 
+  BUILTIN_STRATEGIES, 
   DEFAULT_WEIGHTS, 
   findBestActionSequenceExpectiminimax,
   getChallengeRecommendation 
 } from '../src/core/BotStrategies.js';
+
+import { EasyStrategy } from '../src/bots/01_EasyStrategy.js';
+import { MediumStrategy } from '../src/bots/02_MediumStrategy.js';
+import { HardStrategy } from '../src/bots/03_HardStrategy.js';
+import { GAStrategy } from '../src/bots/04_GAStrategy.js';
+
+// Inject into BUILTIN_STRATEGIES for Node.js environment since Vite's import.meta.glob is unsupported
+BUILTIN_STRATEGIES['easy'] = EasyStrategy;
+BUILTIN_STRATEGIES['medium'] = MediumStrategy;
+BUILTIN_STRATEGIES['hard'] = HardStrategy;
+BUILTIN_STRATEGIES['ga'] = GAStrategy;
 
 // Load boards
 const boardsDir = path.resolve('./src/boards');
@@ -53,9 +62,9 @@ function getGaPlayAction(board, role, actionPoints, cautiousness, weights) {
 }
 
 function getOpponentPlayAction(board, role, actionPoints, botPlayer, state) {
-  if (botPlayer === 'easy') return EasyStrategy.getPlayAction(board, role, actionPoints, state, botPlayer);
-  if (botPlayer === 'medium') return MediumStrategy.getPlayAction(board, role, actionPoints, state, botPlayer);
-  if (botPlayer === 'hard') return HardStrategy.getPlayAction(board, role, actionPoints, state, botPlayer);
+  if (botPlayer === 'easy') return BUILTIN_STRATEGIES['easy'].getPlayAction(board, role, actionPoints, state, botPlayer);
+  if (botPlayer === 'medium') return BUILTIN_STRATEGIES['medium'].getPlayAction(board, role, actionPoints, state, botPlayer);
+  if (botPlayer === 'hard') return BUILTIN_STRATEGIES['hard'].getPlayAction(board, role, actionPoints, state, botPlayer);
   if (botPlayer === 'default') {
     const { action: bestAction } = findBestActionSequenceExpectiminimax(board, role, actionPoints, 1.0, DEFAULT_WEIGHTS.average_tied, 1); // using a default gear for baseline
     return bestAction;
@@ -380,6 +389,18 @@ async function runGA() {
   if (useSeed && fs.existsSync(popPath) && fs.existsSync(statePath)) {
       try {
           population = JSON.parse(fs.readFileSync(popPath, 'utf8'));
+          
+          // Handle population size changes (e.g., resuming a --test run in production mode)
+          if (population.length < popSize) {
+              console.log(`⚠️  Loaded population size (${population.length}) is smaller than requested (${popSize}). Padding with new random bots.`);
+              while (population.length < popSize) {
+                  population.push(createRandomDNA(baseWeights));
+              }
+          } else if (population.length > popSize) {
+              console.log(`⚠️  Loaded population size (${population.length}) is larger than requested (${popSize}). Truncating.`);
+              population = population.slice(0, popSize);
+          }
+          
           const state = JSON.parse(fs.readFileSync(statePath, 'utf8'));
           startGen = state.currentGeneration + 1;
           globalBestFitness = state.globalBestFitness || -Infinity;

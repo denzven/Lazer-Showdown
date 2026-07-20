@@ -510,6 +510,27 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
   const showPieceThreats = true;
 
   const [highlightedCell, setHighlightedCell] = useState(null);
+  const [botMinds, setBotMinds] = useState(null);
+  const [simulationBoard, setSimulationBoard] = useState(null);
+  const [simulationLaserData, setSimulationLaserData] = useState(null);
+
+  const botHighlights = React.useMemo(() => {
+    if (!analysisMode || !botMinds) return null;
+    const highlights = [];
+    const colors = { easy: '#4ade80', medium: '#fbbf24', hard: '#f87171', ga: '#c084fc' };
+    
+    Object.entries(botMinds).forEach(([diff, line]) => {
+      if (line && line.sequence && line.sequence.length > 0) {
+        const firstAction = line.sequence[0];
+        if (firstAction.type === 'move') {
+          highlights.push({ r: firstAction.fromR, c: firstAction.fromC, label: diff.toUpperCase(), color: colors[diff] });
+        } else if (firstAction.type === 'rotate') {
+          highlights.push({ r: firstAction.r, c: firstAction.c, label: diff.toUpperCase(), color: colors[diff] });
+        }
+      }
+    });
+    return highlights.length > 0 ? highlights : null;
+  }, [botMinds, analysisMode]);
 
   const challengeRecommendation = React.useMemo(() => {
     if (!analysisMode) return null;
@@ -1099,18 +1120,20 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
     <div className="game-layout">
       {/* Sidebar Left: Connection, Controls, Actions */}
       <div className="sidebar-panel sidebar-left glass-panel" style={{ justifyContent: 'flex-start' }}>
-        <div className="game-controls-header">
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <h2 style={{ fontSize: '1.2rem', marginBottom: '8px' }}>Game Controls</h2>
-            <button 
-              className={`cyber-button ${analysisMode ? 'blue' : ''}`}
-              style={{ fontSize: '0.65rem', padding: '4px 8px' }}
-              onClick={() => setAnalysisMode(!analysisMode)}
-            >
-              {analysisMode ? 'HIDE ANALYSIS' : 'ANALYSIS'}
-            </button>
-          </div>
-          <div>
+        <div 
+          className="game-controls-header" 
+          style={{ 
+            display: 'flex', 
+            flexWrap: 'wrap', 
+            alignItems: 'center', 
+            justifyContent: 'space-between',
+            gap: '12px', 
+            paddingBottom: '12px',
+            borderBottom: '1px solid rgba(255,255,255,0.1)' 
+          }}
+        >
+          <div style={{ flex: '1 1 120px' }}>
+            <h2 style={{ fontSize: '1.2rem', margin: '0 0 8px 0' }}>Game Controls</h2>
             <div style={{ fontSize: '0.85rem', color: role === 'red' ? 'var(--neon-red)' : 'var(--neon-blue)', fontWeight: 'bold' }}>
               ROLE: {role ? role.toUpperCase() : ''}
             </div>
@@ -1118,6 +1141,25 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
               {getStatusText()}
             </div>
           </div>
+          
+          <button 
+            className={`cyber-button ${analysisMode ? 'blue' : ''}`}
+            style={{ 
+              fontSize: '0.75rem', 
+              padding: '8px 16px', 
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              whiteSpace: 'nowrap',
+              flex: '1 1 auto',
+              maxWidth: '100%'
+            }}
+            onClick={() => setAnalysisMode(!analysisMode)}
+          >
+            <Zap size={14} />
+            {analysisMode ? 'HIDE ANALYSIS' : 'ANALYSIS MODE'}
+          </button>
         </div>
 
         {/* Dice Rolling Panel */}
@@ -1311,24 +1353,18 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
         {/* Render Analysis Panel */}
         {analysisMode && (
           <AnalysisPanel 
-            data={boardAnalysis} 
-            history={game.history}
-            dice={game.dice}
-            threatMap={activeThreatMap}
-            lazerPos={lazerPos}
-            engineLines={engineLines}
-            pieceThreats={pieceThreats}
-            showHeatmap={showHeatmap}
-            showGhostRays={showGhostRays}
-            showPieceThreats={showPieceThreats}
-            startOfTurnThreats={startOfTurnThreats}
-            onClose={() => setAnalysisMode(false)}
+            gameState={reviewIndex !== null && game.history.past[reviewIndex] ? game.history.past[reviewIndex] : game}
             reviewIndex={reviewIndex}
+            maxHistoryIndex={game.history.past.length - 1}
+            isAnalyzing={isAnalyzing}
             stepForward={stepForward}
             stepBackward={stepBackward}
-            moveClassification={moveClassification}
-            maxHistoryIndex={game.history.past.length - 1}
-            phase={reviewIndex !== null && game.history.past[reviewIndex] ? game.history.past[reviewIndex].phase : phase}
+            engineLines={engineLines}
+            onBotMindsUpdate={setBotMinds}
+            onSimulationUpdate={(board, laser) => {
+              setSimulationBoard(board);
+              setSimulationLaserData(laser);
+            }}
             onHighlightMove={(r, c) => {
               if (highlightedCell && highlightedCell.r === r && highlightedCell.c === c) {
                 setHighlightedCell(null); // toggle off
@@ -1336,8 +1372,7 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
                 setHighlightedCell({ r, c });
               }
             }}
-            isAnalyzing={isAnalyzing}
-            challengeRecommendation={challengeRecommendation}
+            onClose={() => setAnalysisMode(false)}
           />
         )}
 
@@ -1471,40 +1506,51 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
         {mode !== 'tutorial' && renderSetupBanner()}
 
         {/* Board Grid */}
-        <Grid
-          board={board}
-          selectedCell={selectedCell}
-          setSelectedCell={setSelectedCell}
-          selectedPaletteBlock={selectedPaletteBlock}
-          setSelectedPaletteBlock={setSelectedPaletteBlock}
-          placeBlock={placeBlock}
-          moveBlock={moveBlock}
-          rotateBlock={rotateBlock}
-          removeBlock={removeBlock}
-          laserPath={laserPath}
-          lazerPos={lazerPos}
-          mode={mode}
-          phase={phase}
-          isLocalTurn={isLocalTurn}
-          roleRed={roleRed}
-          role={role}
-          activePlayerColor={activePlayerColor}
-          reachableCells={selectedCell ? getReachableCells(board, selectedCell.r, selectedCell.c, actionPoints, turnPlayer) : []}
-          showLaserBeam={showLaserBeam}
-          threatMap={showHeatmap ? activeThreatMap : null}
-          possibilityWeb={showGhostRays ? game.possibilityWeb : null}
-          highlightedCell={highlightedCell}
-          tutorialHighlight={tutorialStep?.highlight}
-          tutorialHighlights={tutorialStep?.highlights}
-        />
+        {/* If we're simulating, apply a subtle filter so the user knows it's a simulation */}
+        <div style={{ 
+          width: '100%', 
+          display: 'flex', 
+          flexDirection: 'column', 
+          alignItems: 'center',
+          transition: 'all 0.3s', 
+          filter: simulationBoard ? 'brightness(1.1) sepia(0.3) hue-rotate(180deg)' : 'none' 
+        }}>
+          <Grid
+            board={simulationBoard || board}
+            selectedCell={selectedCell}
+            setSelectedCell={setSelectedCell}
+            selectedPaletteBlock={selectedPaletteBlock}
+            setSelectedPaletteBlock={setSelectedPaletteBlock}
+            placeBlock={placeBlock}
+            moveBlock={moveBlock}
+            rotateBlock={rotateBlock}
+            removeBlock={removeBlock}
+            laserPath={simulationLaserData ? simulationLaserData.path : laserPath}
+            lazerPos={simulationLaserData ? simulationLaserData.pos : lazerPos}
+            showLaserBeam={simulationLaserData ? true : showLaserBeam}
+            mode={mode}
+            phase={phase}
+            isLocalTurn={isLocalTurn}
+            roleRed={roleRed}
+            role={role}
+            botHighlights={botHighlights}
+            activePlayerColor={activePlayerColor}
+            reachableCells={selectedCell ? getReachableCells(board, selectedCell.r, selectedCell.c, actionPoints, turnPlayer) : []}
+            threatMap={showHeatmap ? activeThreatMap : null}
+            possibilityWeb={showGhostRays ? game.possibilityWeb : null}
+            highlightedCell={highlightedCell}
+            tutorialHighlight={tutorialStep?.highlight}
+            tutorialHighlights={tutorialStep?.highlights}
+          />
 
-        <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
-          <Info size={14} />
-          {mode === 'bot' && activePlayerColor === 'blue' && phase === 'playing' ? (
-            <span style={{ color: 'var(--neon-blue)', fontWeight: 'bold', animation: 'afkPulse 1s infinite' }}>COMPUTER IS THINKING...</span>
-          ) : (
-            <span>Setup: Place pieces correctly. Roll Phase: roll dice to get Action Points. Play Phase: move, rotate Lazer, or press Lazer.</span>
-          )}
+          <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>
+            <Info size={14} />
+            {mode === 'bot' && activePlayerColor === 'blue' && phase === 'playing' ? (
+              <span style={{ color: 'var(--neon-blue)', fontWeight: 'bold', animation: 'afkPulse 1s infinite' }}>COMPUTER IS THINKING...</span>
+            ) : (
+              <span>Setup: Place pieces correctly. Roll Phase: roll dice to get Action Points. Play Phase: move, rotate Lazer, or press Lazer.</span>
+            )}
+          </div>
         </div>
       </div>
 

@@ -129,6 +129,12 @@ export function applyLightweightAction(board, action) {
          newBoard[trace.hitPiece.r][trace.hitPiece.c] = null; // Captured
       }
     }
+  } else if (action.type === 'place') {
+    newBoard[action.r][action.c] = { 
+      type: action.pieceType, 
+      owner: action.playerColor, 
+      rotation: action.rotation || 0 
+    };
   }
   return newBoard;
 }
@@ -883,18 +889,16 @@ export function generateThreatMap(board, useCache = true) {
     for (let r = 0; r < 8; r++) {
       for (let c = 0; c < 8; c++) {
         if (board[r][c] === null || board[r][c].type !== 'mirror') {
-          let sumProb = 0;
-          let validCorners = 0;
+          let maxProb = 0;
           for (const corner of corners) {
             if (minAPMap[r][c][corner.id] < 999) {
               const prob = get2d6CumulativeProbability(minAPMap[r][c][corner.id]);
               map[r][c].sources[corner.id] = prob;
-              sumProb += prob;
+              if (prob > maxProb) maxProb = prob;
             }
-            validCorners++;
           }
-          if (validCorners > 0) {
-            map[r][c].total = sumProb / validCorners;
+          if (maxProb > 0) {
+            map[r][c].total = maxProb;
           }
         }
       }
@@ -1188,10 +1192,10 @@ export function classifyPlay(sequence) {
 }
 
 export function formatActionText(action) {
-  if (action.type === 'place') return `Place ${action.pieceType.replace('block-', '')}pt piece at (${action.r}, ${action.c})`;
   if (action.type === 'laser-press') return 'Fire Lazer!';
   if (action.type === 'move') return `Move piece at (${action.fromR}, ${action.fromC}) to (${action.toR}, ${action.toC})`;
   if (action.type === 'rotate') return `Rotate piece at (${action.r}, ${action.c}) ${action.dir === 'cw' ? 'Right' : 'Left'}`;
+  if (action.type === 'place') return `Place ${action.pieceType} at (${action.r}, ${action.c})`;
   return 'Unknown Move';
 }
 
