@@ -161,6 +161,11 @@ export const MyCustomStrategy = {
     // or { type: 'declare-challenge', declare: false }
   }
 };
+
+### 🚦 Game Modes & Variants
+Your bot can check the current game mode via `gameState?.context?.gameVariant` (returns `'standard'`, `'trench-run'`, or `'pivot-point'`).
+- **Trench Run**: Both players have lazers! `getBoardState(board)` may not return YOUR lazer if it finds the opponent's first. You should manually loop the board to find `block-lazer` with `player === botPlayer`. Friendly fire is disabled.
+- **Pivot Point**: The board starts with mirrors. You can return `{ type: 'rotate', dir: 'cw', r: 1, c: 2 }` to pivot a mirror at (1,2) for 1 AP.
 ```
 
 ### Example: A Balanced Evaluator Bot (`SpectreBot`)

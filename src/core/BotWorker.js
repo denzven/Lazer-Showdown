@@ -14,7 +14,7 @@
  * Both BotStrategies.js and Ruleset.js are pure JS with zero DOM dependencies — safe for workers.
  */
 
-import { BUILTIN_STRATEGIES, generateThreatMap, generateExpectiminimaxThreatMap } from './BotStrategies.js';
+import { BUILTIN_STRATEGIES, generateThreatMap, generateExpectiminimaxThreatMap, setActiveGameVariant, setActiveRoleRed } from './BotStrategies.js';
 
 self.onmessage = function (e) {
   const { type, requestId } = e.data;
@@ -23,6 +23,9 @@ self.onmessage = function (e) {
     if (type === 'PLAY_ACTION') {
       const { board, role, actionPoints, difficulty, gameState, botPlayer } = e.data;
       let action = null;
+      
+      setActiveGameVariant(gameState?.gameVariant || 'standard');
+      setActiveRoleRed(gameState?.roleRed || 'attacker');
 
       if (BUILTIN_STRATEGIES[difficulty]) {
         action = BUILTIN_STRATEGIES[difficulty].getPlayAction(board, role, actionPoints, gameState, botPlayer);
@@ -43,8 +46,11 @@ self.onmessage = function (e) {
       self.postMessage({ requestId, result: { heatmap: threatMap } });
       
     } else if (type === 'SETUP_ACTION') {
-      const { board, phase, playerColor, difficulty, challengedPiece } = e.data;
+      const { board, phase, playerColor, difficulty, challengedPiece, gameState } = e.data;
       let action = null;
+
+      setActiveGameVariant(gameState?.gameVariant || 'standard');
+      setActiveRoleRed(gameState?.roleRed || 'attacker');
 
       if (BUILTIN_STRATEGIES[difficulty]) {
         action = BUILTIN_STRATEGIES[difficulty].getSetupAction(board, phase, playerColor, challengedPiece);

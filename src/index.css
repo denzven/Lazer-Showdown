@@ -17,6 +17,8 @@
   --neon-red-glow: rgba(255, 42, 133, 0.4);
   --neon-blue: #00f0ff;
   --neon-blue-glow: rgba(0, 240, 255, 0.4);
+  --neon-purple: #b026ff;
+  --neon-purple-glow: rgba(176, 38, 255, 0.4);
 
   --text-primary: #f0f2fa;
   --text-secondary: #9aa0c2;
@@ -1277,7 +1279,7 @@ h4,
 }
 
 @keyframes laserFire {
-  0% { stroke-dashoffset: 2000; }
+  0% { stroke-dashoffset: var(--path-length, 2000); }
   100% { stroke-dashoffset: 0; }
 }
 
@@ -1290,7 +1292,7 @@ h4,
 }
 
 .laser-beam-anim {
-  stroke-dasharray: 2000;
-  stroke-dashoffset: 2000;
-  animation: laserFire 0.4s ease-out forwards;
+  stroke-dasharray: var(--path-length, 2000);
+  stroke-dashoffset: var(--path-length, 2000);
+  animation: laserFire var(--anim-duration, 0.4s) ease-out forwards;
 }

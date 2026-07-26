@@ -76,15 +76,33 @@ If the Attacker captures **all 3 pieces** before the set ends, they may declare 
 
 ### 🔄 Between Sets
 After Set 1, **roles are swapped**. The player with the **highest total score** after both sets wins!
+
+### 🎮 Game Modes
+**1. Standard Mode**
+The classic asymmetric game as described above. Attacker vs Defender.
+
+**2. Pivot Point**
+Standard rules, but the board features pre-placed mirrors. Players can spend **1 AP** to pivot (rotate) a mirror in place, dynamically altering laser paths.
+
+**3. Trench Run**
+A symmetric deathmatch variant!
+- Both players place their own **LAZER** and **Point Pieces** in their respective home rows.
+- Both players can fire their own lasers.
+- Friendly fire is disabled (hitting your own piece does nothing).
+- Score points by destroying your opponent's pieces. First to wipe out the enemy wins!
 `;
 function App() {
+  const urlParams = new URLSearchParams(window.location.search);
+  const initialVariant = urlParams.get('variant') || 'standard';
+  const initialBoard = urlParams.get('board') || 'default';
+
   // 1. React States & Refs declared at the top of the component lexical scope
   const [difficulty, setDifficulty] = useState('medium'); // 'easy', 'medium', 'hard'
   const [spectateConfig, setSpectateConfig] = useState({ redBot: 'easy', blueBot: 'hard' });
   const [lorePage, setLorePage] = useState(0);
   const [sidebarOpen, setSidebarOpen] = useState(() => window.innerWidth > 768);
   const loreScrollRef = useRef(null);
-  const [selectedBoardName, setSelectedBoardName] = useState('default');
+  const [selectedBoardName, setSelectedBoardName] = useState(initialBoard);
   const [selectableBoards, setSelectableBoards] = useState(() => [
     ...Object.keys(boardModules).map(key => {
       const name = key.replace('./boards/', '').replace('.json', '');
@@ -99,10 +117,13 @@ function App() {
   const boardUploadInputRef = useRef(null);
   const [boardUploadError, setBoardUploadError] = useState(null);
   const [boardDropdownOpen, setBoardDropdownOpen] = useState(false);
+  const [gameVariant, setGameVariant] = useState(initialVariant); // 'standard', 'pivot-point', 'trench-run'
+  const [gameVariantDropdownOpen, setGameVariantDropdownOpen] = useState(false);
   const [playerElo, setPlayerElo] = useState(() => parseInt(localStorage.getItem('playerElo')) || 1000);
   const [rulesTab, setRulesTab] = useState('rules');
   const [devsCornerSubMode, setDevsCornerSubMode] = useState('bot'); // 'bot' or 'editor'
   const [devsCornerActiveTab, setDevsCornerActiveTab] = useState('contract'); // 'contract', 'guide', 'simulator', 'spectate'
+  const [replayPlayers, setReplayPlayers] = useState(null);
   const network = useNetwork();
 
   // Auto-update from GitHub
@@ -159,6 +180,21 @@ function App() {
 
     return () => clearInterval(intervalId);
   }, []);
+
+  // Sync board and variant to URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (gameVariant !== 'standard' || params.has('variant')) params.set('variant', gameVariant);
+    if (selectedBoardName !== 'default' || params.has('board')) params.set('board', selectedBoardName);
+    
+    // Clean up if they are default
+    if (gameVariant === 'standard') params.delete('variant');
+    if (selectedBoardName === 'default') params.delete('board');
+
+    const searchStr = params.toString();
+    const newUrl = window.location.pathname + (searchStr ? '?' + searchStr : '') + window.location.hash;
+    window.history.replaceState({}, '', newUrl);
+  }, [gameVariant, selectedBoardName]);
 
   const validateCustomBoardJson = (data) => {
     if (!Array.isArray(data)) {
@@ -631,8 +667,8 @@ function App() {
   const mockSpectateNetwork = {
     status: 'connected',
     role: 'red',
-    playerName: getBotNameWithStrategy(spectateConfig.redBot),
-    opponentName: getBotNameWithStrategy(spectateConfig.blueBot),
+    playerName: replayPlayers ? replayPlayers.red : getBotNameWithStrategy(spectateConfig.redBot),
+    opponentName: replayPlayers ? replayPlayers.blue : getBotNameWithStrategy(spectateConfig.blueBot),
     isOpponentAfk: false,
     disconnect: () => setMode('devs-corner'), // Return devs-corner on exit
     sendPayload: () => {} // No-op
@@ -650,7 +686,7 @@ function App() {
     ? null 
     : selectableBoards.find(b => b.name === selectedBoardName);
 
-  const game = useGame(activeNetwork, mode, difficulty, selectedBoardData, spectateConfig);
+  const game = useGame(activeNetwork, mode, difficulty, selectedBoardData, spectateConfig, gameVariant);
 
   // Show grid if connected in online, local, bot, tutorial, or spectate mode
   const showGameLayout = mode === 'local' || mode === 'bot' || mode === 'tutorial' || mode === 'spectate' || (mode === 'online' && network.status === 'connected');
@@ -1082,18 +1118,23 @@ function App() {
               Connect with our community
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '15px' }}>
-              <button className="cyber-button" onClick={() => window.alert('Instagram link coming soon!')} style={{ padding: '16px', fontSize: '1rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', borderColor: '#E1306C', color: '#E1306C' }}>
+              <button className="cyber-button" onClick={() => window.open('https://www.instagram.com/arise_chem?igsh=YzdrZTRyMTdhbjE1', '_blank')} style={{ padding: '16px', fontSize: '1rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', borderColor: '#E1306C', color: '#E1306C' }}>
                 <Camera size={20} /> INSTAGRAM
               </button>
               <button className="cyber-button" onClick={() => window.alert('Facebook link coming soon!')} style={{ padding: '16px', fontSize: '1rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', borderColor: '#1877F2', color: '#1877F2' }}>
                 <ThumbsUp size={20} /> FACEBOOK
               </button>
-              <button className="cyber-button" onClick={() => window.alert('LinkedIn link coming soon!')} style={{ padding: '16px', fontSize: '1rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', borderColor: '#0A66C2', color: '#0A66C2' }}>
+              <button className="cyber-button" onClick={() => window.open('https://www.linkedin.com/in/arise-committee-25b590341/', '_blank')} style={{ padding: '16px', fontSize: '1rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', borderColor: '#0A66C2', color: '#0A66C2' }}>
                 <Briefcase size={20} /> LINKEDIN
               </button>
-              <button className="cyber-button" onClick={() => window.alert('Discord link coming soon!')} style={{ padding: '16px', fontSize: '1rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', borderColor: '#5865F2', color: '#5865F2' }}>
+              <button className="cyber-button" onClick={() => window.open('https://discord.gg/xfzFCxFmBp', '_blank')} style={{ padding: '16px', fontSize: '1rem', width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px', borderColor: '#5865F2', color: '#5865F2' }}>
                 <Gamepad2 size={20} /> DISCORD
               </button>
+
+              <div style={{ marginTop: '10px', width: '100%', display: 'flex', justifyContent: 'center' }}>
+                <iframe src="https://discord.com/widget?id=1529227748365570068&theme=dark" width="350" height="500" allowTransparency="true" frameBorder="0" sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin allow-scripts" style={{ borderRadius: '8px', maxWidth: '100%' }}></iframe>
+              </div>
+
               <button className="cyber-button" onClick={() => setMode('credits')} style={{ padding: '12px', fontSize: '0.9rem', width: '100%', marginTop: '16px', borderColor: 'var(--text-secondary)' }}>
                 BACK TO CREDITS
               </button>
@@ -1109,11 +1150,19 @@ function App() {
           onSubModeChange={(newSub) => setMode('devs-corner', newSub)}
           activeTab={devsCornerActiveTab}
           onTabChange={(newTab) => setMode('devs-corner', newTab)}
-          onStartSpectate={(redBot, blueBot, boardName = 'default') => {
+          onStartSpectate={(redBot, blueBot, boardName = 'default', specVariant = 'standard') => {
+            setReplayPlayers(null);
             setSpectateConfig({ redBot, blueBot });
             setSelectedBoardName(boardName);
+            setGameVariant(specVariant);
             const bData = boardName === 'default' ? null : customBoards.find(b => b.name === boardName);
             game.clearWorkspace(bData);
+            setMode('spectate');
+          }}
+          onLoadReplay={(replayData) => {
+            setReplayPlayers(replayData.players || null);
+            game.loadReplay(replayData);
+            game.startAutoPlayReplay();
             setMode('spectate');
           }}
         />
@@ -1154,6 +1203,78 @@ function App() {
             <p className="lobby-subtitle" style={{ marginBottom: '20px' }}>
               How do you want to play?
             </p>
+
+            <div style={{ marginBottom: '15px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', position: 'relative' }}>
+              <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Select Game Mode</label>
+              
+              <div 
+                className="cyber-input"
+                onClick={() => setGameVariantDropdownOpen(!gameVariantDropdownOpen)}
+                style={{ 
+                  display: 'flex', 
+                  justifyContent: 'space-between', 
+                  alignItems: 'center',
+                  padding: '12px 16px', 
+                  fontSize: '1rem', 
+                  width: '100%', 
+                  maxWidth: '300px', 
+                  backgroundColor: 'rgba(0, 0, 0, 0.5)', 
+                  color: 'var(--neon-blue)', 
+                  border: '1px solid var(--neon-blue)', 
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontWeight: 'bold',
+                  boxShadow: gameVariantDropdownOpen ? '0 0 10px rgba(0, 240, 255, 0.3)' : 'none'
+                }}
+              >
+                <span>{gameVariant === 'standard' ? 'STANDARD' : gameVariant === 'pivot-point' ? 'PIVOT POINT' : 'TRENCH RUN'}</span>
+                <ChevronDown size={18} style={{ transform: gameVariantDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }} />
+              </div>
+
+              {gameVariantDropdownOpen && (
+                <div 
+                  className="glass-panel"
+                  style={{
+                    position: 'absolute',
+                    top: '100%',
+                    left: '50%',
+                    transform: 'translateX(-50%)',
+                    width: '100%',
+                    maxWidth: '300px',
+                    marginTop: '4px',
+                    zIndex: 11,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    padding: '8px 0',
+                    border: '1px solid var(--neon-blue)',
+                    maxHeight: '200px',
+                    overflowY: 'auto'
+                  }}
+                >
+                  {['standard', 'pivot-point', 'trench-run'].map(v => (
+                    <div 
+                      key={v}
+                      onClick={() => {
+                        setGameVariant(v);
+                        setGameVariantDropdownOpen(false);
+                      }}
+                      style={{
+                        padding: '10px 16px',
+                        cursor: 'pointer',
+                        color: gameVariant === v ? 'var(--neon-blue)' : 'var(--text-primary)',
+                        backgroundColor: gameVariant === v ? 'rgba(0, 240, 255, 0.1)' : 'transparent',
+                        textAlign: 'left',
+                        fontWeight: gameVariant === v ? 'bold' : 'normal'
+                      }}
+                      onMouseEnter={(e) => e.target.style.backgroundColor = 'rgba(0, 240, 255, 0.2)'}
+                      onMouseLeave={(e) => e.target.style.backgroundColor = gameVariant === v ? 'rgba(0, 240, 255, 0.1)' : 'transparent'}
+                    >
+                      {v === 'standard' ? 'STANDARD' : v === 'pivot-point' ? 'PIVOT POINT' : 'TRENCH RUN'}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
 
             <div style={{ marginBottom: '30px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '8px', position: 'relative' }}>
               <label style={{ fontSize: '0.9rem', color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Select Board</label>
@@ -1289,7 +1410,7 @@ function App() {
                 <input 
                   type="file" 
                   ref={boardUploadInputRef} 
-                  accept=".json" 
+                  accept=".lzrshwdn.board.json" 
                   onChange={handleImportBoardJson} 
                   style={{ display: 'none' }} 
                 />

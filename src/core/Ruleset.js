@@ -26,8 +26,9 @@ export const FIXED_MIRRORS = [
 
 /**
  * Returns a board pre-populated with mirrors.
+ * If gameVariant is 'trench-run', also pre-populates Lazers and Point Pieces.
  */
-export function getInitialBoard(customBoardData = null) {
+export function getInitialBoard(customBoardData = null, gameVariant = 'standard') {
   const board = Array(BOARD_SIZE).fill(null).map(() => Array(BOARD_SIZE).fill(null));
   
   const mirrorData = (customBoardData && customBoardData.data) ? customBoardData.data : customBoardData;
@@ -49,6 +50,8 @@ export function getInitialBoard(customBoardData = null) {
       board[m.r][m.c] = { type: 'mirror', orientation: m.orientation };
     }
   }
+
+
   return board;
 }
 
@@ -112,7 +115,7 @@ export function traceLaserBeam(board, lazerPos, lazerDir) {
 /**
  * Validates square placement during initial setup.
  */
-export function validatePlacement(board, r, c, pieceType) {
+export function validatePlacement(board, r, c, pieceType, gameVariant = 'standard', player = null) {
   if (r < 0 || r >= BOARD_SIZE || c < 0 || c >= BOARD_SIZE) {
     return { valid: false, error: 'Position out of bounds.' };
   }
@@ -122,6 +125,14 @@ export function validatePlacement(board, r, c, pieceType) {
   }
 
   const isCorner = (r === 0 || r === BOARD_SIZE - 1) && (c === 0 || c === BOARD_SIZE - 1);
+
+  if (gameVariant === 'trench-run') {
+    const validRow = player === 'red' ? 0 : (BOARD_SIZE - 1);
+    if (r !== validRow) {
+      return { valid: false, error: `In Trench Run, you must place pieces in your back row (Row ${validRow + 1}).` };
+    }
+  }
+
   if (pieceType === BLOCK_TYPES.BLOCK_LAZER) {
     if (!isCorner) {
       return { valid: false, error: 'The LAZER piece must be placed on one of the four corner squares.' };
@@ -140,7 +151,7 @@ export function validatePlacement(board, r, c, pieceType) {
  * Validates movement from one square to another.
  * Restricts to single-step horizontal/vertical moves and turn ownership.
  */
-export function validateMovement(board, fromR, fromC, toR, toC, turnPlayer) {
+export function validateMovement(board, fromR, fromC, toR, toC, turnPlayer, gameVariant = 'standard', activePlayerColor = null) {
   if (fromR < 0 || fromR >= BOARD_SIZE || fromC < 0 || fromC >= BOARD_SIZE ||
       toR < 0 || toR >= BOARD_SIZE || toC < 0 || toC >= BOARD_SIZE) {
     return { valid: false, error: 'Coordinates out of bounds.' };
@@ -156,15 +167,21 @@ export function validateMovement(board, fromR, fromC, toR, toC, turnPlayer) {
     return { valid: false, error: 'Destination coordinate is occupied.' };
   }
 
-  // Enforce role assignment rules
-  if (turnPlayer === 'attacker') {
-    if (piece.type !== BLOCK_TYPES.BLOCK_LAZER) {
-      return { valid: false, error: 'The Attacker can only move the LAZER piece.' };
+  if (gameVariant === 'trench-run') {
+    if (activePlayerColor && piece.player !== activePlayerColor) {
+      return { valid: false, error: 'You can only move your own pieces.' };
     }
-  } else if (turnPlayer === 'defender') {
-    const isPointPiece = [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(piece.type);
-    if (!isPointPiece) {
-      return { valid: false, error: 'The Defender can only move POINT pieces.' };
+  } else {
+    // Enforce role assignment rules
+    if (turnPlayer === 'attacker') {
+      if (piece.type !== BLOCK_TYPES.BLOCK_LAZER) {
+        return { valid: false, error: 'The Attacker can only move the LAZER piece.' };
+      }
+    } else if (turnPlayer === 'defender') {
+      const isPointPiece = [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(piece.type);
+      if (!isPointPiece) {
+        return { valid: false, error: 'The Defender can only move POINT pieces.' };
+      }
     }
   }
 
@@ -237,17 +254,21 @@ export function evaluateBoardState(board, lastAction, player, context = {}) {
  * Calculates all cells reachable from a start position given the remaining Action Points.
  * Correctly accounts for obstacles (mirrors and other blocks) and returns step paths.
  */
-export function getReachableCells(board, startR, startC, maxAP, turnPlayer) {
+export function getReachableCells(board, startR, startC, maxAP, turnPlayer, gameVariant = 'standard', activePlayerColor = null) {
   if (maxAP <= 0) return [];
   
   const piece = board[startR][startC];
   if (!piece || piece.type === 'mirror') return [];
 
-  if (turnPlayer === 'attacker') {
-    if (piece.type !== BLOCK_TYPES.BLOCK_LAZER) return [];
+  if (gameVariant === 'trench-run') {
+    if (activePlayerColor && piece.player !== activePlayerColor) return [];
   } else {
-    const isPointPiece = [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(piece.type);
-    if (!isPointPiece) return [];
+    if (turnPlayer === 'attacker') {
+      if (piece.type !== BLOCK_TYPES.BLOCK_LAZER) return [];
+    } else {
+      const isPointPiece = [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(piece.type);
+      if (!isPointPiece) return [];
+    }
   }
 
   const reachable = [];

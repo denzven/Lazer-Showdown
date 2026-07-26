@@ -18,7 +18,8 @@ export default function Cell({
   reachableDist = 0,
   threatObj = null,
   isHighlighted = false,
-  botHighlights = []
+  botHighlights = [],
+  gameVariant = 'standard'
 }) {
   const [isDragOver, setIsDragOver] = useState(false);
   const [lastThreatObj, setLastThreatObj] = useState(null);
@@ -102,17 +103,17 @@ export default function Cell({
             <circle cx={isSlash ? 6 : 6} cy={isSlash ? 34 : 6} r="3" fill="#5c6285" stroke="#1d1e2c" strokeWidth="1.5" />
             <circle cx={isSlash ? 34 : 34} cy={isSlash ? 6 : 34} r="3" fill="#5c6285" stroke="#1d1e2c" strokeWidth="1.5" />
 
-            {/* Glowing neon purple edge backing */}
+            {/* Glowing neon edge backing */}
             <line 
               x1={isSlash ? 6 : 6} 
               y1={isSlash ? 34 : 6} 
               x2={isSlash ? 34 : 34} 
               y2={isSlash ? 6 : 34} 
-              stroke="#b026ff" 
+              stroke={block.isPivoted ? "#ffcc00" : "#b026ff"} 
               strokeWidth="5.5" 
               strokeLinecap="round"
               opacity="0.8"
-              style={{ filter: 'drop-shadow(0 0 6px #b026ff)' }}
+              style={{ filter: `drop-shadow(0 0 6px ${block.isPivoted ? "#ffcc00" : "#b026ff"})` }}
             />
             {/* Shiny double-sided silver-blue mirror surface */}
             <line 
@@ -137,6 +138,7 @@ export default function Cell({
   return (
     <div
       className={`board-cell ${isEven ? 'cell-even' : 'cell-odd'} ${isSelected ? 'selected' : ''} ${isDragOver ? 'drag-over' : ''} ${isHighlighted ? 'highlighted' : ''}`}
+      style={{ cursor: (gameVariant === 'pivot-point' && block && block.type === 'mirror') ? 'pointer' : 'default' }}
       onClick={onClick}
       onDragOver={(e) => {
         e.preventDefault();

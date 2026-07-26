@@ -25,7 +25,8 @@ export default function AnalysisPanel({
   onBotMindsUpdate,
   onSimulationUpdate,
   isAnalyzing = false,
-  onClose
+  onClose,
+  onSaveReplay
 }) {
   const board = gameState?.board;
   const [isMinimized, setIsMinimized] = useState(false);
@@ -472,6 +473,16 @@ export default function AnalysisPanel({
                 FWD ▶
               </button>
             </div>
+          )}
+
+          {onSaveReplay && (
+            <button 
+              className="cyber-button"
+              onClick={onSaveReplay}
+              style={{ width: '100%', marginTop: '12px', padding: '8px', fontSize: '0.85rem', borderColor: 'var(--neon-green)', color: 'var(--neon-green)' }}
+            >
+              💾 SAVE REPLAY (.json)
+            </button>
           )}
 
         </div>

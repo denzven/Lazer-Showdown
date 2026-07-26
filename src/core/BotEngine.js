@@ -8,7 +8,7 @@
  *  - If the Worker fails or is unavailable, a synchronous fallback is used transparently.
  */
 
-import { BUILTIN_STRATEGIES, CUSTOM_STRATEGIES, generateThreatMap, generateExpectiminimaxThreatMap, getBoardAnalysis, generatePossibilityWeb } from './BotStrategies.js';
+import { BUILTIN_STRATEGIES, CUSTOM_STRATEGIES, generateThreatMap, generateExpectiminimaxThreatMap, getBoardAnalysis, generatePossibilityWeb, setActiveGameVariant, setActiveRoleRed } from './BotStrategies.js';
 
 // --- WEB WORKER SINGLETON ---
 // Created once, reused for the entire session. Destroyed and recreated on fatal errors.
@@ -72,6 +72,8 @@ function dispatchToWorker(type, payload) {
 // --- SYNCHRONOUS FALLBACK HELPERS ---
 
 function syncPlayAction(board, role, actionPoints, difficulty, gameState, botPlayer) {
+  setActiveGameVariant(gameState?.gameVariant || 'standard');
+  setActiveRoleRed(gameState?.roleRed || 'attacker');
   if (BUILTIN_STRATEGIES[difficulty]) {
     return BUILTIN_STRATEGIES[difficulty].getPlayAction(board, role, actionPoints, gameState, botPlayer);
   }
@@ -89,7 +91,9 @@ function syncPlayAction(board, role, actionPoints, difficulty, gameState, botPla
  *
  * Phase 1f fix: Easy correctly uses EasyStrategy (was incorrectly using HardStrategy on L7).
  */
-export function getBotSetupAction(board, phase, playerColor, difficulty = 'medium', challengedPiece = null, boardHeatmap = null) {
+export function getBotSetupAction(board, phase, playerColor, difficulty = 'medium', challengedPiece = null, boardHeatmap = null, gameState = null) {
+  setActiveGameVariant(gameState?.gameVariant || 'standard');
+  setActiveRoleRed(gameState?.roleRed || 'attacker');
   if (BUILTIN_STRATEGIES[difficulty]) {
     return BUILTIN_STRATEGIES[difficulty].getSetupAction(board, phase, playerColor, challengedPiece, boardHeatmap);
   }
@@ -131,6 +135,11 @@ export async function getBotPlayAction(board, role, actionPoints, difficulty = '
 }
 
 export async function getBoardAnalysisAsync(board, role, difficulty, gameState, botPlayer) {
+  const strategy = CUSTOM_STRATEGIES[difficulty] || BUILTIN_STRATEGIES[difficulty];
+  if (!strategy) return { type: 'error', error: 'Invalid strategy difficulty' };
+
+  setActiveGameVariant(gameState?.gameVariant || 'standard');
+  setActiveRoleRed(gameState?.roleRed || 'attacker');
   const diffToUse = difficulty === 'ga' ? 'hard' : difficulty;
   const attackerMathAnalysis = getBoardAnalysis(board, 'attacker', diffToUse, gameState, botPlayer);
   const defenderMathAnalysis = getBoardAnalysis(board, 'defender', diffToUse, gameState, botPlayer);

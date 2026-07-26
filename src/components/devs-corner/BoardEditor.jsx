@@ -317,12 +317,12 @@ export default function BoardEditor({ customBoards = [] }) {
     const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(list, null, 2));
     const downloadAnchor = document.createElement('a');
     downloadAnchor.setAttribute("href", dataStr);
-    downloadAnchor.setAttribute("download", `${formattedName}.json`);
+    downloadAnchor.setAttribute("download", `${formattedName}.lzrshwdn.board.json`);
     document.body.appendChild(downloadAnchor);
     downloadAnchor.click();
     downloadAnchor.remove();
 
-    setEditorSuccess(`Successfully exported ${formattedName}.json!`);
+    setEditorSuccess(`Successfully exported ${formattedName}.lzrshwdn.board.json!`);
   };
 
   const handleImportJsonFile = (e) => {
@@ -776,7 +776,7 @@ export default function BoardEditor({ customBoards = [] }) {
                 style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', fontSize: '0.8rem', padding: '10px 8px', cursor: 'pointer' }}
               >
                 <Upload size={14} style={{ display: 'inline-block' }} /> IMPORT FILE
-                <input type="file" accept=".json" onChange={handleImportJsonFile} style={{ display: 'none' }} />
+                <input type="file" accept=".lzrshwdn.board.json" onChange={handleImportJsonFile} style={{ display: 'none' }} />
               </label>
             </div>
 

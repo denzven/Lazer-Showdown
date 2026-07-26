@@ -499,7 +499,8 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
     reviewIndex,
     setReviewIndex,
     stepForward,
-    stepBackward
+    stepBackward,
+    gameVariant
   } = game;
 
   const [selectedCell, setSelectedCell] = useState(null);
@@ -513,6 +514,27 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
   const [botMinds, setBotMinds] = useState(null);
   const [simulationBoard, setSimulationBoard] = useState(null);
   const [simulationLaserData, setSimulationLaserData] = useState(null);
+
+  const handleSaveReplay = React.useCallback(() => {
+    const replayData = {
+      version: 1,
+      players: {
+        red: playerName,
+        blue: opponentName
+      },
+      history: game.history,
+      finalState: game.liveState
+    };
+    const blob = new Blob([JSON.stringify(replayData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `lazer-showdown-replay-${new Date().toISOString().replace(/[:.]/g, '-')}.lzrshwdn.game.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, [game.history, game.liveState]);
 
   const botHighlights = React.useMemo(() => {
     if (!analysisMode || !botMinds) return null;
@@ -717,6 +739,27 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
   };
 
   const getVisiblePaletteKeys = () => {
+    if (gameVariant === 'trench-run' && (phase === 'setup-defender' || phase === 'setup-attacker')) {
+      const expectedPlayer = phase === 'setup-defender' ? (roleRed === 'defender' ? 'red' : 'blue') : (roleRed === 'attacker' ? 'red' : 'blue');
+      const placedPieces = new Set();
+      let hasLazer = false;
+      for (let r = 0; r < board.length; r++) {
+        for (let c = 0; c < board[r].length; c++) {
+          const cell = board[r][c];
+          if (cell && cell.player === expectedPlayer) {
+            placedPieces.add(cell.type);
+            if (cell.type === 'block-lazer') hasLazer = true;
+          }
+        }
+      }
+      const keys = [];
+      if (!placedPieces.has('block-20')) keys.push('BLOCK_20');
+      if (!placedPieces.has('block-30')) keys.push('BLOCK_30');
+      if (!placedPieces.has('block-50')) keys.push('BLOCK_50');
+      if (!hasLazer) keys.push('BLOCK_LAZER');
+      return keys;
+    }
+    
     if (phase === 'setup-defender') {
       const placedPieces = new Set();
       for (let r = 0; r < board.length; r++) {
@@ -747,7 +790,8 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
     return []; // No palette elements during gameplay rounds
   };
 
-  const activePlayerColor = phase === 'setup-defender' || phase === 'challenge-setup'
+  let activePlayerColor = 'red';
+  activePlayerColor = phase === 'setup-defender' || phase === 'challenge-setup'
     ? (roleRed === 'defender' ? 'red' : 'blue')
     : phase === 'setup-attacker'
       ? (roleRed === 'attacker' ? 'red' : 'blue')
@@ -762,6 +806,21 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
         : (mode === 'online' && role === activePlayerColor);
 
   const renderSetupBanner = () => {
+    if (gameVariant === 'trench-run' && (phase === 'setup-defender' || phase === 'setup-attacker')) {
+      const isMyTurn = (mode === 'local') ? true : (mode === 'bot' ? (activePlayerColor === 'red') : (role === activePlayerColor));
+      const rowNum = activePlayerColor === 'red' ? 1 : 8;
+      const text = `${activePlayerColor.toUpperCase()} SETUP: Place your 3 Point Pieces and 1 Lazer on your back row (Row ${rowNum}). Lazer must be in a corner.`;
+      const colorVar = activePlayerColor === 'red' ? 'var(--neon-red)' : 'var(--neon-blue)';
+      const bgVar = activePlayerColor === 'red' ? 'rgba(255, 0, 85, 0.08)' : 'rgba(0, 240, 255, 0.08)';
+      const glowVar = activePlayerColor === 'red' ? 'var(--neon-red-glow)' : 'var(--neon-blue-glow)';
+      
+      return (
+        <div style={{ background: bgVar, border: `1px solid ${colorVar}`, padding: '10px 16px', borderRadius: '8px', color: colorVar, fontSize: '0.85rem', fontWeight: 'bold', width: '100%', textAlign: 'center', marginBottom: '16px', textShadow: `0 0 4px ${glowVar}` }}>
+          {isMyTurn ? text : `WAITING: ${activePlayerColor.toUpperCase()} is placing pieces...`}
+        </div>
+      );
+    }
+    
     if (phase === 'setup-defender' || phase === 'challenge-setup') {
       const isMyTurn = (mode === 'local') ? true : (mode === 'bot' ? (roleRed === 'defender') : (roleRed === 'defender' ? role === 'red' : role === 'blue'));
       const text = phase === 'challenge-setup' ? 'CHALLENGE SETUP: Drag and place the challenged piece onto the grid.' : 'DEFENDER SETUP: Drag and place 3 Point Pieces onto the grid (Corners and Mirror stands are blocked).';
@@ -883,24 +942,15 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
       return (
         <div className="modal-overlay">
           <div className="modal-content glass-panel" style={{ maxWidth: '450px' }}>
-            <h2 className="modal-title glow-text-red">Choose Role</h2>
+            <h2 className="modal-title glow-text-red">
+              {gameVariant === 'trench-run' ? 'Setup Order' : 'Choose Role'}
+            </h2>
             <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem' }}>
-              <span style={{ color: tossWinner === 'red' ? 'var(--neon-red)' : 'var(--neon-blue)', fontWeight: 'bold' }}>{tossWinner.toUpperCase()}</span> won the toss! Choose your role:
+              <span style={{ color: tossWinner === 'red' ? 'var(--neon-red)' : 'var(--neon-blue)', fontWeight: 'bold' }}>{tossWinner.toUpperCase()}</span> won the toss! {gameVariant === 'trench-run' ? 'Choose when to setup:' : 'Choose your role:'}
             </p>
 
             {isTossWinnerLocal ? (
               <div style={{ display: 'flex', gap: '16px', marginTop: '20px', width: '100%' }}>
-                <button 
-                  className="cyber-button red" 
-                  onClick={() => selectRole('attacker')} 
-                  style={{ 
-                    flex: 1,
-                    animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'select-role' ? 'afkPulse 1s infinite' : 'none',
-                    boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'select-role' ? '0 0 15px var(--neon-red)' : undefined
-                  }}
-                >
-                  ATTACKER
-                </button>
                 <button 
                   className="cyber-button blue" 
                   onClick={() => selectRole('defender')} 
@@ -910,12 +960,23 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
                     boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'select-role' ? '0 0 15px var(--neon-blue)' : undefined
                   }}
                 >
-                  DEFENDER
+                  {gameVariant === 'trench-run' ? 'PLACE FIRST' : 'DEFENDER'}
+                </button>
+                <button 
+                  className="cyber-button red" 
+                  onClick={() => selectRole('attacker')} 
+                  style={{ 
+                    flex: 1,
+                    animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'select-role' ? 'afkPulse 1s infinite' : 'none',
+                    boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'select-role' ? '0 0 15px var(--neon-red)' : undefined
+                  }}
+                >
+                  {gameVariant === 'trench-run' ? 'PLACE LATER' : 'ATTACKER'}
                 </button>
               </div>
             ) : (
               <p style={{ marginTop: '20px', color: 'var(--neon-blue)', fontWeight: 'bold', animation: 'afkPulse 1.5s infinite' }}>
-                Opponent is selecting role...
+                {gameVariant === 'trench-run' ? 'Opponent is selecting setup order...' : 'Opponent is selecting role...'}
               </p>
             )}
           </div>
@@ -1191,64 +1252,76 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
           </div>
         )}
 
-        {/* Setup Defender Panel */}
-        {(phase === 'setup-defender' || phase === 'challenge-setup') && isLocalTurn && (() => {
-          const placedCount = board.reduce((count, row) => count + row.filter(cell => cell && ['block-20', 'block-30', 'block-50'].includes(cell.type)).length, 0);
+        {/* Setup Panels */}
+        {((phase === 'setup-defender' || phase === 'challenge-setup') || phase === 'setup-attacker') && isLocalTurn && (() => {
+          const expectedPlayer = (phase === 'setup-defender' || phase === 'challenge-setup') ? (roleRed === 'defender' ? 'red' : 'blue') : (roleRed === 'attacker' ? 'red' : 'blue');
+          let placedCount = 0;
+          let hasLazer = false;
+          board.forEach(row => row.forEach(cell => {
+            if (cell && cell.player === expectedPlayer) {
+              if (['block-20', 'block-30', 'block-50'].includes(cell.type)) placedCount++;
+              if (cell.type === 'block-lazer') hasLazer = true;
+            }
+          }));
+
+          const isTrenchRun = gameVariant === 'trench-run';
           const requiredCount = phase === 'challenge-setup' ? 1 : 3;
-          if (placedCount === requiredCount) {
-            return (
-              <div className="setup-panel" style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', marginTop: '10px' }}>
+          
+          let canConfirm = false;
+          let btnText = '';
+          
+          if (isTrenchRun) {
+            canConfirm = placedCount === requiredCount && hasLazer;
+            btnText = 'CONFIRM SETUP';
+          } else {
+            if (phase === 'setup-defender' || phase === 'challenge-setup') {
+              canConfirm = placedCount === requiredCount;
+              btnText = 'CONFIRM POINT PLACEMENTS';
+            } else if (phase === 'setup-attacker') {
+              canConfirm = hasLazer;
+              btnText = 'CONFIRM LAZER PLACEMENT';
+            }
+          }
+
+          if (!canConfirm && !hasLazer) return null; // Wait until they can confirm or they placed a lazer (for rotate btns)
+
+          return (
+            <div className="setup-panel" style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', marginTop: '10px' }}>
+              {hasLazer && (isTrenchRun || phase === 'setup-attacker') && (
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  <button
+                    className="cyber-button"
+                    onClick={() => executeAction({ type: 'rotate', dir: 'ccw' })}
+                    style={{ flex: 1, fontSize: '0.75rem', padding: '10px 0' }}
+                  >
+                    ROTATE CCW
+                  </button>
+                  <button
+                    className="cyber-button"
+                    onClick={() => executeAction({ type: 'rotate', dir: 'cw' })}
+                    style={{ flex: 1, fontSize: '0.75rem', padding: '10px 0' }}
+                  >
+                    ROTATE CW
+                  </button>
+                </div>
+              )}
+              {canConfirm && (
                 <button
-                  className="cyber-button blue"
+                  className={`cyber-button ${expectedPlayer}`}
                   onClick={() => executeAction({ type: 'confirm-setup' })}
                   style={{ 
                     width: '100%', fontSize: '0.8rem', fontWeight: 'bold',
-                    animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'confirm-defender' ? 'afkPulse 1.2s infinite' : 'none',
-                    border: mode === 'tutorial' && tutorialStep?.highlightButton === 'confirm-defender' ? '2px solid var(--neon-blue)' : undefined,
-                    boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'confirm-defender' ? '0 0 15px var(--neon-blue)' : undefined
+                    animation: mode === 'tutorial' && tutorialStep?.highlightButton?.startsWith('confirm') ? 'afkPulse 1.2s infinite' : 'none',
+                    border: mode === 'tutorial' && tutorialStep?.highlightButton?.startsWith('confirm') ? `2px solid var(--neon-${expectedPlayer})` : undefined,
+                    boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton?.startsWith('confirm') ? `0 0 15px var(--neon-${expectedPlayer})` : undefined
                   }}
                 >
-                  CONFIRM POINT PLACEMENTS
+                  {btnText}
                 </button>
-              </div>
-            );
-          }
-          return null;
-        })()}
-
-        {/* Setup Attacker Panel */}
-        {phase === 'setup-attacker' && isLocalTurn && board.some(row => row.some(cell => cell && cell.type === 'block-lazer')) && (
-          <div className="setup-panel" style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%' }}>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button
-                className="cyber-button"
-                onClick={() => executeAction({ type: 'rotate', dir: 'ccw' })}
-                style={{ flex: 1, fontSize: '0.75rem', padding: '10px 0' }}
-              >
-                ROTATE CCW
-              </button>
-              <button
-                className="cyber-button"
-                onClick={() => executeAction({ type: 'rotate', dir: 'cw' })}
-                style={{ flex: 1, fontSize: '0.75rem', padding: '10px 0' }}
-              >
-                ROTATE CW
-              </button>
+              )}
             </div>
-            <button
-              className="cyber-button red"
-              onClick={() => executeAction({ type: 'confirm-setup' })}
-              style={{ 
-                width: '100%', fontSize: '0.8rem', fontWeight: 'bold',
-                animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'confirm-attacker' ? 'afkPulse 1.2s infinite' : 'none',
-                border: mode === 'tutorial' && tutorialStep?.highlightButton === 'confirm-attacker' ? '2px solid var(--neon-red)' : undefined,
-                boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'confirm-attacker' ? '0 0 15px var(--neon-red)' : undefined
-              }}
-            >
-              CONFIRM LAZER PLACEMENT
-            </button>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Action Panel */}
         {phase === 'playing' && hasRolledDice && isLocalTurn && (
@@ -1372,7 +1445,11 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
                 setHighlightedCell({ r, c });
               }
             }}
-            onClose={() => setAnalysisMode(false)}
+            onClose={() => {
+              setAnalysisMode(false);
+              setReviewIndex(null);
+            }}
+            onSaveReplay={handleSaveReplay}
           />
         )}
 
@@ -1382,7 +1459,7 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
             <div className="player-dot red" />
             <div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 'bold' }}>
-                {roleRed ? roleRed.toUpperCase() : 'HOST'}
+                {gameVariant === 'trench-run' ? 'COMMANDER' : (roleRed ? roleRed.toUpperCase() : 'HOST')}
               </div>
               <div style={{ fontSize: '0.95rem', fontWeight: 'bold', marginBottom: '2px' }}>
                 {playerName}
@@ -1404,7 +1481,7 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
             </div>
             <div>
               <div style={{ fontSize: '0.75rem', color: 'var(--text-secondary)', fontWeight: 'bold', textAlign: 'right' }}>
-                {roleBlue ? roleBlue.toUpperCase() : 'GUEST'}
+                {gameVariant === 'trench-run' ? 'COMMANDER' : (roleBlue ? roleBlue.toUpperCase() : 'GUEST')}
               </div>
               <div style={{ fontSize: '0.95rem', fontWeight: 'bold', textAlign: 'right', marginBottom: '2px' }}>
                 {opponentName}
@@ -1424,6 +1501,18 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
             boxShadow: '0 4px 16px rgba(0,0,0,0.6), inset 0 0 12px rgba(255,255,255,0.05)',
             backdropFilter: 'blur(8px)'
           }}>
+            {/* Game Variant Indicator */}
+            {gameVariant && gameVariant !== 'standard' && (
+              <>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title={`Mode: ${gameVariant}`}>
+                  <span style={{ color: 'var(--neon-purple)', fontSize: '0.7rem', fontWeight: 'bold', letterSpacing: '1px', textTransform: 'uppercase', textShadow: '0 0 6px var(--neon-purple)' }}>
+                    {gameVariant.replace('-', ' ')}
+                  </span>
+                </div>
+                <div style={{ width: '1px', height: '16px', background: 'rgba(255,255,255,0.15)' }} />
+              </>
+            )}
+
             {/* Set Indicator */}
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title={`Set ${set} of 2`}>
               <span style={{ color: 'var(--text-secondary)', fontSize: '0.7rem', fontWeight: 'bold', letterSpacing: '1px' }}>SET</span>
@@ -1535,12 +1624,13 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
             role={role}
             botHighlights={botHighlights}
             activePlayerColor={activePlayerColor}
-            reachableCells={selectedCell ? getReachableCells(board, selectedCell.r, selectedCell.c, actionPoints, turnPlayer) : []}
+            reachableCells={selectedCell ? getReachableCells(board, selectedCell.r, selectedCell.c, actionPoints, turnPlayer, gameVariant, activePlayerColor) : []}
             threatMap={showHeatmap ? activeThreatMap : null}
             possibilityWeb={showGhostRays ? game.possibilityWeb : null}
             highlightedCell={highlightedCell}
             tutorialHighlight={tutorialStep?.highlight}
             tutorialHighlights={tutorialStep?.highlights}
+            gameVariant={gameVariant}
           />
 
           <div style={{ marginTop: '16px', display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--text-muted)', fontSize: '0.75rem' }}>

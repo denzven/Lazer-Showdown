@@ -7,7 +7,9 @@ import App from './App.jsx'
 import { polyfill } from 'mobile-drag-drop';
 import 'mobile-drag-drop/default.css';
 
-polyfill();
+polyfill({
+  dragImageCenterOnTouch: true,
+});
 
 // Prevent iOS scroll bouncing while dragging
 window.addEventListener('touchmove', function(e) {

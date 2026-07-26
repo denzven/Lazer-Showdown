@@ -5,7 +5,7 @@ import { ChevronDown, CheckCircle, Download } from 'lucide-react';
 export function highlightJsCode(code) {
   const tokens = [];
   const rules = [
-    { type: 'comment', regex: /^\/\/.*$/ },
+    { type: 'comment', regex: /^\/\/[^\n]*/ },
     { type: 'string', regex: /^"(?:[^"\\]|\\.)*"|^'(?:[^'\\]|\\.)*'|^`(?:[^`\\]|\\.)*`/ },
     { type: 'keyword', regex: /^(?:const|let|var|export|function|return|if|else|import|typeof|null|true|false)\b/ },
     { type: 'builtin', regex: /^(?:LazerAI|Math|random|floor|length|includes|BLOCK_TYPES|getBoardState|getPossibleActions|applyLightweightAction|traceLaserBeam|lazerPos|lazerDir|hitPiece)\b/ },

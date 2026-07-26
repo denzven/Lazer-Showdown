@@ -10,7 +10,9 @@ import {
   BUILTIN_STRATEGIES,
   DEFAULT_WEIGHTS,
   findBestActionSequenceExpectiminimax,
-  getChallengeRecommendation
+  getChallengeRecommendation,
+  setActiveGameVariant,
+  setActiveRoleRed
 } from '../src/core/BotStrategies.js';
 
 import { EasyStrategy } from '../src/bots/01_EasyStrategy.js';
@@ -35,7 +37,13 @@ if (gamesArgIdx !== -1 && args[gamesArgIdx + 1]) {
   }
 }
 
-console.log(`🤖 Starting Headless Bot Tournament (${numGamesPerMatch} games per matchup)...`);
+let gameVariant = 'standard';
+const variantArgIdx = args.findIndex(arg => arg === '--variant' || arg === '-v');
+if (variantArgIdx !== -1 && args[variantArgIdx + 1]) {
+  gameVariant = args[variantArgIdx + 1];
+}
+
+console.log(`🤖 Starting Headless Bot Tournament (${numGamesPerMatch} games per matchup, Mode: ${gameVariant})...`);
 
 // Load custom boards if available
 const boardsDir = path.resolve('./src/boards');
@@ -57,6 +65,8 @@ const rollDie = () => Math.floor(Math.random() * 6) + 1;
 
 // General function to get a play action for a strategy by its key/id
 function getStrategyPlayAction(strategyId, board, role, actionPoints, state) {
+  setActiveGameVariant(state?.gameVariant || 'standard');
+  setActiveRoleRed(state?.roleRed || 'attacker');
   const strategy = BUILTIN_STRATEGIES[strategyId];
   if (strategy && strategy.getPlayAction) {
     return strategy.getPlayAction(board, role, actionPoints, state, strategyId);
@@ -74,7 +84,7 @@ function getStrategyChallengeAction(strategyId, board, state, playerColor) {
 
 // Plays a headless game between two strategies
 function simulateMatch(boardData, strategyIdA, strategyIdB, roleA) {
-  let state = getInitialState(boardData);
+  let state = getInitialState(boardData, null, gameVariant);
   
   // Assign colors
   const colorA = Math.random() > 0.5 ? 'red' : 'blue';
@@ -134,9 +144,11 @@ function simulateMatch(boardData, strategyIdA, strategyIdB, roleA) {
     
     // Placement / Setup
     if (state.phase === 'setup-defender' || state.phase === 'challenge-setup' || state.phase === 'setup-attacker') {
+      setActiveGameVariant(state.gameVariant || 'standard');
+      setActiveRoleRed(state.roleRed || 'attacker');
       const strategy = BUILTIN_STRATEGIES[activeStrategy];
       if (strategy && strategy.getSetupAction) {
-        let action = strategy.getSetupAction(state.board, state.phase, activeColor, state.challengedPiece);
+        let action = strategy.getSetupAction(state.board, state.phase, activeColor, state.challengedPiece, null, state);
         if (action) {
           state = applySandboxAction(state.board, action, activeColor.toLowerCase(), state);
         } else {
@@ -144,7 +156,7 @@ function simulateMatch(boardData, strategyIdA, strategyIdB, roleA) {
         }
       } else {
         // Fallback to default setup if the strategy doesn't implement setup
-        let action = getBotSetupAction(state.board, state.phase, activeColor, activeStrategy, state.challengedPiece);
+        let action = getBotSetupAction(state.board, state.phase, activeColor, activeStrategy, state.challengedPiece, null, state);
         if (action) {
           state = applySandboxAction(state.board, action, activeColor.toLowerCase(), state);
         } else {

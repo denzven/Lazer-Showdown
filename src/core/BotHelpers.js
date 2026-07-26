@@ -17,6 +17,17 @@ export {
 // Threat map memoization cache
 let _threatMapCache = { key: null, map: null };
 
+let activeGameVariant = 'standard';
+let activeRoleRed = 'attacker';
+
+export function setActiveGameVariant(v) {
+  activeGameVariant = v || 'standard';
+}
+
+export function setActiveRoleRed(r) {
+  activeRoleRed = r || 'attacker';
+}
+
 const BASE_WEIGHTS = {
   // Attacker Weights
   attCapture50Bonus: 50000,
@@ -84,27 +95,66 @@ export function getPossibleActions(board, role) {
   const actions = [];
   const { emptyCells, lazerPos, lazerDir, pointPieces } = getBoardState(board);
 
-  if (role === 'attacker' && lazerPos) {
-    const trace = traceLaserBeam(board, lazerPos, lazerDir);
-    if (trace.hitPiece && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(trace.hitPiece.cell.type)) {
-      actions.push({ type: 'laser-press' });
-    }
-    actions.push({ type: 'rotate', dir: 'cw', r: lazerPos.r, c: lazerPos.c });
-    actions.push({ type: 'rotate', dir: 'ccw', r: lazerPos.r, c: lazerPos.c });
-    for (const cell of emptyCells) {
-      if (validateMovement(board, lazerPos.r, lazerPos.c, cell.r, cell.c, 'attacker').valid) {
-        actions.push({ type: 'move', fromR: lazerPos.r, fromC: lazerPos.c, toR: cell.r, toC: cell.c });
+  if (activeGameVariant === 'trench-run') {
+    const myColor = role === activeRoleRed ? 'red' : 'blue';
+
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        const cell = board[r][c];
+        if (cell && cell.player === myColor) {
+          if (cell.type === BLOCK_TYPES.BLOCK_LAZER) {
+            const trace = traceLaserBeam(board, { r, c }, cell.rotation || 0);
+            if (trace.hitPiece && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(trace.hitPiece.cell.type)) {
+              if (trace.hitPiece.cell.player !== myColor) {
+                actions.push({ type: 'laser-press' });
+              }
+            }
+            actions.push({ type: 'rotate', dir: 'cw', r, c });
+            actions.push({ type: 'rotate', dir: 'ccw', r, c });
+          }
+          
+          for (const empty of emptyCells) {
+            if (validateMovement(board, r, c, empty.r, empty.c, role, 'trench-run', myColor).valid) {
+              actions.push({ type: 'move', fromR: r, fromC: c, toR: empty.r, toC: empty.c });
+            }
+          }
+        }
       }
     }
-  } else if (role === 'defender') {
-    for (const p of pointPieces) {
+  } else {
+    if (role === 'attacker' && lazerPos) {
+      const trace = traceLaserBeam(board, lazerPos, lazerDir);
+      if (trace.hitPiece && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(trace.hitPiece.cell.type)) {
+        actions.push({ type: 'laser-press' });
+      }
+      actions.push({ type: 'rotate', dir: 'cw', r: lazerPos.r, c: lazerPos.c });
+      actions.push({ type: 'rotate', dir: 'ccw', r: lazerPos.r, c: lazerPos.c });
       for (const cell of emptyCells) {
-        if (validateMovement(board, p.r, p.c, cell.r, cell.c, 'defender').valid) {
-          actions.push({ type: 'move', fromR: p.r, fromC: p.c, toR: cell.r, toC: cell.c });
+        if (validateMovement(board, lazerPos.r, lazerPos.c, cell.r, cell.c, 'attacker').valid) {
+          actions.push({ type: 'move', fromR: lazerPos.r, fromC: lazerPos.c, toR: cell.r, toC: cell.c });
+        }
+      }
+    } else if (role === 'defender') {
+      for (const p of pointPieces) {
+        for (const cell of emptyCells) {
+          if (validateMovement(board, p.r, p.c, cell.r, cell.c, 'defender').valid) {
+            actions.push({ type: 'move', fromR: p.r, fromC: p.c, toR: cell.r, toC: cell.c });
+          }
         }
       }
     }
   }
+
+  if (activeGameVariant === 'pivot-point') {
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        if (board[r][c] && board[r][c].type === 'mirror') {
+          actions.push({ type: 'rotate', dir: 'cw', r, c, isMirror: true });
+        }
+      }
+    }
+  }
+
   return actions;
 }
 
@@ -115,11 +165,15 @@ export function applyLightweightAction(board, action) {
     newBoard[action.toR][action.toC] = newBoard[action.fromR][action.fromC];
     newBoard[action.fromR][action.fromC] = null;
   } else if (action.type === 'rotate') {
-    const { r, c, dir } = action;
+    const { r, c, dir, isMirror } = action;
     const block = newBoard[r][c];
     if (block) {
-      let rot = block.rotation || 0;
-      newBoard[r][c] = { ...block, rotation: dir === 'cw' ? (rot + 90) % 360 : (rot + 270) % 360 };
+      if (isMirror || block.type === 'mirror') {
+        newBoard[r][c] = { ...block, orientation: block.orientation === '/' ? '\\' : '/' };
+      } else {
+        let rot = block.rotation || 0;
+        newBoard[r][c] = { ...block, rotation: dir === 'cw' ? (rot + 90) % 360 : (rot + 270) % 360 };
+      }
     }
   } else if (action.type === 'laser-press') {
     const { lazerPos, lazerDir } = getBoardState(newBoard);
@@ -343,7 +397,49 @@ export function evaluateMediumAttacker(board, cautiousness = 1.0) {
   return score;
 }
 
+export function evaluateTrenchRunBoard(board, role, cautiousness = 1.0) {
+  const myColor = role === 'attacker' ? 'red' : 'blue';
+  const oppColor = myColor === 'red' ? 'blue' : 'red';
+  
+  let myScore = 0;
+  let oppScore = 0;
+  
+  for (let r = 0; r < BOARD_SIZE; r++) {
+    for (let c = 0; c < BOARD_SIZE; c++) {
+      const cell = board[r][c];
+      if (cell) {
+        if ([BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(cell.type)) {
+          const val = getPieceValue(cell.type);
+          if (cell.player === myColor) {
+             myScore += val;
+             const progress = myColor === 'red' ? r : (7 - r);
+             myScore += progress * 15;
+          } else if (cell.player === oppColor) {
+             oppScore += val;
+             const progress = oppColor === 'red' ? r : (7 - r);
+             oppScore += progress * 15;
+          }
+        } else if (cell.type === BLOCK_TYPES.BLOCK_LAZER) {
+          const trace = traceLaserBeam(board, {r, c}, cell.rotation || 0);
+          if (trace.hitPiece && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(trace.hitPiece.cell.type)) {
+             const hitVal = getPieceValue(trace.hitPiece.cell.type);
+             if (cell.player === myColor && trace.hitPiece.cell.player === oppColor) {
+                myScore += hitVal * 2;
+             } else if (cell.player === oppColor && trace.hitPiece.cell.player === myColor) {
+                oppScore += hitVal * 2;
+             }
+          }
+        }
+      }
+    }
+  }
+  
+  return myScore - oppScore;
+}
+
 export function evaluateBoardAttacker(board, cautiousness = 1.0, weights = DEFAULT_WEIGHTS) {
+  if (activeGameVariant === 'trench-run') return evaluateTrenchRunBoard(board, 'attacker', cautiousness);
+  
   const { lazerPos, lazerDir, pointPieces } = getBoardState(board);
   if (!lazerPos) return -99999;
   
@@ -560,7 +656,9 @@ export function evaluateMediumDefender(board, cautiousness = 1.0) {
 }
 
 export function evaluateBoardDefender(board, cautiousness = 1.0, weights = DEFAULT_WEIGHTS) {
-  const { lazerPos, lazerDir, pointPieces } = getBoardState(board);
+  if (activeGameVariant === 'trench-run') return evaluateTrenchRunBoard(board, 'defender', cautiousness);
+  
+  const { pointPieces, lazerPos } = getBoardState(board);
   let score = 0;
 
   for (const p of pointPieces) {
@@ -1341,12 +1439,14 @@ export function getBoardAnalysis(board, role, difficulty, gameState, botPlayer) 
 
 // Generic Setup logic extracted from original
 export function genericSetupAction(board, phase, playerColor, difficulty, challengedPiece = null, boardHeatmap = null) {
-  if (phase === 'setup-defender' || phase === 'challenge-setup') {
-    const counts = { [BLOCK_TYPES.BLOCK_20]: 0, [BLOCK_TYPES.BLOCK_30]: 0, [BLOCK_TYPES.BLOCK_50]: 0 };
+  const isTrenchRun = activeGameVariant === 'trench-run';
+
+  if (phase === 'setup-defender' || phase === 'challenge-setup' || (isTrenchRun && phase === 'setup-attacker')) {
+    const counts = { [BLOCK_TYPES.BLOCK_20]: 0, [BLOCK_TYPES.BLOCK_30]: 0, [BLOCK_TYPES.BLOCK_50]: 0, [BLOCK_TYPES.BLOCK_LAZER]: 0 };
     for (let r = 0; r < BOARD_SIZE; r++) {
       for (let c = 0; c < BOARD_SIZE; c++) {
         const cell = board[r][c];
-        if (cell && counts[cell.type] !== undefined) counts[cell.type]++;
+        if (cell && cell.player === playerColor && counts[cell.type] !== undefined) counts[cell.type]++;
       }
     }
 
@@ -1357,18 +1457,23 @@ export function genericSetupAction(board, phase, playerColor, difficulty, challe
       if (counts[BLOCK_TYPES.BLOCK_20] === 0) nextPieceType = BLOCK_TYPES.BLOCK_20;
       else if (counts[BLOCK_TYPES.BLOCK_30] === 0) nextPieceType = BLOCK_TYPES.BLOCK_30;
       else if (counts[BLOCK_TYPES.BLOCK_50] === 0) nextPieceType = BLOCK_TYPES.BLOCK_50;
+      else if (isTrenchRun && counts[BLOCK_TYPES.BLOCK_LAZER] === 0) nextPieceType = BLOCK_TYPES.BLOCK_LAZER;
     }
 
     if (!nextPieceType) return { type: 'confirm-setup' };
 
-    const legalCells = [];
-    for (let r = 0; r < BOARD_SIZE; r++) {
-      for (let c = 0; c < BOARD_SIZE; c++) {
-        if (validatePlacement(board, r, c, nextPieceType).valid) {
-          legalCells.push({ r, c });
+    if (isTrenchRun && nextPieceType === BLOCK_TYPES.BLOCK_LAZER) {
+      // Defer to the setup-attacker Lazer logic for placing the Lazer
+      phase = 'setup-attacker'; 
+    } else {
+      const legalCells = [];
+      for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          if (validatePlacement(board, r, c, nextPieceType, activeGameVariant, playerColor).valid) {
+            legalCells.push({ r, c });
+          }
         }
       }
-    }
 
     if (legalCells.length > 0) {
       if (difficulty === 'easy') {
@@ -1447,13 +1552,14 @@ export function genericSetupAction(board, phase, playerColor, difficulty, challe
       const chosenCell = sortedCells[0];
       return { type: 'place', pieceType: nextPieceType, r: chosenCell.r, c: chosenCell.c };
     }
+    } // Close the 'else' block for non-LAZER placement
   } 
   
-  else if (phase === 'setup-attacker') {
+  if (phase === 'setup-attacker') {
     let lazerPlaced = false;
     for (let r = 0; r < BOARD_SIZE; r++) {
       for (let c = 0; c < BOARD_SIZE; c++) {
-        if (board[r][c] && board[r][c].type === BLOCK_TYPES.BLOCK_LAZER) {
+        if (board[r][c] && board[r][c].type === BLOCK_TYPES.BLOCK_LAZER && board[r][c].player === playerColor) {
           lazerPlaced = true;
           break;
         }
@@ -1464,7 +1570,7 @@ export function genericSetupAction(board, phase, playerColor, difficulty, challe
     if (lazerPlaced) return { type: 'confirm-setup' };
 
     const corners = [{ r: 0, c: 0 }, { r: 0, c: 7 }, { r: 7, c: 0 }, { r: 7, c: 7 }];
-    const legalCorners = corners.filter(c => validatePlacement(board, c.r, c.c, BLOCK_TYPES.BLOCK_LAZER).valid);
+    const legalCorners = corners.filter(c => validatePlacement(board, c.r, c.c, BLOCK_TYPES.BLOCK_LAZER, activeGameVariant, playerColor).valid);
 
     if (legalCorners.length > 0) {
       if (difficulty === 'easy') {
