@@ -15,10 +15,10 @@ import {
   getChallengeRecommendation 
 } from '../src/core/BotStrategies.js';
 
-import { EasyStrategy } from '../src/bots/01_EasyStrategy.js';
-import { MediumStrategy } from '../src/bots/02_MediumStrategy.js';
-import { HardStrategy } from '../src/bots/03_HardStrategy.js';
-import { GAStrategy } from '../src/bots/04_GAStrategy.js';
+import * as EasyStrategy from '../src/bots/01_EasyStrategy.lzrshwdn.bot.js';
+import * as MediumStrategy from '../src/bots/02_MediumStrategy.lzrshwdn.bot.js';
+import * as HardStrategy from '../src/bots/03_HardStrategy.lzrshwdn.bot.js';
+import * as GAStrategy from '../src/bots/04_GAStrategy.lzrshwdn.bot.js';
 
 // Inject into BUILTIN_STRATEGIES for Node.js environment since Vite's import.meta.glob is unsupported
 BUILTIN_STRATEGIES['easy'] = EasyStrategy;

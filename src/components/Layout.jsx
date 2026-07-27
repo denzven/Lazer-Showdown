@@ -438,7 +438,7 @@ const TutorialDrawer = ({ tutorialStep, tutorialError, onTutorialNext }) => {
           {tutorialStep?.expectedAction?.type === 'next' && (
             <button
               className="cyber-button"
-              onClick={onTutorialNext}
+              onClick={() => onTutorialNext(tutorialStep.stepId)}
               style={{ marginTop: '12px', padding: '8px 20px', fontSize: '0.85rem', animation: 'afkPulse 1s infinite', width: '100%' }}
             >
               PROCEED
@@ -956,8 +956,8 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
                   onClick={() => selectRole('defender')} 
                   style={{ 
                     flex: 1,
-                    animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'select-role' ? 'afkPulse 1s infinite' : 'none',
-                    boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'select-role' ? '0 0 15px var(--neon-blue)' : undefined
+                    animation: mode === 'tutorial' && (tutorialStep?.highlightButton === 'select-role' || tutorialStep?.highlightButton === 'select-role-defender') ? 'afkPulse 1s infinite' : 'none',
+                    boxShadow: mode === 'tutorial' && (tutorialStep?.highlightButton === 'select-role' || tutorialStep?.highlightButton === 'select-role-defender') ? '0 0 15px var(--neon-blue)' : undefined
                   }}
                 >
                   {gameVariant === 'trench-run' ? 'PLACE FIRST' : 'DEFENDER'}
@@ -967,8 +967,8 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
                   onClick={() => selectRole('attacker')} 
                   style={{ 
                     flex: 1,
-                    animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'select-role' ? 'afkPulse 1s infinite' : 'none',
-                    boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'select-role' ? '0 0 15px var(--neon-red)' : undefined
+                    animation: mode === 'tutorial' && (tutorialStep?.highlightButton === 'select-role' || tutorialStep?.highlightButton === 'select-role-attacker') ? 'afkPulse 1s infinite' : 'none',
+                    boxShadow: mode === 'tutorial' && (tutorialStep?.highlightButton === 'select-role' || tutorialStep?.highlightButton === 'select-role-attacker') ? '0 0 15px var(--neon-red)' : undefined
                   }}
                 >
                   {gameVariant === 'trench-run' ? 'PLACE LATER' : 'ATTACKER'}
@@ -1346,7 +1346,7 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
                     className="cyber-button"
                     onClick={() => rotateBlock(0, 0, 'ccw')}
                     disabled={actionPoints <= 0}
-                    style={{ flex: 1, fontSize: '0.75rem', padding: '10px 0' }}
+                    style={{ flex: 1, fontSize: '0.75rem', padding: '10px 0', animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'rotate-ccw' ? 'afkPulse 1.2s infinite' : 'none', border: mode === 'tutorial' && tutorialStep?.highlightButton === 'rotate-ccw' ? '2px solid var(--neon-blue)' : undefined, boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'rotate-ccw' ? '0 0 15px var(--neon-blue)' : undefined }}
                   >
                     ROTATE CCW
                   </button>
@@ -1354,7 +1354,7 @@ export default function Layout({ network, game, mode, difficulty, tutorialStep, 
                     className="cyber-button"
                     onClick={() => rotateBlock(0, 0, 'cw')}
                     disabled={actionPoints <= 0}
-                    style={{ flex: 1, fontSize: '0.75rem', padding: '10px 0' }}
+                    style={{ flex: 1, fontSize: '0.75rem', padding: '10px 0', animation: mode === 'tutorial' && tutorialStep?.highlightButton === 'rotate-cw' ? 'afkPulse 1.2s infinite' : 'none', border: mode === 'tutorial' && tutorialStep?.highlightButton === 'rotate-cw' ? '2px solid var(--neon-blue)' : undefined, boxShadow: mode === 'tutorial' && tutorialStep?.highlightButton === 'rotate-cw' ? '0 0 15px var(--neon-blue)' : undefined }}
                   >
                     ROTATE CW
                   </button>

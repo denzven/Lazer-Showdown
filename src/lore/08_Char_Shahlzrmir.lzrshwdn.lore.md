@@ -1,0 +1,16 @@
+# 👽 Contender: Shahlzrmir
+
+> **Rank:** High-Command Marshal  
+> **Difficulty:** Hard  
+
+---
+
+## 📝 Profile
+
+A high-ranking officer from the original conflict, **Shahlzrmir** has never forgotten a single ship placement from the war. He plays with the cold, calculating efficiency of a general defending a homeworld.
+
+## 🎯 Playstyle
+
+Aggressive and uncompromising. He uses his Action Points to trap opponents in inescapable loops and rarely leaves a single piece vulnerable.
+
+![Shahlzrmir](Shahlzrmir.png)

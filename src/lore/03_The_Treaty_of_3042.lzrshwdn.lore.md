@@ -1,0 +1,17 @@
+# 🤝 The Treaty of 3042
+
+> *War is a hungry beast, but even it must eventually sleep.*
+
+---
+
+## 🕊️ The Peace
+
+In 3042 AD, the **Intergalactic Treaty of Kylos** was signed. It brought a true alliance between the alien-race and mankind, ending decades of kinetic warfare. 
+
+![The Treaty](Treaty.png)
+
+## 🏛️ The Legacy
+
+Lazer Showdown was no longer a tool to decode enemy movements—it became a bridge between cultures. Today, the game is played in every corner of the galaxy as a sport of diplomacy. The soldiers who first tickled an Lzrshuby in a trench would never have believed that their desperate attempt to survive would become the galaxy's greatest legacy.
+
+![Playing Together](Game_together.png)

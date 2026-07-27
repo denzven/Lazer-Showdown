@@ -245,7 +245,7 @@ export const SpectreStrategy = {
       // 2. Evaluate the simulated board
       let score = 0;
       if (role === 'attacker') {
-        score = evaluateAttackerState(futureBoard);
+        score = evaluateAttackerState(futureBoard, gameState, botPlayer);
       } else {
         score = evaluateDefenderState(futureBoard);
       }
@@ -271,8 +271,26 @@ export const SpectreStrategy = {
 };
 
 // Heuristic: Attacker wants to maximize threat and immediately fire if a hit is active
-function evaluateAttackerState(board) {
-  const { lazerPos, lazerDir } = getBoardState(board);
+function evaluateAttackerState(board, gameState, botPlayer) {
+  const variant = gameState?.context?.gameVariant || 'standard';
+  let lazerPos = null;
+  let lazerDir = 0;
+
+  if (variant === 'trench-run') {
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        if (board[r][c]?.type === 'block-lazer' && board[r][c].player === botPlayer) {
+          lazerPos = { r, c, block: board[r][c] };
+          lazerDir = board[r][c].rotation || 0;
+        }
+      }
+    }
+  } else {
+    const state = getBoardState(board);
+    lazerPos = state.lazerPos;
+    lazerDir = state.lazerDir;
+  }
+
   if (!lazerPos) return -99999;
 
   let score = 0;

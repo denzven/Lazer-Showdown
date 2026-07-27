@@ -512,6 +512,7 @@ export function useGame(network, mode, difficulty, customBoardData = null, spect
     gameState.tossWinner, 
     gameState.roleRed,
     gameState.roleBlue,
+    gameState.board,
     difficulty, 
     spectateConfig,
     executeAction

@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
-import { Grid, Upload, Download, RefreshCw, Trash2, Activity } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Download, Upload, RefreshCw, Eye, Copy, Code, Save, Activity, Trash2, Cpu, Sparkles, Brain, CheckCircle, Crosshair, Grid } from 'lucide-react';
+import { exportBoardAsImage } from '../../core/ImageExport';
 import { CustomCheckbox, CustomSelect } from './DevUI';
 import { traceLaserBeam } from '../../core/Ruleset';
 import { analyzeBoardAsync } from '../../core/BotEngine';
@@ -322,7 +323,13 @@ export default function BoardEditor({ customBoards = [] }) {
     downloadAnchor.click();
     downloadAnchor.remove();
 
-    setEditorSuccess(`Successfully exported ${formattedName}.lzrshwdn.board.json!`);
+    try {
+      exportBoardAsImage(list, editorBoardName);
+    } catch (err) {
+      console.error("Failed to generate board image:", err);
+    }
+
+    setEditorSuccess(`Successfully exported ${formattedName}.lzrshwdn.board.json and its preview image!`);
   };
 
   const handleImportJsonFile = (e) => {

@@ -137,7 +137,7 @@ export default function Cell({
 
   return (
     <div
-      className={`board-cell ${isEven ? 'cell-even' : 'cell-odd'} ${isSelected ? 'selected' : ''} ${isDragOver ? 'drag-over' : ''} ${isHighlighted ? 'highlighted' : ''}`}
+      className={`board-cell ${isEven ? 'cell-even' : 'cell-odd'} ${isSelected ? 'selected' : ''} ${isDragOver ? 'drag-over' : ''}`}
       style={{ cursor: (gameVariant === 'pivot-point' && block && block.type === 'mirror') ? 'pointer' : 'default' }}
       onClick={onClick}
       onDragOver={(e) => {
@@ -252,8 +252,8 @@ export default function Cell({
       {isHighlighted && (
         <div style={{
           position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-          border: '3px solid #00f0ff', borderRadius: '4px',
-          boxShadow: '0 0 15px #00f0ff, inset 0 0 15px #00f0ff',
+          border: '3px solid var(--neon-red)', borderRadius: '4px',
+          boxShadow: '0 0 15px var(--neon-red), inset 0 0 15px var(--neon-red)',
           animation: 'afkPulse 1.5s infinite', zIndex: 10, pointerEvents: 'none'
         }} />
       )}
