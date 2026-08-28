@@ -30,7 +30,9 @@ function endSetState(board, currentSet, scores, roleRed, dice, context) {
   if (currentSet === 1) {
     const nextRoleRed = roleRed === 'attacker' ? 'defender' : 'attacker';
     const nextRoleBlue = nextRoleRed === 'attacker' ? 'defender' : 'attacker';
-    const nextBoard = board.map(row => row.map(cell => (cell && cell.type === 'mirror') ? { ...cell } : null));
+    
+    // Refresh board to clear pivot states and restore original mirror orientations
+    const nextBoard = getInitialBoard(context?.customBoardData || null, context?.gameVariant || 'standard');
 
     const attPlayer = nextRoleRed === 'attacker' ? 'RED' : 'BLUE';
     const defPlayer = nextRoleRed === 'defender' ? 'RED' : 'BLUE';
@@ -182,74 +184,124 @@ export function applySandboxAction(board, action, player, context = {}) {
 
   else if (type === 'place') {
     const { pieceType, r, c } = action;
-    const validation = validatePlacement(nextBoard, r, c, pieceType);
+    const validation = validatePlacement(nextBoard, r, c, pieceType, context.gameVariant, player);
     if (!validation.valid) return { board, error: validation.error };
 
-    if (phase === 'setup-defender' || phase === 'challenge-setup') {
-      if (player !== defenderPlayer) {
-        return { board, error: 'Only the DEFENDER can place point pieces.' };
-      }
+    if (context.gameVariant === 'trench-run') {
+       if (phase !== 'setup-defender' && phase !== 'setup-attacker' && phase !== 'challenge-setup') {
+           return { board, error: 'Cannot place pieces outside of setup.' };
+       }
+       const expectedPlayer = (phase === 'setup-defender' || phase === 'challenge-setup') ? defenderPlayer : attackerPlayer;
+       if (player !== expectedPlayer) {
+           return { board, error: `Only ${expectedPlayer.toUpperCase()} can place pieces now.` };
+       }
+       
+       let isDuplicate = false;
+       for (let row = 0; row < BOARD_SIZE; row++) {
+           for (let col = 0; col < BOARD_SIZE; col++) {
+               if (nextBoard[row][col] && nextBoard[row][col].type === pieceType && nextBoard[row][col].player === expectedPlayer) {
+                   isDuplicate = true;
+                   if (pieceType === BLOCK_TYPES.BLOCK_LAZER) {
+                       nextBoard[row][col] = null;
+                       isDuplicate = false;
+                   }
+               }
+           }
+       }
+       
+       if (isDuplicate) return { board, error: `You can only place one ${pieceType.split('-')[1] || pieceType} piece.` };
 
-      if (phase === 'setup-defender') {
-        let isDuplicate = false;
+       nextBoard[r][c] = {
+           type: pieceType,
+           rotation: action.rotation || (player === 'red' ? 180 : 0),
+           player: expectedPlayer
+       };
+       
+       let placedCount = 0;
+       let hasLazer = false;
+       for (let row = 0; row < BOARD_SIZE; row++) {
+           for (let col = 0; col < BOARD_SIZE; col++) {
+               const cell = nextBoard[row][col];
+               if (cell && cell.player === expectedPlayer) {
+                   if ([BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(cell.type)) placedCount++;
+                   if (cell.type === BLOCK_TYPES.BLOCK_LAZER) hasLazer = true;
+               }
+           }
+       }
+       
+       const requiredCount = phase === 'challenge-setup' ? 1 : 3;
+       if (placedCount === requiredCount && (phase === 'challenge-setup' || hasLazer)) {
+           logsList.push(`${expectedPlayer.toUpperCase()} placed a piece. Setup complete. Confirm setup when ready.`);
+       } else {
+           logsList.push(`${expectedPlayer.toUpperCase()} placed a piece. (Points: ${placedCount}/${requiredCount}, Lazer: ${hasLazer ? '1' : '0'}/1)`);
+       }
+    } else {
+      if (phase === 'setup-defender' || phase === 'challenge-setup') {
+        if (player !== defenderPlayer) {
+          return { board, error: 'Only the DEFENDER can place point pieces.' };
+        }
+
+        if (phase === 'setup-defender') {
+          let isDuplicate = false;
+          for (let row = 0; row < BOARD_SIZE; row++) {
+            for (let col = 0; col < BOARD_SIZE; col++) {
+              if (nextBoard[row][col] && nextBoard[row][col].type === pieceType) {
+                isDuplicate = true;
+                break;
+              }
+            }
+            if (isDuplicate) break;
+          }
+          if (isDuplicate) {
+            return { board, error: `You can only place one ${pieceType.split('-')[1]} point piece.` };
+          }
+        }
+        nextBoard[r][c] = {
+          type: pieceType,
+          rotation: 0,
+          player: defenderPlayer
+        };
+
+        let placedCount = 0;
         for (let row = 0; row < BOARD_SIZE; row++) {
           for (let col = 0; col < BOARD_SIZE; col++) {
-            if (nextBoard[row][col] && nextBoard[row][col].type === pieceType) {
-              isDuplicate = true;
-              break;
+            const cell = nextBoard[row][col];
+            if (cell && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(cell.type)) {
+              placedCount++;
             }
           }
-          if (isDuplicate) break;
         }
-        if (isDuplicate) {
-          return { board, error: `You can only place one ${pieceType.split('-')[1]} point piece.` };
-        }
-      }
-      nextBoard[r][c] = {
-        type: pieceType,
-        rotation: 0,
-        player: defenderPlayer
-      };
 
-      let placedCount = 0;
-      for (let row = 0; row < BOARD_SIZE; row++) {
-        for (let col = 0; col < BOARD_SIZE; col++) {
-          const cell = nextBoard[row][col];
-          if (cell && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(cell.type)) {
-            placedCount++;
+        const requiredCount = phase === 'challenge-setup' ? 1 : 3;
+        if (placedCount === requiredCount) {
+          logsList.push(`Defender placed ${pieceType.split('-')[1]} point piece. (${placedCount}/${requiredCount} placed). Confirm setup when ready.`);
+        } else {
+          logsList.push(`Defender placed ${pieceType.split('-')[1]} point piece. (${placedCount}/${requiredCount} placed)`);
+        }
+      } 
+      
+      else if (phase === 'setup-attacker') {
+        if (player !== attackerPlayer) {
+          return { board, error: 'Only the ATTACKER can place the LAZER piece.' };
+        }
+
+        // Clear any existing LAZER piece so it can be replaced
+        for (let row = 0; row < BOARD_SIZE; row++) {
+          for (let col = 0; col < BOARD_SIZE; col++) {
+            if (nextBoard[row][col] && nextBoard[row][col].type === BLOCK_TYPES.BLOCK_LAZER) {
+              nextBoard[row][col] = null;
+            }
           }
         }
-      }
 
-      const requiredCount = phase === 'challenge-setup' ? 1 : 3;
-      if (placedCount === requiredCount) {
-        logsList.push(`Defender placed ${pieceType.split('-')[1]} point piece. (${placedCount}/${requiredCount} placed). Confirm setup when ready.`);
-      } else {
-        logsList.push(`Defender placed ${pieceType.split('-')[1]} point piece. (${placedCount}/${requiredCount} placed)`);
-      }
-    } 
-    
-    else if (phase === 'setup-attacker') {
-      if (player !== attackerPlayer) {
-        return { board, error: 'Only the ATTACKER can place the LAZER piece.' };
-      }
+        nextBoard[r][c] = {
+          type: BLOCK_TYPES.BLOCK_LAZER,
+          rotation: action.rotation || 0,
+          player: attackerPlayer
+        };
 
-      // Clear any existing LAZER piece so it can be replaced
-      for (let row = 0; row < BOARD_SIZE; row++) {
-        for (let col = 0; col < BOARD_SIZE; col++) {
-          if (nextBoard[row][col] && nextBoard[row][col].type === BLOCK_TYPES.BLOCK_LAZER) {
-            nextBoard[row][col] = null;
-          }
-        }
+        logsList.push('Attacker placed Lazer piece. Rotate it or confirm setup.');
       }
-
-      nextBoard[r][c] = {
-        type: BLOCK_TYPES.BLOCK_LAZER,
-        rotation: action.rotation || 0,
-        player: attackerPlayer
-      };
-
-      logsList.push('Attacker placed Lazer piece. Rotate it or confirm setup.');
     }
   }
 
@@ -283,7 +335,7 @@ export function applySandboxAction(board, action, player, context = {}) {
     if (checkErr) return { board, error: checkErr };
 
     const { fromR, fromC, toR, toC } = action;
-    const validation = validateMovement(nextBoard, fromR, fromC, toR, toC, turnPlayer);
+    const validation = validateMovement(nextBoard, fromR, fromC, toR, toC, turnPlayer, context.gameVariant, player);
     if (!validation.valid) return { board, error: validation.error };
 
     const piece = nextBoard[fromR][fromC];
@@ -298,49 +350,117 @@ export function applySandboxAction(board, action, player, context = {}) {
       if (nextTurnStats.pieceMoveBreakdown[piece.type] !== undefined) {
         nextTurnStats.pieceMoveBreakdown[piece.type] += 1;
       }
+      
+      if (context.gameVariant === 'trench-run') {
+        const isRedBank = piece.player === 'red' && toR === 7;
+        const isBlueBank = piece.player === 'blue' && toR === 0;
+        
+        if (isRedBank || isBlueBank) {
+          nextBoard[toR][toC] = null;
+          const pts = parseInt(piece.type.split('-')[1], 10);
+          nextScores[piece.player] += pts;
+          logsList.push(`${piece.player.toUpperCase()} banked a piece for +${pts} pts!`);
+        }
+      }
     }
   } 
   
   else if (type === 'rotate') {
-    if (phase !== 'setup-attacker') {
-      const checkErr = checkPlayActionValidity(phase, hasRolledDice, actionPoints, roleRed, player, turnPlayer);
-      if (checkErr) return { board, error: checkErr };
-    } else {
-      if (player !== attackerPlayer) return { board, error: 'Only the ATTACKER can rotate during setup.' };
-    }
-
-    let lazerPos = null;
-    for (let r = 0; r < BOARD_SIZE; r++) {
-      for (let c = 0; c < BOARD_SIZE; c++) {
-        const cell = nextBoard[r][c];
-        if (cell && cell.type === BLOCK_TYPES.BLOCK_LAZER) {
-          lazerPos = { r, c };
-          break;
+    if (phase === 'setup-attacker' || phase === 'setup-defender') {
+      if (context.gameVariant === 'trench-run') {
+        const expectedPlayer = phase === 'setup-defender' ? defenderPlayer : attackerPlayer;
+        if (player !== expectedPlayer) return { board, error: `Only ${expectedPlayer.toUpperCase()} can rotate during setup.` };
+      } else {
+        if (phase !== 'setup-attacker' || player !== attackerPlayer) {
+          return { board, error: 'Only the ATTACKER can rotate during setup.' };
         }
       }
+    } else {
+      const checkErr = checkPlayActionValidity(phase, hasRolledDice, actionPoints, roleRed, player, turnPlayer);
+      if (checkErr) return { board, error: checkErr };
     }
 
-    if (!lazerPos) return { board, error: 'LAZER piece not found.' };
-    const block = nextBoard[lazerPos.r][lazerPos.c];
-
-    const dir = action.dir || 'cw';
-    let newRot = block.rotation || 0;
-    if (dir === 'cw') {
-      newRot = (newRot + 90) % 360;
+    let targetPos = null;
+    let isMirror = false;
+    
+    // Check if rotating a specific piece by coordinates
+    if (action.r !== undefined && action.c !== undefined) {
+      const cell = nextBoard[action.r][action.c];
+      if (cell && cell.type === 'mirror') {
+        if (context.gameVariant !== 'pivot-point') {
+          return { board, error: 'Cannot pivot mirrors outside of Pivot Point mode.' };
+        }
+        targetPos = { r: action.r, c: action.c };
+        isMirror = true;
+      } else if (cell && cell.type === BLOCK_TYPES.BLOCK_LAZER) {
+        if (context.gameVariant === 'trench-run') {
+           if (cell.player !== player) {
+             return { board, error: 'You can only rotate your own LAZER.' };
+           }
+        } else {
+           if (phase === 'playing' && player !== attackerPlayer) {
+             return { board, error: 'Only the ATTACKER can rotate the LAZER.' };
+           }
+        }
+        targetPos = { r: action.r, c: action.c };
+        isMirror = false;
+      } else {
+        return { board, error: 'Target is not a valid piece to rotate.' };
+      }
     } else {
-      newRot = (newRot - 90 + 360) % 360;
+      if (context.gameVariant !== 'trench-run') {
+        if (phase === 'playing' && player !== attackerPlayer) {
+          return { board, error: 'Only the ATTACKER can rotate the LAZER.' };
+        }
+      }
+
+      for (let r = 0; r < BOARD_SIZE; r++) {
+        for (let c = 0; c < BOARD_SIZE; c++) {
+          const cell = nextBoard[r][c];
+          if (cell && cell.type === BLOCK_TYPES.BLOCK_LAZER) {
+            if (context.gameVariant === 'trench-run' && cell.player !== player) continue;
+            targetPos = { r, c };
+            break;
+          }
+        }
+      }
+      if (!targetPos) return { board, error: 'LAZER piece not found for this player.' };
     }
 
-    nextBoard[lazerPos.r][lazerPos.c] = {
-      ...block,
-      rotation: newRot
-    };
+    const block = nextBoard[targetPos.r][targetPos.c];
 
-    if (phase !== 'setup-attacker') {
-      nextActionPoints -= 1;
-      nextTurnStats.lazerRotate += 1;
+    if (isMirror) {
+      nextBoard[targetPos.r][targetPos.c] = {
+        ...block,
+        orientation: block.orientation === '/' ? '\\' : '/',
+        isPivoted: true
+      };
+      
+      if (phase === 'playing') {
+        nextActionPoints -= 1;
+        nextTurnStats.pieceMove += 1;
+      }
+      logsList.push(`${player ? player.toUpperCase() : 'SYSTEM'} pivoted a mirror.`);
     } else {
-      logsList.push('Attacker rotated the LAZER piece.');
+      const dir = action.dir || 'cw';
+      let newRot = block.rotation || 0;
+      if (dir === 'cw') {
+        newRot = (newRot + 90) % 360;
+      } else {
+        newRot = (newRot - 90 + 360) % 360;
+      }
+
+      nextBoard[targetPos.r][targetPos.c] = {
+        ...block,
+        rotation: newRot
+      };
+
+      if (phase === 'playing') {
+        nextActionPoints -= 1;
+        nextTurnStats.lazerRotate += 1;
+      } else {
+        logsList.push('Player rotated the LAZER piece.');
+      }
     }
   } 
   
@@ -364,49 +484,87 @@ export function applySandboxAction(board, action, player, context = {}) {
   }
 
   else if (type === 'confirm-setup') {
-    if (phase === 'setup-defender' || phase === 'challenge-setup') {
-      if (player !== defenderPlayer) return { board, error: 'Only the DEFENDER can confirm setup.' };
-      
-      let placedCount = 0;
-      for (let row = 0; row < BOARD_SIZE; row++) {
-        for (let col = 0; col < BOARD_SIZE; col++) {
-          const cell = nextBoard[row][col];
-          if (cell && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(cell.type)) {
-            placedCount++;
+    if (context.gameVariant === 'trench-run') {
+       const expectedPlayer = (phase === 'setup-defender' || phase === 'challenge-setup') ? defenderPlayer : attackerPlayer;
+       if (player !== expectedPlayer) return { board, error: `Only ${expectedPlayer.toUpperCase()} can confirm setup now.` };
+       
+       let placedCount = 0;
+       let hasLazer = false;
+       for (let row = 0; row < BOARD_SIZE; row++) {
+         for (let col = 0; col < BOARD_SIZE; col++) {
+           const cell = nextBoard[row][col];
+           if (cell && cell.player === expectedPlayer) {
+               if ([BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(cell.type)) placedCount++;
+               if (cell.type === BLOCK_TYPES.BLOCK_LAZER) hasLazer = true;
+           }
+         }
+       }
+       const requiredCount = phase === 'challenge-setup' ? 1 : 3;
+       if (placedCount !== requiredCount || (phase !== 'challenge-setup' && !hasLazer)) {
+           return { board, error: `Must place exactly ${requiredCount} Point pieces${phase !== 'challenge-setup' ? ' and 1 Lazer' : ''} before confirming.` };
+       }
+       
+       if (phase === 'setup-defender') {
+           nextPhase = 'setup-attacker';
+           logsList.push(`${expectedPlayer.toUpperCase()} setup confirmed! Now it's the other player's turn to setup.`);
+       } else if (phase === 'challenge-setup') {
+           nextPhase = 'playing';
+           logsList.push('Defender confirmed challenge setup. Set continues from next roll!');
+       } else {
+           nextPhase = 'playing';
+           nextRound = 1;
+           // In Trench Run, the first placer ('defender') goes first
+           nextTurnPlayer = 'defender';
+           nextHasRolledDice = false;
+           nextActionPoints = 0;
+           const firstPlacerColor = defenderPlayer.toUpperCase();
+           logsList.push(`Both setups complete! Game starts. ${firstPlacerColor} rolls first.`);
+       }
+    } else {
+        if (phase === 'setup-defender' || phase === 'challenge-setup') {
+          if (player !== defenderPlayer) return { board, error: 'Only the DEFENDER can confirm setup.' };
+          
+          let placedCount = 0;
+          for (let row = 0; row < BOARD_SIZE; row++) {
+            for (let col = 0; col < BOARD_SIZE; col++) {
+              const cell = nextBoard[row][col];
+              if (cell && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(cell.type)) {
+                placedCount++;
+              }
+            }
+          }
+          
+          const requiredCount = phase === 'challenge-setup' ? 1 : 3;
+          if (placedCount !== requiredCount) return { board, error: `Must place all ${requiredCount} pieces before confirming.` };
+
+          if (phase === 'challenge-setup') {
+            nextPhase = 'playing';
+            logsList.push('Defender confirmed challenge setup. Set continues from next roll!');
+          } else {
+            nextPhase = 'setup-attacker';
+            logsList.push('Defender setup confirmed! Attacker placing LAZER piece on a corner square.');
           }
         }
-      }
-      
-      const requiredCount = phase === 'challenge-setup' ? 1 : 3;
-      if (placedCount !== requiredCount) return { board, error: `Must place all ${requiredCount} pieces before confirming.` };
-
-      if (phase === 'challenge-setup') {
-        nextPhase = 'playing';
-        logsList.push('Defender confirmed challenge setup. Set continues from next roll!');
-      } else {
-        nextPhase = 'setup-attacker';
-        logsList.push('Defender setup confirmed! Attacker placing LAZER piece on a corner square.');
-      }
-    }
-    else if (phase === 'setup-attacker') {
-      if (player !== attackerPlayer) return { board, error: 'Only the ATTACKER can confirm setup.' };
-      
-      let hasLazer = false;
-      for (let r = 0; r < BOARD_SIZE; r++) {
-        for (let c = 0; c < BOARD_SIZE; c++) {
-          if (nextBoard[r][c] && nextBoard[r][c].type === BLOCK_TYPES.BLOCK_LAZER) {
-            hasLazer = true; break;
+        else if (phase === 'setup-attacker') {
+          if (player !== attackerPlayer) return { board, error: 'Only the ATTACKER can confirm setup.' };
+          
+          let hasLazer = false;
+          for (let r = 0; r < BOARD_SIZE; r++) {
+            for (let c = 0; c < BOARD_SIZE; c++) {
+              if (nextBoard[r][c] && nextBoard[r][c].type === BLOCK_TYPES.BLOCK_LAZER) {
+                hasLazer = true; break;
+              }
+            }
           }
-        }
-      }
-      if (!hasLazer) return { board, error: 'Place LAZER piece before confirming.' };
+          if (!hasLazer) return { board, error: 'Place LAZER piece before confirming.' };
 
-      nextPhase = 'playing';
-      nextRound = 1;
-      nextTurnPlayer = 'defender';
-      nextHasRolledDice = false;
-      nextActionPoints = 0;
-      logsList.push(`Attacker setup complete! Set ${set} Round 1 starts. Defender rolls first.`);
+          nextPhase = 'playing';
+          nextRound = 1;
+          nextTurnPlayer = 'defender';
+          nextHasRolledDice = false;
+          nextActionPoints = 0;
+          logsList.push(`Attacker setup complete! Set ${set} Round 1 starts. Defender rolls first.`);
+        }
     }
   }
   
@@ -420,6 +578,7 @@ export function applySandboxAction(board, action, player, context = {}) {
       for (let c = 0; c < BOARD_SIZE; c++) {
         const cell = nextBoard[r][c];
         if (cell && cell.type === BLOCK_TYPES.BLOCK_LAZER) {
+          if (context.gameVariant === 'trench-run' && cell.player !== player) continue;
           lazerPos = { r, c };
           lazerDir = cell.rotation || 0;
           break;
@@ -433,22 +592,27 @@ export function applySandboxAction(board, action, player, context = {}) {
     const hit = trace.hitPiece;
 
     if (hit && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(hit.cell.type)) {
-      const capturedType = hit.cell.type;
-      nextBoard[hit.r][hit.c] = null;
-      nextCapturedPieces.push(capturedType);
+      if (context.gameVariant === 'trench-run' && hit.cell.player === player) {
+        logsList.push(`${player.toUpperCase()}'s laser hit their own piece (no effect).`);
+        lazerHitMessage = `Laser hit your own piece! Friendly fire is disabled in Trench Run. No effect.`;
+      } else {
+        const capturedType = hit.cell.type;
+        nextBoard[hit.r][hit.c] = null;
+        nextCapturedPieces.push(capturedType);
 
-      let pts = 0;
-      if (capturedType === BLOCK_TYPES.BLOCK_20) pts = 20;
-      else if (capturedType === BLOCK_TYPES.BLOCK_30) pts = 30;
-      else if (capturedType === BLOCK_TYPES.BLOCK_50) pts = 50;
-
-      nextScores[attackerPlayer] += pts;
-      logsList.push(`Laser captured ${capturedType.split('-')[1]} point piece at (${hit.r}, ${hit.c})! (+${pts} pts)`);
-      
-      const bounceCount = trace.path.filter(p => p.type === 'mirror-bounce').length;
-      const points = capturedType.split('-')[1];
-      
-      if (points === '50') {
+        const pts = parseInt(capturedType.split('-')[1], 10);
+        if (context.gameVariant === 'trench-run') {
+          nextScores[player] += pts;
+          logsList.push(`${player.toUpperCase()} destroyed an opponent piece (+${pts} pts).`);
+        } else {
+          nextScores[attackerPlayer] += pts;
+          logsList.push(`Laser captured ${capturedType.split('-')[1]} point piece at (${hit.r}, ${hit.c})! (+${pts} pts)`);
+        }
+        
+        const bounceCount = trace.path.filter(p => p.type === 'mirror-bounce').length;
+        const points = capturedType.split('-')[1];
+        
+        if (points === '50') {
         if (bounceCount > 0) {
           lazerHitMessage = `Incredible calculation! You bounced the beam off ${bounceCount} mirror(s) to vaporize their highest value **50-point piece**! The Treaty of 3042 would be proud.`;
         } else {
@@ -471,6 +635,7 @@ export function applySandboxAction(board, action, player, context = {}) {
           lazerHitMessage = `Brilliant shot! You bounced the beam off ${bounceCount} mirror(s) to hit the **${points}-point piece**!`;
         } else {
           lazerHitMessage = `Direct hit on the **${points}-point piece**! A straightforward and brutal tactical strike.`;
+        }
         }
       }
     } else {
@@ -631,13 +796,36 @@ export function applySandboxAction(board, action, player, context = {}) {
 
   else if (type === 'clear') {
     const boardDataToUse = action.customBoardData !== undefined ? action.customBoardData : context.customBoardData;
-    return getInitialState(boardDataToUse);
+    return getInitialState(boardDataToUse, null, context.gameVariant || 'standard');
   }
 
   else if (type === 'tutorial-victory') {
     nextPhase = 'game-over';
     nextWinner = 'red';
     logsList.push('Simulation complete! You successfully captured a point piece.');
+  }
+
+  if (context.gameVariant === 'trench-run' && nextPhase === 'playing') {
+    let redPieces = 0;
+    let bluePieces = 0;
+    for (let r = 0; r < BOARD_SIZE; r++) {
+      for (let c = 0; c < BOARD_SIZE; c++) {
+        const cell = nextBoard[r][c];
+        if (cell && [BLOCK_TYPES.BLOCK_20, BLOCK_TYPES.BLOCK_30, BLOCK_TYPES.BLOCK_50].includes(cell.type)) {
+          if (cell.player === 'red') redPieces++;
+          else if (cell.player === 'blue') bluePieces++;
+        }
+      }
+    }
+    if (redPieces === 0 || bluePieces === 0) {
+      nextPhase = 'game-over';
+      const redScore = nextScores.red;
+      const blueScore = nextScores.blue;
+      nextWinner = redScore > blueScore ? 'red' : blueScore > redScore ? 'blue' : 'draw';
+      const winLog = nextWinner === 'draw' ? "Game Over! It's a DRAW!" : `Game Over! WINNER: ${nextWinner.toUpperCase()} (${nextScores[nextWinner]} pts)!`;
+      logsList.push('A player has no point pieces left!');
+      logsList.push(winLog);
+    }
   }
 
   const sideEffects = evaluateBoardState(nextBoard, action, actor, context);
@@ -668,18 +856,17 @@ export function applySandboxAction(board, action, player, context = {}) {
     },
     customBoardData: nextCustomBoardData,
     diceStats: nextDiceStats,
+    gameVariant: context.gameVariant || 'standard',
     logs: logsList,
     error: null
   };
 }
 
-export function getInitialState(customBoardData = null, mode = null) {
-  const emptyBoard = getInitialBoard(customBoardData);
+export function getInitialState(customBoardData = null, mode = null, gameVariant = 'standard') {
+  const emptyBoard = getInitialBoard(customBoardData, gameVariant);
   const initialSideEffects = evaluateBoardState(emptyBoard, null, 'system');
   
   const boardHeatmap = (customBoardData && customBoardData.heatmap) ? customBoardData.heatmap : null;
-
-
 
   return {
     board: emptyBoard,
@@ -711,6 +898,7 @@ export function getInitialState(customBoardData = null, mode = null) {
     turnStats: { lazerMove: 0, lazerRotate: 0, lazerFire: 0, pieceMove: 0, pieceMoveBreakdown: { 'block-20': 0, 'block-30': 0, 'block-50': 0 }, wastedAP: 0 },
     customBoardData: customBoardData,
     boardHeatmap: boardHeatmap,
-    diceStats: { red: { total: 0, count: 0 }, blue: { total: 0, count: 0 } }
+    diceStats: { red: { total: 0, count: 0 }, blue: { total: 0, count: 0 } },
+    gameVariant: gameVariant
   };
 }

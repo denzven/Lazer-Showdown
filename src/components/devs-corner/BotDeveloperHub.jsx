@@ -10,7 +10,7 @@ import {
   BUILTIN_BOTS, BUILTIN_STRATEGIES, CUSTOM_STRATEGIES, CUSTOM_BOTS_METADATA,
   getBoardState, getPossibleActions, applyLightweightAction, getPieceThreatLevels,
   generateThreatMap, computeSafetySteps, bfsToNearestFiringCell, getReverseFiringCells,
-  getChallengeRecommendation
+  getChallengeRecommendation, setActiveGameVariant, setActiveRoleRed
 } from '../../core/BotStrategies';
 import { BLOCK_TYPES, traceLaserBeam, validatePlacement, validateMovement } from '../../core/Ruleset';
 import { getInitialState, applySandboxAction } from '../../core/GameState';
@@ -20,7 +20,7 @@ const SAMPLE_BOT_CODE = `// NAME: "My Custom Bot"
 // AUTHOR: "Developer"
 // STRAT: "Random Evaluation"
 //
-// Example simple custom bot (MyBot.js)
+// Example simple custom bot (MyBot.lzrshwdn.bot.js)
 //
 // 💡 DESIGNING YOUR BOT STRATEGY:
 // Write your custom strategy here. You can construct look-ahead algorithms, heuristic 
@@ -58,21 +58,49 @@ export function getPlayAction(board, role, actionPoints, gameState, botPlayer) {
   const actions = getPossibleActions(board, role);
   if (actions.length === 0) return null;
   
-  // Example Heuristic: If Attacker, fire laser immediately if aligned, otherwise select a random move
-  if (role === 'attacker') {
-    const { lazerPos, lazerDir } = getBoardState(board);
-    if (lazerPos) {
-      // Trace the path of the laser ray
-      const trace = traceLaserBeam(board, lazerPos, lazerDir);
+  const variant = gameState?.context?.gameVariant || 'standard';
+  
+  // Example Heuristic: If Attacker or playing Trench Run, try to fire!
+  if (role === 'attacker' || variant === 'trench-run') {
+    // In Trench Run, both players have lazers. Find OUR lazer:
+    let myLazerPos = null;
+    let myLazerDir = 0;
+    
+    if (variant === 'trench-run') {
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          if (board[r][c]?.type === 'block-lazer' && board[r][c].player === botPlayer) {
+            myLazerPos = { r, c, block: board[r][c] };
+            myLazerDir = board[r][c].rotation || 0;
+          }
+        }
+      }
+    } else {
+      const state = getBoardState(board);
+      myLazerPos = state.lazerPos;
+      myLazerDir = state.lazerDir;
+    }
+
+    if (myLazerPos) {
+      // Trace the path of our laser ray
+      const trace = traceLaserBeam(board, myLazerPos, myLazerDir);
       
-      // If the beam is currently pointing at a high-value point piece, fire!
+      // If the beam is pointing at an opponent's high-value point piece, fire!
       if (trace.hitPiece && ['block-20', 'block-30', 'block-50'].includes(trace.hitPiece.cell.type)) {
-        return { type: 'laser-press' };
+        if (variant !== 'trench-run' || trace.hitPiece.cell.player !== botPlayer) {
+          return { type: 'laser-press' };
+        }
       }
     }
   }
   
-  // Fallback: return a random legal action (you can replace this with Minimax, Alpha-Beta, or GA weights)
+  // If in Pivot Point mode, randomly pivot a mirror occasionally
+  if (variant === 'pivot-point' && Math.random() < 0.2) {
+    const pivots = actions.filter(a => a.type === 'rotate' && board[a.r] && board[a.r][a.c]?.type === 'mirror');
+    if (pivots.length > 0) return pivots[Math.floor(Math.random() * pivots.length)];
+  }
+  
+  // Fallback: return a random legal action (replace with Minimax, Alpha-Beta, or GA weights!)
   return actions[Math.floor(Math.random() * actions.length)];
 }
 
@@ -160,7 +188,7 @@ export function getChallengeAction(board, gameState, playerColor) {
 function highlightJsCode(code) {
   const tokens = [];
   const rules = [
-    { type: 'comment', regex: /^\/\/.*$/ },
+    { type: 'comment', regex: /^\/\/[^\n]*/ },
     { type: 'string', regex: /^"(?:[^"\\]|\\.)*"|^'(?:[^'\\]|\\.)*'|^`(?:[^`\\]|\\.)*`/ },
     { type: 'keyword', regex: /^(?:const|let|var|export|function|return|if|else|import|typeof|null|true|false)\b/ },
     { type: 'builtin', regex: /^(?:LazerAI|Math|random|floor|length|includes|BLOCK_TYPES|getBoardState|getPossibleActions|applyLightweightAction|traceLaserBeam|lazerPos|lazerDir|hitPiece)\b/ },
@@ -457,6 +485,7 @@ const LLM_PROMPT_CONTENT = `**Role:** Expert AI Architect and Game Theory Specia
 **Game Theoretic Overview:**
 * The environment is a deterministic 8x8 grid topology featuring fixed combinatorial elements (mirrors).
 * It operates as an asymmetric zero-sum game with heterogeneous agents: an attacking laser piece and three defending utility nodes (valued at 20, 30, and 50 points).
+* **Game Modes:** Support for dynamic rule changes including 'standard' (asymmetric), 'trench-run' (symmetric, both players have lasers), and 'pivot-point' (pre-placed rotatable mirrors).
 * **Stochastic Elements:** General state transitions are governed by a 2d6 dice framework. Additionally, there is a distinct "challenge" mechanic that resolves via a coin toss by one player and a simultaneous 1d6 roll by both players, introducing localized probabilistic variance that must be accounted for in expected value (EV) calculations.
 
 **System Architecture & Strategy Requirements:**
@@ -472,6 +501,7 @@ Build a versatile state-space exploration foundation that isn't locked into a si
 * Iterate through the legal action space generated by \`getPossibleActions(board, role)\`.
 * Simulate future Markov states in a decoupled, thread-safe sandbox using \`applyLightweightAction(board, action)\`.
 * Implement branching utility functions that allow the bot to exhibit different behaviors. For instance, combine deterministic Expectiminimax search patterns with experimental heuristics. 
+* **Variant Awareness:** Inspect \`gameState?.context?.gameVariant\`. In 'trench-run' mode, locate your specific laser by checking \`cell.type === 'block-lazer' && cell.player === botPlayer\`.
 * **Attacker Utility:** Use \`traceLaserBeam(board, position, direction)\`. Show how an aggressive personality might overvalue active laser path intersections, while a calculated personality scales heuristic values by aggregating probabilistic data from \`getPieceThreatLevels(board)\`.
 * **Defender Utility:** Utilize \`generateThreatMap(board)\` and \`computeSafetySteps(board, startR, startC, threatMap)\`. Show how to calculate Breadth-First Search (BFS) shortest-path metrics to safe zones, applying dynamic penalty weights for exposed units.
 
@@ -486,7 +516,7 @@ Integrate standard 'LazerAI' global helper structures: \`getBoardState\`, \`getP
 **Output Constraints:**
 Provide the final output as clean, production-grade JavaScript. Include explicit, pedagogical inline comments detailing the algorithmic time/space complexities (e.g., O(b^d)), the EV math behind the challenge dice/toss mechanics, and how students can mathematically tweak the heuristic weights to mutate the bot's underlying personality.`;
 
-export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards = [], onImportBoard, subMode = 'bot', onSubModeChange, activeTab = 'contract', onTabChange }) {
+export default function BotDeveloperHub({ onBack, onStartSpectate, onLoadReplay, customBoards = [], onImportBoard, subMode = 'bot', onSubModeChange, activeTab = 'contract', onTabChange }) {
   const [customBots, setCustomBots] = useState({ a: null, b: null });
   const [uploadStatus, setUploadStatus] = useState({ a: 'idle', b: 'idle' });
   const [error, setError] = useState(null);
@@ -509,8 +539,40 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
   const [specRed, setSpecRed] = useState(BUILTIN_BOTS[0]?.id || 'easy');
   const [specBlue, setSpecBlue] = useState(BUILTIN_BOTS.length > 2 ? BUILTIN_BOTS[2].id : (BUILTIN_BOTS[1]?.id || 'hard'));
   const [specBoard, setSpecBoard] = useState('default');
+  const [specVariant, setSpecVariant] = useState('standard');
   const spectatorBoardInputRef = useRef(null);
   const [spectatorBoardError, setSpectatorBoardError] = useState(null);
+  const replayInputRef = useRef(null);
+  const [replayError, setReplayError] = useState(null);
+  const [loadedReplayJSON, setLoadedReplayJSON] = useState(null);
+
+  const handleImportReplay = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setReplayError(null);
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const jsonString = event.target.result;
+        const parsedData = JSON.parse(jsonString);
+        
+        if (!parsedData.history || !parsedData.finalState) {
+           throw new Error("Invalid format: Missing history or finalState.");
+        }
+        
+        setLoadedReplayJSON(parsedData);
+      } catch (err) {
+        setReplayError("Failed to parse replay file: " + err.message);
+      }
+      
+      if (replayInputRef.current) {
+        replayInputRef.current.value = "";
+      }
+    };
+    reader.onerror = () => setReplayError("Failed to read file.");
+    reader.readAsText(file);
+  };
 
   const validateSpectatorBoardJson = (data) => {
     if (!Array.isArray(data)) {
@@ -699,7 +761,7 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
     const boards = customBoards.length > 0 ? customBoards.map(b => b.data) : [null];
     const boardData = boards[gameIndex % boards.length];
     
-    let state = getInitialState(boardData);
+    let state = getInitialState(boardData, null, specVariant);
     
     // Assign colors
     const color1 = Math.random() > 0.5 ? 'red' : 'blue';
@@ -717,12 +779,16 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
     const MAX_TURNS = 1000;
     
     const getBotPlay = (stratId, board, role, ap, s) => {
+      setActiveGameVariant(s?.gameVariant || 'standard');
+      setActiveRoleRed(s?.roleRed || 'attacker');
       if (BUILTIN_STRATEGIES[stratId]) return BUILTIN_STRATEGIES[stratId].getPlayAction(board, role, ap, s, stratId);
       if (CUSTOM_STRATEGIES[stratId]) return CUSTOM_STRATEGIES[stratId].getPlayAction(board, role, ap, s, stratId);
       return null;
     };
     
-    const getBotSetup = (stratId, board, phase, color, chal) => {
+    const getBotSetup = (stratId, board, phase, color, chal, s) => {
+      setActiveGameVariant(s?.gameVariant || 'standard');
+      setActiveRoleRed(s?.roleRed || 'attacker');
       if (BUILTIN_STRATEGIES[stratId]) return BUILTIN_STRATEGIES[stratId].getSetupAction(board, phase, color, chal);
       if (CUSTOM_STRATEGIES[stratId]) return CUSTOM_STRATEGIES[stratId].getSetupAction(board, phase, color, chal);
       return null;
@@ -770,7 +836,7 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
       const activeStrategy = activeColor === color1 ? bot1.id : bot2.id;
       
       if (state.phase === 'setup-defender' || state.phase === 'challenge-setup' || state.phase === 'setup-attacker') {
-        let action = getBotSetup(activeStrategy, state.board, state.phase, activeColor, state.challengedPiece);
+        let action = getBotSetup(activeStrategy, state.board, state.phase, activeColor, state.challengedPiece, state);
         if (action) {
           state = applySandboxAction(state.board, action, activeColor.toLowerCase(), state);
         } else {
@@ -1018,7 +1084,7 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
                 </div>
                 <label className="cyber-button blue" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', justifySelf: 'flex-start', padding: '8px 16px', fontSize: '0.8rem', width: 'fit-content' }}>
                   <Upload size={14} /> UPLOAD JS FILE
-                  <input type="file" accept=".js" onChange={(e) => handleBotUpload(e, 'a')} style={{ display: 'none' }} />
+                  <input type="file" accept=".lzrshwdn.bot.js" onChange={(e) => handleBotUpload(e, 'a')} style={{ display: 'none' }} />
                 </label>
               </div>
 
@@ -1033,7 +1099,7 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
                 </div>
                 <label className="cyber-button blue" style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', cursor: 'pointer', justifySelf: 'flex-start', padding: '8px 16px', fontSize: '0.8rem', width: 'fit-content' }}>
                   <Upload size={14} /> UPLOAD JS FILE
-                  <input type="file" accept=".js" onChange={(e) => handleBotUpload(e, 'b')} style={{ display: 'none' }} />
+                  <input type="file" accept=".lzrshwdn.bot.js" onChange={(e) => handleBotUpload(e, 'b')} style={{ display: 'none' }} />
                 </label>
               </div>
             </div>
@@ -1386,7 +1452,7 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
                 <input 
                   type="file" 
                   ref={spectatorBoardInputRef} 
-                  accept=".json" 
+                  accept=".lzrshwdn.board.json" 
                   onChange={handleImportSpectatorBoardJson} 
                   style={{ display: 'none' }} 
                 />
@@ -1398,13 +1464,93 @@ export default function BotDeveloperHub({ onBack, onStartSpectate, customBoards 
               </div>
             )}
 
+            {/* Game Variant Selection */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', width: '100%', maxWidth: '550px', marginBottom: '15px' }}>
+              <label style={{ fontSize: '0.8rem', color: 'var(--neon-green)', fontWeight: 'bold', textTransform: 'uppercase', letterSpacing: '1px' }}>GAME VARIANT:</label>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', width: '100%' }}>
+                <div style={{ flex: '1 1 100%', minWidth: 0 }}>
+                  <CustomSelect 
+                    value={specVariant} 
+                    onChange={setSpecVariant} 
+                    options={[
+                      { id: 'standard', name: 'Standard Mode' },
+                      { id: 'pivot-point', name: 'Pivot Point' },
+                      { id: 'trench-run', name: 'Trench Run' }
+                    ]} 
+                    colorTheme="green"
+                  />
+                </div>
+              </div>
+            </div>
+
             <button 
               className="cyber-button blue" 
-              onClick={() => onStartSpectate(specRed, specBlue, specBoard)}
+              onClick={() => onStartSpectate(specRed, specBlue, specBoard, specVariant)}
               style={{ padding: '16px 36px', fontSize: '1.1rem', fontWeight: 'bold', letterSpacing: '1px', marginTop: '10px', animation: 'afkPulse 1.5s infinite' }}
             >
               <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}><Play size={20} /> START SPECTATING MATCH</span>
             </button>
+
+            <div style={{ width: '100%', height: '1px', background: 'rgba(0, 240, 255, 0.2)', margin: '20px 0' }} />
+
+            <h3 style={{ color: 'var(--text-primary)', fontSize: '1rem', marginBottom: '5px', textAlign: 'center' }}>
+              REVIEW SAVED MATCH
+            </h3>
+            <p style={{ color: 'var(--text-secondary)', fontSize: '0.8rem', textAlign: 'center', maxWidth: '400px', lineHeight: '1.5', marginBottom: '15px' }}>
+              Load a previously saved Game Review JSON file to instantly spectate it.
+            </p>
+            
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', alignItems: 'center' }}>
+              <button 
+                className="cyber-button"
+                onClick={() => replayInputRef.current?.click()}
+                style={{ 
+                  fontSize: '0.9rem', 
+                  padding: '12px 24px', 
+                  borderColor: loadedReplayJSON ? 'var(--text-secondary)' : 'var(--neon-green)', 
+                  color: loadedReplayJSON ? 'var(--text-secondary)' : 'var(--neon-green)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  minHeight: 'auto'
+                }}
+              >
+                <Upload size={16} /> {loadedReplayJSON ? 'CHANGE REPLAY FILE' : 'LOAD REPLAY JSON'}
+              </button>
+              
+              {loadedReplayJSON && (
+                <button 
+                  className="cyber-button"
+                  onClick={() => onLoadReplay?.(loadedReplayJSON)}
+                  style={{ 
+                    fontSize: '1rem', 
+                    padding: '12px 24px', 
+                    borderColor: 'var(--neon-green)', 
+                    color: 'var(--neon-green)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontWeight: 'bold',
+                    marginTop: '8px'
+                  }}
+                >
+                  ▶ START LOADED MATCH
+                </button>
+              )}
+              <input 
+                type="file" 
+                ref={replayInputRef} 
+                accept=".lzrshwdn.game.json" 
+                onChange={handleImportReplay} 
+                style={{ display: 'none' }} 
+              />
+              {replayError && (
+                <div style={{ color: 'var(--neon-red)', fontSize: '0.8rem', marginTop: '4px', maxWidth: '300px', textAlign: 'center' }}>
+                  ⚠️ {replayError}
+                </div>
+              )}
+            </div>
+
           </div>
         )}
 

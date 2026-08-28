@@ -9,8 +9,8 @@ let botModules = {};
 let botSources = {};
 
 try {
-  botModules = import.meta.glob('../bots/*.js', { eager: true });
-  botSources = import.meta.glob('../bots/*.js', { query: '?raw', eager: true, import: 'default' });
+  botModules = import.meta.glob('../bots/*.lzrshwdn.bot.js', { eager: true });
+  botSources = import.meta.glob('../bots/*.lzrshwdn.bot.js', { query: '?raw', eager: true, import: 'default' });
 } catch (e) {
   // In Node.js environment (e.g., train_ga.js), import.meta.glob is undefined.
   // We handle manual strategy injection in the Node scripts themselves.
@@ -36,8 +36,8 @@ for (const path in botModules) {
   const stratMatch = rawCode.match(/\/\/\s*STRAT:\s*"(.*?)"/i);
   if (stratMatch && stratMatch[1]) strat = stratMatch[1];
   
-  // Create ID from filename (e.g., "../bots/01_EasyStrategy.js" -> "easy")
-  const filename = path.split('/').pop().replace('.js', '');
+  // Create ID from filename (e.g., "../bots/01_EasyStrategy.lzrshwdn.bot.js" -> "easy")
+  const filename = path.split('/').pop().replace('.lzrshwdn.bot.js', '');
   // Strip the generic XX_ prefix
   const rawId = filename.replace(/^\d+_/, '').toLowerCase().replace('strategy', '');
   const id = rawId;

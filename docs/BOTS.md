@@ -161,6 +161,11 @@ export const MyCustomStrategy = {
     // or { type: 'declare-challenge', declare: false }
   }
 };
+
+### 🚦 Game Modes & Variants
+Your bot can check the current game mode via `gameState?.context?.gameVariant` (returns `'standard'`, `'trench-run'`, or `'pivot-point'`).
+- **Trench Run**: Both players have lazers! `getBoardState(board)` may not return YOUR lazer if it finds the opponent's first. You should manually loop the board to find `block-lazer` with `player === botPlayer`. Friendly fire is disabled.
+- **Pivot Point**: The board starts with mirrors. You can return `{ type: 'rotate', dir: 'cw', r: 1, c: 2 }` to pivot a mirror at (1,2) for 1 AP.
 ```
 
 ### Example: A Balanced Evaluator Bot (`SpectreBot`)
@@ -240,7 +245,7 @@ export const SpectreStrategy = {
       // 2. Evaluate the simulated board
       let score = 0;
       if (role === 'attacker') {
-        score = evaluateAttackerState(futureBoard);
+        score = evaluateAttackerState(futureBoard, gameState, botPlayer);
       } else {
         score = evaluateDefenderState(futureBoard);
       }
@@ -266,8 +271,26 @@ export const SpectreStrategy = {
 };
 
 // Heuristic: Attacker wants to maximize threat and immediately fire if a hit is active
-function evaluateAttackerState(board) {
-  const { lazerPos, lazerDir } = getBoardState(board);
+function evaluateAttackerState(board, gameState, botPlayer) {
+  const variant = gameState?.context?.gameVariant || 'standard';
+  let lazerPos = null;
+  let lazerDir = 0;
+
+  if (variant === 'trench-run') {
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        if (board[r][c]?.type === 'block-lazer' && board[r][c].player === botPlayer) {
+          lazerPos = { r, c, block: board[r][c] };
+          lazerDir = board[r][c].rotation || 0;
+        }
+      }
+    }
+  } else {
+    const state = getBoardState(board);
+    lazerPos = state.lazerPos;
+    lazerDir = state.lazerDir;
+  }
+
   if (!lazerPos) return -99999;
 
   let score = 0;

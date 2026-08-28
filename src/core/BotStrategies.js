@@ -38,7 +38,9 @@ import {
   formatActionText,
   getEngineLines,
   getBoardAnalysis,
-  genericSetupAction
+  genericSetupAction,
+  setActiveGameVariant,
+  setActiveRoleRed
 } from './BotHelpers.js';
 
 // Custom dynamic strategy registry
@@ -82,5 +84,7 @@ export {
   formatActionText,
   getEngineLines,
   getBoardAnalysis,
-  genericSetupAction
+  genericSetupAction,
+  setActiveGameVariant,
+  setActiveRoleRed
 };

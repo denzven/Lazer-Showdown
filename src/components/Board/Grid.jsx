@@ -27,7 +27,8 @@ export default function Grid({
   highlightedCell = null,
   botHighlights = null,
   tutorialHighlight = null,
-  tutorialHighlights = null
+  tutorialHighlights = null,
+  gameVariant = 'standard'
 }) {
   const handleCellClick = (r, c) => {
     // Disable interaction if it's not the local player's turn
@@ -51,8 +52,8 @@ export default function Grid({
           setSelectedPaletteBlock(null);
         }
       } else if (block && block.type !== 'mirror') {
-        // Allow tap rotation during placement for Attacker setup
-        if (phase === 'setup-attacker' && block.type === 'block-lazer') {
+        // Allow tap rotation during placement for Attacker setup and Trench Run
+        if ((phase === 'setup-attacker' || gameVariant === 'trench-run') && block.type === 'block-lazer') {
           rotateBlock(r, c, 'cw');
         }
       }
@@ -61,7 +62,13 @@ export default function Grid({
 
     // Gameplay playing phase interaction
     if (block) {
-      if (block.type === 'mirror') return; // Cannot select fixed mirrors
+      if (block.type === 'mirror') {
+        if (gameVariant !== 'pivot-point') return;
+        if (isLocalTurn && phase === 'playing') {
+          rotateBlock(r, c, 'cw');
+        }
+        return;
+      }
       if (selectedCell && selectedCell.r === r && selectedCell.c === c) {
         setSelectedCell(null);
       } else {
@@ -164,6 +171,18 @@ export default function Grid({
 
   const laserColor = roleRed === 'attacker' ? 'var(--neon-red)' : 'var(--neon-blue)';
 
+  let pathLength = 0;
+  if (showLaserBeam && lazerPos && laserPath && laserPath.length > 0) {
+    let currentPt = lazerPos;
+    for (const pt of laserPath) {
+      pathLength += Math.abs(pt.r - currentPt.r) * 100 + Math.abs(pt.c - currentPt.c) * 100;
+      currentPt = pt;
+    }
+  }
+
+  // Ensure minimum length to avoid 0s duration or missing styles
+  const computedPathLength = Math.max(pathLength, 100);
+  const animDuration = Math.max(0.2, computedPathLength / 3000); // Base speed, proportional
   const movablePieces = [];
   board.forEach((row, r) => {
     row.forEach((block, c) => {
@@ -171,6 +190,14 @@ export default function Grid({
         movablePieces.push({ block, r, c });
       }
     });
+  });
+
+  // Sort by key to ensure stable DOM ordering! This prevents React from tearing down
+  // and remounting DOM nodes (which re-triggers pop animations) when array order changes.
+  movablePieces.sort((a, b) => {
+    const keyA = `${a.block.player}-${a.block.type}${a.block.isGhost ? '-ghost' : ''}`;
+    const keyB = `${b.block.player}-${b.block.type}${b.block.isGhost ? '-ghost' : ''}`;
+    return keyA.localeCompare(keyB);
   });
 
   return (
@@ -227,7 +254,11 @@ export default function Grid({
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 opacity="0.55"
-                style={{ filter: `drop-shadow(0 0 8px ${laserColor})` }}
+                style={{ 
+                  filter: `drop-shadow(0 0 8px ${laserColor})`,
+                  '--path-length': computedPathLength,
+                  '--anim-duration': `${animDuration}s`
+                }}
               />
             )}
             {/* Core Bright Beam Line */}
@@ -241,6 +272,12 @@ export default function Grid({
               strokeLinecap="round"
               strokeLinejoin="round"
               opacity="0.95"
+              style={{ 
+                filter: 'drop-shadow(0 0 10px currentColor)', 
+                mixBlendMode: 'screen',
+                '--path-length': computedPathLength,
+                '--anim-duration': `${animDuration}s`
+              }}
             />
             )}
           </svg>
@@ -278,6 +315,7 @@ export default function Grid({
                 reachableDist={reachableInfo ? reachableInfo.dist : 0}
                 threatObj={threatObj}
                 botHighlights={cellBotHighlights}
+                gameVariant={gameVariant}
               />
             );
           })

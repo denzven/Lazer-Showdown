@@ -11,7 +11,8 @@ export default function DevsCorner({
   subMode = 'bot', 
   onSubModeChange, 
   activeTab = 'contract', 
-  onTabChange 
+  onTabChange,
+  onLoadReplay
 }) {
   return (
     <div className="lobby-container" style={{ alignItems: 'flex-start', padding: '40px 20px', minHeight: '100vh', overflowY: 'auto' }}>
@@ -87,6 +88,7 @@ export default function DevsCorner({
             activeTab={activeTab}
             onTabChange={onTabChange}
             onStartSpectate={onStartSpectate}
+            onLoadReplay={onLoadReplay}
           />
         )}
 

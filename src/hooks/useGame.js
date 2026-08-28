@@ -35,16 +35,22 @@ function getBotActionDelay(difficulty, action, gameState, humanPaceAvg) {
   return Math.max(200, Math.min(3000, pacedDelay + decisionWeight + roundFactor));
 }
 
-export function useGame(network, mode, difficulty, customBoardData = null, spectateConfig = null) {
-  const [gameState, setGameState] = useState(() => getInitialState(customBoardData, mode));
+export function useGame(network, mode, difficulty, customBoardData = null, spectateConfig = null, gameVariant = 'standard') {
+  const [gameState, setGameState] = useState(() => getInitialState(customBoardData, mode, gameVariant));
   const [history, setHistory] = useState({ past: [], future: [] });
+
+  const skipNextReset = useRef(false);
 
   // Reset when mode changes
   useEffect(() => {
-    setGameState(getInitialState(customBoardData, mode));
+    if (skipNextReset.current) {
+      skipNextReset.current = false;
+      return;
+    }
+    setGameState(getInitialState(customBoardData, mode, gameVariant));
     setHistory({ past: [], future: [] });
     botChallengeAttempted.current = false;
-  }, [mode, customBoardData]);
+  }, [mode, customBoardData, gameVariant]);
 
   // Track whether the bot has already attempted a challenge this set (tutorial only)
   const botChallengeAttempted = useRef(false);
@@ -142,6 +148,7 @@ export function useGame(network, mode, difficulty, customBoardData = null, spect
         dice: payload.dice || { values: [1, 1], isRolling: false, lastRoller: null },
         turnStats: payload.turnStats || { lazerMove: 0, lazerRotate: 0, lazerFire: 0, pieceMove: 0, pieceMoveBreakdown: { 'block-20': 0, 'block-30': 0, 'block-50': 0 }, wastedAP: 0 },
         customBoardData: payload.customBoardData,
+        gameVariant: payload.gameVariant || 'standard',
         error: null
       });
       // Clear history when syncing from a remote player to avoid invalid undo states
@@ -219,6 +226,7 @@ export function useGame(network, mode, difficulty, customBoardData = null, spect
         challengeTossRolls: curr.challengeTossRolls,
         dice: curr.dice,
         customBoardData: curr.customBoardData,
+        gameVariant: curr.gameVariant,
         enableTurns: true
       });
 
@@ -246,6 +254,7 @@ export function useGame(network, mode, difficulty, customBoardData = null, spect
           dice: res.dice,
           turnStats: res.turnStats,
           customBoardData: res.customBoardData,
+          gameVariant: res.gameVariant,
           error: null
         };
         // History management
@@ -346,7 +355,7 @@ export function useGame(network, mode, difficulty, customBoardData = null, spect
     // A. Setup Placements
     if (gameState.phase === 'setup-defender' || gameState.phase === 'challenge-setup' || gameState.phase === 'setup-attacker') {
       const timer = setTimeout(() => {
-        const action = getBotSetupAction(gameState.board, gameState.phase, activeBotColor, activeBotStrategy, gameState.challengedPiece, gameState.boardHeatmap);
+        const action = getBotSetupAction(gameState.board, gameState.phase, activeBotColor, activeBotStrategy, gameState.challengedPiece, gameState.boardHeatmap, gameState);
         if (action) executeAction({ ...action, player: activeBotColor });
       }, 300);
       return () => clearTimeout(timer);
@@ -503,6 +512,7 @@ export function useGame(network, mode, difficulty, customBoardData = null, spect
     gameState.tossWinner, 
     gameState.roleRed,
     gameState.roleBlue,
+    gameState.board,
     difficulty, 
     spectateConfig,
     executeAction
@@ -682,6 +692,38 @@ export function useGame(network, mode, difficulty, customBoardData = null, spect
     });
   }, [history.past.length]);
 
+  const [isAutoPlayingReplay, setIsAutoPlayingReplay] = useState(false);
+
+  const startAutoPlayReplay = useCallback(() => {
+    setIsAutoPlayingReplay(true);
+  }, []);
+
+  const loadReplay = useCallback((replayData) => {
+    if (replayData && replayData.history && replayData.finalState) {
+      skipNextReset.current = true;
+      setHistory(replayData.history);
+      setGameState(replayData.finalState);
+      setReviewIndex(0);
+      setAnalysisMode(false);
+      setIsAutoPlayingReplay(false);
+    }
+  }, []);
+
+  // Auto-play replay logic
+  useEffect(() => {
+    if (isAutoPlayingReplay && reviewIndex !== null) {
+      if (reviewIndex >= history.past.length) {
+        setReviewIndex(null); // Show the final state
+        setIsAutoPlayingReplay(false);
+        return;
+      }
+      const timer = setTimeout(() => {
+        setReviewIndex(prev => prev + 1);
+      }, 800);
+      return () => clearTimeout(timer);
+    }
+  }, [isAutoPlayingReplay, reviewIndex, history.past.length]);
+
   const activeState = (reviewIndex !== null && history.past[reviewIndex]) ? history.past[reviewIndex] : gameState;
 
   return {
@@ -708,6 +750,7 @@ export function useGame(network, mode, difficulty, customBoardData = null, spect
     dice: activeState.dice,
     turnStats: activeState.turnStats,
     customBoardData: activeState.customBoardData,
+    gameVariant: activeState.gameVariant,
     error: activeState.error,
 
     // Methods
@@ -738,6 +781,8 @@ export function useGame(network, mode, difficulty, customBoardData = null, spect
     analysisData,
     threatMap,
     possibilityWeb,
-    liveState: gameState
+    liveState: gameState,
+    loadReplay,
+    startAutoPlayReplay
   };
 }

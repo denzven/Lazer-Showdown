@@ -4,7 +4,7 @@ import path from 'path';
 // Emulate minimal browser environment for React imports to not crash
 global.window = {};
 
-import { GAStrategy } from '../src/core/BotStrategies.js';
+import * as GAStrategy from '../src/bots/04_GAStrategy.lzrshwdn.bot.js';
 import { getInitialState } from '../src/core/GameState.js';
 
 console.log('🔍 Verifying GA Strategy and Expectiminimax setup...');
